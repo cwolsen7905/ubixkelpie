@@ -1,0 +1,13 @@
+includes:
+  - vendor/phpstan/phpstan/conf/bleedingEdge.neon
+  - vendor/ubixsys/ubixcore/php/Ubix/phpstan.neon   # level max + framework baseline
+
+parameters:
+  paths:
+    - app
+    - bin
+    - php
+    - public
+    - tests
+
+  tmpDir: .phpstan.cache

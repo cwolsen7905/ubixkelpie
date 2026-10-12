@@ -1,0 +1,23 @@
+# Test image for the `lint-and-test` GitLab stage. Derives FROM the runtime
+# image the same pipeline just built (`--build-arg RUNTIME_IMAGE=...`) and
+# layers the test infrastructure on top, so live pods never ship tests/ or
+# tool configs. The runtime image is installed --no-dev, so this layer adds the dev Composer
+# deps (phpunit/phpcs/phpstan) from the same committed composer.lock.
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}
+
+USER root
+# pcntl/posix: phpunit time limits + posix_kill teardown.
+# mariadb-client: `bin/ubix database:resetSchema` shells out to `mysql`.
+RUN apk add --no-cache php85-pcntl php85-posix mariadb-client && \
+    # the unit-test MariaDB has no TLS; Alpine's mariadb client insists on it by default
+    printf '[client]\nskip-ssl\n' > /etc/my.cnf.d/99-skip-ssl.cnf
+
+USER www
+COPY --chown=www tests/       /web/tests/
+COPY --chown=www sql/         /web/sql/
+COPY --chown=www phpcs.xml    /web/
+COPY --chown=www phpstan.neon /web/
+COPY --chown=www phpunit.xml  /web/
+COPY --chown=www rector.php   /web/
+RUN composer install --working-dir=/web/ --no-interaction --prefer-dist --no-progress

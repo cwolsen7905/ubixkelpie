@@ -37,7 +37,7 @@ Per project, once:
 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
    - URL: uBixOps' `/gitlab/merge-request-hook` endpoint
    - Secret token: uBixOps' `GITLAB_WEBHOOK_SECRET`
-   - Trigger: **Merge request events** only
+    - Trigger: **Merge request events** and **Emoji events**
    - SSL verification on
 
    The hook's *Test → Merge request events* sends an `open` event, which uBixOps answers 200
@@ -58,7 +58,8 @@ reach that URL. Kelpie holds none of these secrets and needs no environment vari
 
 ## Limits
 
-- **👍 does not trigger a retry.** GitLab's merge-request event fires on Approve, not on an
-  award emoji, and `ci:requireApproval` counts both. After a 👍, retry the job by hand.
+- **Emoji events.** Since ubixcore MR !212, uBixOps also handles `emoji` events: a 👍 on a
+  merge request acts as an Approve and triggers a retry; removing a 👍 acts as an Unapprove
+  and triggers an unapproval event.
 - Jobs waiting on a manual play are not started by uBixOps; only retried.
 - An already-successful job is retried too (harmless, noisy). Both are requested upstream.

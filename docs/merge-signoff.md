@@ -37,7 +37,7 @@ Per project, once:
 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
    - URL: uBixOps' `/gitlab/merge-request-hook` endpoint
    - Secret token: uBixOps' `GITLAB_WEBHOOK_SECRET`
-   - Trigger: **Merge request events** only
+   - Trigger: **Merge request events** and **Emoji events**
    - SSL verification on
 
    The hook's *Test → Merge request events* sends an `open` event, which uBixOps answers 200
@@ -50,11 +50,24 @@ a paid-tier GitLab feature. Confirm the instance's tier; without it, add the hoo
 Either way the per-project token in step 2 is still needed until uBixOps accepts one
 group-scoped token (requested upstream).
 
+## Kelpie's GitLab webhook receiver
+
+Kelpie also has a lightweight webhook receiver at `POST /gitlab/webhook` (configured in
+`app/KelpieApi/src/Routes.php`). It accepts:
+
+- **Note Hook** on merge requests — extracts author, MR iid/title, project, and comment length
+- **Issue Hook** on issue open — extracts author, issue iid/title, project
+
+It verifies `X-Gitlab-Token` against the env var `GITLAB_WEBHOOK_SECRET` (401 on mismatch).
+Non-MR notes, non-open issues, unknown events, and malformed payloads are answered 200 ignored.
+The receiver is wired in `app/KelpieApi/src/Dependencies.php` with the secret as a constructor
+parameter.
+
 ## Where it runs
 
 Not here. Deployment config for uBixOps lives in the `kubernetes` repo (`ubix-ops/`); see its
 README for the host, the credentials Secret and the install command. GitLab must be able to
-reach that URL. Kelpie holds none of these secrets and needs no environment variables for this.
+reach that URL. Kelpie needs the `GITLAB_WEBHOOK_SECRET` env var for its webhook receiver.
 
 ## Limits
 

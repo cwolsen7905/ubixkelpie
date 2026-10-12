@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use DI\Container;
 use DI\ContainerBuilder;
+use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Latte\Engine;
 use Latte\Loaders\FileLoader;
 use Monolog\Handler\StreamHandler;
@@ -51,8 +52,8 @@ return static function (): Container {
 
     $container = new ContainerBuilder();
     $container->addDefinitions([
-        Engine::class          => autowire()->method('setAutoRefresh', true)->method('setTempDirectory', $cacheDir)->method('setLoader', new FileLoader($templateDir)),
-        HttpClient::class      => autowire(CurlHttpClient::class),
+        Engine::class                  => autowire()->method('setAutoRefresh', true)->method('setTempDirectory', $cacheDir)->method('setLoader', new FileLoader($templateDir)),
+        HttpClient::class              => autowire(CurlHttpClient::class),
         // Logs go to the container's stderr, not a file. PHP-FPM in this base
         // image sets catch_workers_output=yes and error_log=/dev/stderr, so a
         // worker's stderr becomes the container's, which is what fluent-bit
@@ -62,13 +63,14 @@ return static function (): Container {
         // 2026-09-25 the whole cluster's containers were replaced within six
         // minutes and every log with them, which turned "why did admin sign-in
         // fail?" into an unanswerable question.
-        Logger::class          => autowire(MonologLogger::class)->constructorParameter('name', $appName)->constructorParameter('handlers', [new StreamHandler('php://stderr', Level::fromName($logLevel))])->constructorParameter('processors', [new UidProcessor()]),
+        Logger::class                  => autowire(MonologLogger::class)->constructorParameter('name', $appName)->constructorParameter('handlers', [new StreamHandler('php://stderr', Level::fromName($logLevel))])->constructorParameter('processors', [new UidProcessor()]),
         // Browsers on the uBixSys domains and local dev; PATCH is listed because the framework default omits it.
-        CorsMiddleware::class  => autowire()->constructorParameter('allowedOrigins', ['127.0.0.1', 'localhost', '.ubixsys.com'])->constructorParameter('allowedMethods', ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']),
-        Psr17Factory::class    => autowire(Psr17Factory::class),
-        RequestFactory::class  => get(Psr17Factory::class),
-        ResponseFactory::class => autowire(SlimResponseFactory::class),
-        StreamFactory::class   => get(Psr17Factory::class),
+        CorsMiddleware::class          => autowire()->constructorParameter('allowedOrigins', ['127.0.0.1', 'localhost', '.ubixsys.com'])->constructorParameter('allowedMethods', ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']),
+        Psr17Factory::class            => autowire(Psr17Factory::class),
+        RequestFactory::class          => get(Psr17Factory::class),
+        ResponseFactory::class         => autowire(SlimResponseFactory::class),
+        StreamFactory::class           => get(Psr17Factory::class),
+        GitlabWebhookController::class => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 
     return $container->build();

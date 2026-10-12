@@ -14,7 +14,8 @@ servers that monitor code, and does that kind of work. It builds on
 - Modelled on kitg (`~/git/kitg`), the reference for how an app sits on uBixCore. When unsure how
   something should look, read how kitg does it, then leave out what is specific to Sowing.me.
 - **Current state: foundation only.** `app/HelloApi` (health), `app/KelpieApi` (health, version,
-  CORS, JSON errors; no database, no auth yet) and the quality gate. No product features yet.
+  CORS, JSON errors, the GitLab webhook; no database, no auth yet), the quality gate and the
+  deploy/promote pipeline. No product features yet.
 
 ## Build, test, lint
 
@@ -48,8 +49,13 @@ bin/ubix               CLI entry; commands from Ubix\Console\Command and Kelpie\
 tests/                 mirrors php/Kelpie/; PhpunitTestCasesTest enforces a test per concrete class
 ```
 
-CI (`.gitlab-ci.yml`): `build → lint-and-test`, on MRs and on `dev`. Deploy/migrate/promote/notify
-are not wired yet; do not guess hostnames, namespaces, registry paths or Vault paths, ask.
+CI (`.gitlab-ci.yml`): `build → lint-and-test → deploy → promote`, on MRs and on `dev|staging|main`.
+Branch = environment: `dev`→`kelpie-dev`, `staging`→`kelpie-staging`, `main`→`kelpie-prod`, hosts
+`kelpie.{dev,staging,prod}.ubixsys.com`, manifests in `app/KelpieApi/k8s/`, secrets in uBixVault
+`kelpie/<env>/app`. A green deploy fast-forwards the next branch (`bin/promote.sh`, never forced).
+Do not run deploys by hand. Migrate/notify are not wired (no database, no chat channel); do not
+guess other hostnames, namespaces or Vault paths, ask. `docs/merge-signoff.md` lists what must
+exist in the kubernetes repo first.
 
 ## Conventions (inherited from uBixCore)
 

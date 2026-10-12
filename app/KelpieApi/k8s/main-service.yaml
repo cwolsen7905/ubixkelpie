@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kelpie-api
+  namespace: kelpie-prod
+  labels:
+    app.kubernetes.io/name: kelpie-api
+    app.kubernetes.io/part-of: kelpie
+spec:
+  selector:
+    app.kubernetes.io/name: kelpie-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

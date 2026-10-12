@@ -1,10 +1,11 @@
 # uBixKelpie pipeline: build -> lint-and-test, the same gate kitg runs (phpcs,
 # phpstan, phpunit), on merge requests and on dev.
 #
-# Deliberately NOT here yet (a later lane, needs hostnames/namespaces/secrets that
-# kitg cannot supply): migrate, deploy, promote, notify, and the uBixVault-held
-# Composer deploy token. Add them from kitg's .gitlab-ci.yml when Kelpie has a
-# cluster home.
+# Then deploy -> promote, as kitg does: a green deploy on dev fast-forwards staging, a
+# green deploy on staging fast-forwards main (bin/promote.sh, ff-only, never forced;
+# needs GITLAB_PROMOTE_TOKEN). The `main` branch deploys to kelpie-prod.
+# Deliberately NOT here: migrate (no database yet), notify (no Discord channel yet),
+# and the uBixVault-held Composer deploy token (build uses CI_JOB_TOKEN, see build).
 
 workflow:
   rules:
@@ -26,6 +27,8 @@ default:
 stages:
   - build
   - lint-and-test
+  - deploy
+  - promote
   - approval
 
 .registry_login:
@@ -45,8 +48,9 @@ stages:
 
 # Runtime image, and a `-test` image layered on it that adds the dev Composer
 # dependencies (the runtime image installs --no-dev). Only the test image is used
-# by the gate, so it is built for amd64 alone and the runtime image is not pushed
-# as a deployable tag until deploy exists.
+# by the gate (amd64 alone). On dev/staging/main the runtime image is also pushed as the
+# mutable `:<branch>` tag the k8s manifests pull, multi-arch like kitg's; MR builds are
+# amd64 only and push no mutable tag (nothing deploys from an MR).
 #
 # uBixCore comes from the private ubixsys group Composer registry. Auth is a
 # BuildKit secret (never a layer) built from this job's CI_JOB_TOKEN, which needs
@@ -72,10 +76,15 @@ build:
       TEST_REF="${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}-test"
       AUTH_FILE="$(mktemp)"; trap 'rm -f "$AUTH_FILE"' EXIT
       printf '{"gitlab-token":{"%s":{"username":"gitlab-ci-token","token":"%s"}}}' "$CI_SERVER_HOST" "$CI_JOB_TOKEN" > "$AUTH_FILE"
-      docker buildx build --pull --provenance=false --sbom=false --platform linux/amd64 --push \
+      PLATFORMS="linux/amd64"; TAGS=(-t "$RUNTIME_SHA_REF")
+      if [ "$CI_PIPELINE_SOURCE" != "merge_request_event" ]; then
+        PLATFORMS="linux/amd64,linux/arm64"
+        TAGS+=(-t "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}")
+      fi
+      docker buildx build --pull --provenance=false --sbom=false --platform "$PLATFORMS" --push \
         --secret id=composer_auth,src="$AUTH_FILE" \
         --build-arg APP_VERSION="$CI_COMMIT_SHA" \
-        -t "$RUNTIME_SHA_REF" -f Dockerfile .
+        "${TAGS[@]}" -f Dockerfile .
       docker buildx build --provenance=false --sbom=false --platform linux/amd64 --push \
         --build-arg RUNTIME_IMAGE="$RUNTIME_SHA_REF" \
         -t "$TEST_REF" -f Dockerfile_Test .
@@ -102,6 +111,64 @@ phpunit:
       docker run --rm --workdir /web \
         "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
         sh -c "set -e && vendor/bin/phpunit"
+
+# ---------------------------------------------------------------------------
+# deploy: bin/deploy.sh applies app/KelpieApi/k8s/<env>-*.yaml and waits for the
+# rollout. The branch is the environment: dev -> kelpie-dev, staging ->
+# kelpie-staging, main -> kelpie-prod. Secrets come from uBixVault at pod start.
+# ---------------------------------------------------------------------------
+.deploy:
+  # Never cancelled mid-flight: a half-applied deploy is worse than a superseded one.
+  interruptible: false
+  stage: deploy
+  tags: [shell]
+  script:
+    - bash bin/deploy.sh "$CI_COMMIT_REF_SLUG"
+
+deploy-dev:
+  extends: .deploy
+  needs: [static-checks, phpunit]
+  environment: { name: dev, url: "https://kelpie.dev.ubixsys.com" }
+  rules: [{ if: '$CI_COMMIT_BRANCH == "dev"' }]
+
+deploy-staging:
+  extends: .deploy
+  needs: [static-checks, phpunit]
+  environment: { name: staging, url: "https://kelpie.staging.ubixsys.com" }
+  rules: [{ if: '$CI_COMMIT_BRANCH == "staging"' }]
+
+# `master` is accepted by the workflow rules, but CI_COMMIT_REF_SLUG would be
+# "master" and bin/deploy.sh only knows `main`: Kelpie's production branch is main.
+deploy-main:
+  extends: .deploy
+  needs: [static-checks, phpunit]
+  environment: { name: prod, url: "https://kelpie.prod.ubixsys.com" }
+  rules: [{ if: '$CI_COMMIT_BRANCH == "main"' }]
+
+# ---------------------------------------------------------------------------
+# promote: dev -> staging -> main, automatically, after a green deploy of the source
+# branch. bin/promote.sh is fast-forward only and never forces. Needs the project CI
+# variable GITLAB_PROMOTE_TOKEN (Maintainer, write_repository) and protected
+# staging/main branches that token may push to. allow_failure: a failed promotion
+# does not turn the deploy red; the next push to dev retries it.
+# ---------------------------------------------------------------------------
+.promote:
+  interruptible: false
+  stage: promote
+  tags: [shell]
+  variables: { GIT_DEPTH: "0" }
+
+promote-to-staging:
+  extends: .promote
+  needs: [{ job: deploy-dev, artifacts: false }]
+  rules: [{ if: '$CI_COMMIT_BRANCH == "dev"', when: on_success, allow_failure: true }]
+  script: [bash bin/promote.sh staging]
+
+promote-to-main:
+  extends: .promote
+  needs: [{ job: deploy-staging, artifacts: false }]
+  rules: [{ if: '$CI_COMMIT_BRANCH == "staging"', when: on_success, allow_failure: true }]
+  script: [bash bin/promote.sh main]
 
 # Every merge needs a human sign-off (uBixCore `bin/ubix ci:requireApproval`, standard:
 # uBixCore docs/standards/branching-and-git-workflow.md, Merge sign-off). Fails until the MR

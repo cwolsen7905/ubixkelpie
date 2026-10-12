@@ -1,12 +1,12 @@
 # Runtime image for one app of this project. Build with
-#   docker build --build-arg APP_NAME=HelloApi -t myproject-hello-api .
+#   docker build --secret id=composer_auth,src=auth.json -t ubixkelpie:dev .
 # uBixCore is installed from composer.lock at build time; it is never committed.
 # syntax=docker/dockerfile:1
 # The uBixCore PHP runtime (nginx + PHP-FPM + memcache(d), Alpine, port 8080).
 # Public by default; override BASE_IMAGE at build time to use a private mirror.
 ARG BASE_IMAGE=ghcr.io/ubixsys/ubixcore-php:8.5
 FROM ${BASE_IMAGE}
-ARG APP_NAME
+ARG APP_NAME=HelloApi
 ENV APP_NAME=${APP_NAME}
 
 USER root

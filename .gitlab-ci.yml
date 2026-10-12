@@ -1,0 +1,98 @@
+# uBixKelpie pipeline: build -> lint-and-test, the same gate kitg runs (phpcs,
+# phpstan, phpunit), on merge requests and on dev.
+#
+# Deliberately NOT here yet (a later lane, needs hostnames/namespaces/secrets that
+# kitg cannot supply): migrate, deploy, promote, notify, and the uBixVault-held
+# Composer deploy token. Add them from kitg's .gitlab-ci.yml when Kelpie has a
+# cluster home.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /^(dev|staging|main|master)$/
+
+default:
+  # Cancelled the moment the branch or MR moves on.
+  interruptible: true
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - api_failure
+      - scheduler_failure
+      - unknown_failure
+
+stages:
+  - build
+  - lint-and-test
+
+.registry_login:
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+
+# Merge requests and deploy branches both run the gate; feature-branch pushes
+# produce no pipeline of their own (their checks belong to the MR).
+.gate_rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /^(dev|staging|main|master)$/
+
+# Runtime image, and a `-test` image layered on it that adds the dev Composer
+# dependencies (the runtime image installs --no-dev). Only the test image is used
+# by the gate, so it is built for amd64 alone and the runtime image is not pushed
+# as a deployable tag until deploy exists.
+#
+# uBixCore comes from the private ubixsys group Composer registry. Auth is a
+# BuildKit secret (never a layer) built from this job's CI_JOB_TOKEN, which needs
+# ubixsys/ubixkelpie on ubixcore's job-token allowlist.
+# TODO: switch to a read_package_registry deploy token from uBixVault, as kitg does.
+build:
+  extends: [.registry_login, .gate_rules]
+  stage: build
+  tags: [shell]
+  retry:
+    max: 2
+    when:
+      - script_failure
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - api_failure
+      - scheduler_failure
+      - unknown_failure
+  script:
+    - |
+      set -euo pipefail
+      RUNTIME_SHA_REF="${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHA}"
+      TEST_REF="${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}-test"
+      AUTH_FILE="$(mktemp)"; trap 'rm -f "$AUTH_FILE"' EXIT
+      printf '{"gitlab-token":{"%s":{"username":"gitlab-ci-token","token":"%s"}}}' "$CI_SERVER_HOST" "$CI_JOB_TOKEN" > "$AUTH_FILE"
+      docker buildx build --pull --provenance=false --sbom=false --platform linux/amd64 --push \
+        --secret id=composer_auth,src="$AUTH_FILE" \
+        -t "$RUNTIME_SHA_REF" -f Dockerfile .
+      docker buildx build --provenance=false --sbom=false --platform linux/amd64 --push \
+        --build-arg RUNTIME_IMAGE="$RUNTIME_SHA_REF" \
+        -t "$TEST_REF" -f Dockerfile_Test .
+
+static-checks:
+  extends: [.registry_login, .gate_rules]
+  stage: lint-and-test
+  tags: [shell]
+  timeout: 15 minutes
+  script:
+    - |
+      docker run --rm --workdir /web \
+        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
+        sh -c "set -e && vendor/bin/phpcs --no-cache && vendor/bin/phpstan analyse --no-progress --memory-limit=2G app bin php public tests"
+
+# No database yet, so the suite runs alone (no schema reset, no migrate:up).
+phpunit:
+  extends: [.registry_login, .gate_rules]
+  stage: lint-and-test
+  tags: [shell]
+  timeout: 30 minutes
+  script:
+    - |
+      docker run --rm --workdir /web \
+        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
+        sh -c "set -e && vendor/bin/phpunit"

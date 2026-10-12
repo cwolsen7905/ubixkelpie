@@ -59,8 +59,10 @@ Per project, once:
 
 1. **Pipeline job.** A last-stage MR job running `ci:requireApproval`, named one of
    `APPROVAL_JOB_NAMES`. Kelpie's `.gitlab-ci.yml` has `require-approval-mr` (modelled on
-   kitg's). It needs the CI variable `AI_REVIEW_GITLAB_TOKEN` (Reporter, `api`, masked) to read
-   the sign-off, and `MERGE_APPROVAL_OWNERS` if an owner may sign off their own MRs.
+   kitg's). It needs the CI variable `APPROVAL_GITLAB_TOKEN` (or `AI_REVIEW_GITLAB_TOKEN`; Reporter,
+   `api`, masked) to read the sign-off. **Without it the job passes as "UNVERIFIED"**, so the
+   gate enforces nothing until the variable is set. `MERGE_APPROVAL_OWNERS` is needed if an
+   owner may sign off their own MRs.
 2. **Token.** The Developer/`api` bot token above, in `GITLAB_PROJECT_TOKENS`.
 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
    - URL: Kelpie's `/gitlab/webhook`

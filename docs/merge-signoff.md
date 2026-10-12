@@ -4,74 +4,98 @@ Every merge into Kelpie needs a human sign-off (an Approve or a 👍), enforced 
 that runs uBixCore's `bin/ubix ci:requireApproval`. GitLab does not re-run a pipeline when
 someone approves, so by itself the job stays red until someone retries it by hand.
 
-**Kelpie does not implement the fix.** uBixCore ships it as **uBixOps**, a framework app that
-turns the Approve click into a retry of that one job. Kelpie only needs to be wired to it. This
-is deliberate: the sign-off check and its retry trigger are one CI-standard feature, useful to
-any uBixCore host without Kelpie, so they ship together in the framework (see "The uBixCore
-boundary" in `CLAUDE.md`). Reference: uBixCore `docs/architecture/ubix-ops.md` and
+**Kelpie hosts the retry itself.** Kelpie's later features (fixing issues, fixing review
+threads) need a GitLab webhook receiver anyway, and approval retry is its first real use. The
+logic is not copied: it is uBixCore's `Ubix\Service\Ci\ApprovalWebhookService` (the same class
+behind uBixOps), which Kelpie calls from its own endpoint. Kelpie adds the route, the wiring
+and a guard (below); the framework keeps the find-and-retry logic, per "The uBixCore boundary"
+in `CLAUDE.md`. Reference: uBixCore `docs/architecture/ubix-ops.md` and
 `docs/standards/branching-and-git-workflow.md` (Merge sign-off).
 
 ## What it does
 
-1. GitLab sends a merge-request event to uBixOps on every MR change.
-2. A wrong or missing `X-Gitlab-Token` is refused with 401. Anything other than an
-   `approval` / `approved` / `unapproval` / `unapproved` action is answered 200 and ignored.
-3. For an approval event it reads the MR's head pipeline, finds the newest job named in
-   `APPROVAL_JOB_NAMES` (default `require-approval`, `require-approval-mr`) and retries that one
-   job. A job that is already queued or running is left alone. It never creates a pipeline.
-4. A GitLab failure is logged and still answered 200, so GitLab does not disable the hook.
+`POST /gitlab/webhook` (`app/KelpieApi/src/Routes.php`, `Kelpie\Controller\Gitlab\GitlabWebhookController`):
 
-## Wiring Kelpie to it
+1. A wrong or missing `X-Gitlab-Token` is refused with 401. Everything else is answered 200,
+   so GitLab never disables the hook.
+2. `Merge Request Hook` with action `approval` / `approved` / `unapproval` / `unapproved`
+   goes to `ApprovalWebhookService`. `Emoji Hook` is routed there too, but the pinned uBixCore
+   (v0.45.0) does not act on it yet (see Limits). Anything else is answered 200 and ignored.
+3. It reads the MR's head pipeline, finds the newest job named in `APPROVAL_JOB_NAMES` (default
+   `require-approval`, `require-approval-mr`) and retries that one job. A job already queued or
+   running is left alone. It never creates a pipeline.
+4. A GitLab failure is logged and still answered 200.
+
+The same endpoint also takes `Note Hook` (on merge requests) and `Issue Hook` (open); those
+only log what they saw.
+
+### Kelpie never approves or 👍s
+
+The API token the receiver holds (Developer, `api`) *could* approve or award an emoji, so the
+token's scope is no protection. The code is: the approval service is given
+`Kelpie\HttpClient\ApprovalRetryHttpClient` as its HTTP client (`app/KelpieApi/src/Dependencies.php`),
+which refuses, before anything is sent, every request except `GET` an MR, `GET` a pipeline's
+jobs and `POST` a job's `retry`/`play`. There is no route from the webhook to `/approve`,
+`/award_emoji`, `/merge` or `/pipeline`. A test asserts the refusals.
+
+## Configuration
+
+All from the environment (filled from uBixVault in deployment; nothing is committed, see
+`.env.example`):
+
+| Variable | Meaning |
+| --- | --- |
+| `GITLAB_WEBHOOK_SECRET` | The webhook's secret token; empty refuses everything |
+| `GITLAB_API_URL` | GitLab API v4 base, e.g. `https://gitlab.example.com/api/v4` |
+| `GITLAB_PROJECT_TOKENS` | `projectId=token,projectId=token`: Developer role, `api` scope |
+| `APPROVAL_JOB_NAMES` | Optional, comma-separated sign-off job names |
+
+A project with no token is ignored. Create tokens as a bot (the project
+access token's own user), not under a personal account, so the audit trail shows who retried.
+
+## Wiring a project to Kelpie
 
 Per project, once:
 
-1. **Pipeline job.** The project needs a last-stage MR job that runs `ci:requireApproval`,
-   named one of the `APPROVAL_JOB_NAMES`. kitg's `require-approval-mr` is the reference.
-   Kelpie's own `.gitlab-ci.yml` does not have one yet.
-2. **Token.** uBixOps needs an API token for the project: a project access token, role
-   **Developer**, scope **`api`** (retrying a job needs Developer; the Reporter token that
-   `ci:requireApproval` reads with is not enough). Add it to uBixOps' `GITLAB_PROJECT_TOKENS` as
-   `<projectId>=<token>`. Today tokens are per project; a project with no entry is ignored.
-   Create it as a bot (the project access token's own user), not under a personal account, so
-   the audit trail shows who retried the job.
+1. **Pipeline job.** A last-stage MR job running `ci:requireApproval`, named one of
+   `APPROVAL_JOB_NAMES`. Kelpie's `.gitlab-ci.yml` has `require-approval-mr` (modelled on
+   kitg's). It needs the CI variable `APPROVAL_GITLAB_TOKEN` (or `AI_REVIEW_GITLAB_TOKEN`; Reporter,
+   `api`, masked) to read the sign-off. **Without it the job passes as "UNVERIFIED"**, so the
+   gate enforces nothing until the variable is set. `MERGE_APPROVAL_OWNERS` is needed if an
+   owner may sign off their own MRs.
+2. **Token.** The Developer/`api` bot token above, in `GITLAB_PROJECT_TOKENS`.
 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
-   - URL: uBixOps' `/gitlab/merge-request-hook` endpoint
-   - Secret token: uBixOps' `GITLAB_WEBHOOK_SECRET`
-   - Trigger: **Merge request events** and **Emoji events**
+   - URL: Kelpie's `/gitlab/webhook`
+   - Secret token: Kelpie's `GITLAB_WEBHOOK_SECRET`
+   - Trigger: **Merge request events** and **Emoji events** (plus Comments / Issues events
+     for the logging handlers)
    - SSL verification on
 
-   The hook's *Test → Merge request events* sends an `open` event, which uBixOps answers 200
-   "ignored"; that proves the path and the secret.
+   The hook's *Test → Merge request events* sends an `open` event, answered 200 "ignored";
+   that proves the path and the secret.
+
+Do not leave the same project's hook pointed at uBixOps as well: both would fire. (Harmless,
+since a running job is skipped, but noisy.)
 
 ### Group hook or project hooks
 
-A group-level hook on `ubixsys` would cover every project with one entry, but group webhooks are
-a paid-tier GitLab feature. Confirm the instance's tier; without it, add the hook per project.
-Either way the per-project token in step 2 is still needed until uBixOps accepts one
-group-scoped token (requested upstream).
-
-## Kelpie's GitLab webhook receiver
-
-Kelpie also has a lightweight webhook receiver at `POST /gitlab/webhook` (configured in
-`app/KelpieApi/src/Routes.php`). It accepts:
-
-- **Note Hook** on merge requests — extracts author, MR iid/title, project, and comment length
-- **Issue Hook** on issue open — extracts author, issue iid/title, project
-
-It verifies `X-Gitlab-Token` against the env var `GITLAB_WEBHOOK_SECRET` (401 on mismatch).
-Non-MR notes, non-open issues, unknown events, and malformed payloads are answered 200 ignored.
-The receiver is wired in `app/KelpieApi/src/Dependencies.php` with the secret as a constructor
-parameter.
+A group-level hook would cover every project with one entry, but group webhooks are a
+paid-tier GitLab feature. Confirm the instance's tier; without it, add the hook per project.
+uBixCore's fallback-token support (one group-scoped token) is unreleased; until then each
+project needs its own entry in `GITLAB_PROJECT_TOKENS`.
 
 ## Where it runs
 
-Not here. Deployment config for uBixOps lives in the `kubernetes` repo (`ubix-ops/`); see its
-README for the host, the credentials Secret and the install command. GitLab must be able to
-reach that URL. Kelpie needs the `GITLAB_WEBHOOK_SECRET` env var for its webhook receiver.
+Kelpie has no deployment yet (`.gitlab-ci.yml` stops at the gate); the hostname, namespace and
+Vault paths for it are not decided. GitLab must be able to reach the webhook URL.
 
 ## Limits
 
-- **👍 does not trigger a retry.** GitLab's merge-request event fires on Approve, not on an
-  award emoji, and `ci:requireApproval` counts both. After a 👍, retry the job by hand.
-- Jobs waiting on a manual play are not started by uBixOps; only retried.
-- An already-successful job is retried too (harmless, noisy). Both are requested upstream.
+- **👍 does not trigger a retry yet.** uBixCore v0.45.0's `ApprovalWebhookService` has no emoji
+  handling. It is merged on uBixCore `main` (together with the fallback token, playing a
+  manual job and skipping an already-passed job) but untagged. When it is released: bump the
+  pin, add `GITLAB_API_TOKEN` to the service wiring in `app/KelpieApi/src/Dependencies.php`
+  (a new constructor argument) and add the thumbs-up tests. Until then, retry the job by hand
+  after a 👍.
+- On v0.45.0 an already-successful job is retried too (harmless, noisy), and a manual job is
+  not played.

@@ -14,13 +14,15 @@ use Ubix\Controller\AbstractController as Controller;
 use Ubix\Enum\StatusCode;
 use Ubix\Exception\DtoException;
 use Ubix\Renderer\TemplateRenderer;
+use Ubix\Service\Ci\ApprovalWebhookService;
 use Ubix\Service\JsonService;
 
 /**
  * GitLab webhook receiver for Kelpie
  *
  * Verifies X-Gitlab-Token against GITLAB_WEBHOOK_SECRET, dispatches by
- * X-Gitlab-Event header.
+ * X-Gitlab-Event header. Merge Request and Emoji hooks are handed to uBixCore's
+ * ApprovalWebhookService, which re-runs the MR's sign-off job on an approval or a thumbs-up.
  *
  * @see \Kelpie\Tests\Controller\Gitlab\GitlabWebhookControllerTest PHPUnit test case
  */
@@ -34,6 +36,7 @@ final class GitlabWebhookController extends Controller
      * @param JsonService             $jsonService             JSON service from parent
      * @param NoteOnMrWebhookService  $noteOnMrWebhookService  Handles Note Hook on MRs
      * @param IssueOpenWebhookService $issueOpenWebhookService Handles Issue Hook open events
+     * @param ApprovalWebhookService  $approvalWebhookService  Re-runs the sign-off job on an approval (uBixCore)
      * @param string                  $secret                  The webhook secret token
      */
     public function __construct(
@@ -42,6 +45,7 @@ final class GitlabWebhookController extends Controller
         JsonService $jsonService,
         private readonly NoteOnMrWebhookService $noteOnMrWebhookService,
         private readonly IssueOpenWebhookService $issueOpenWebhookService,
+        private readonly ApprovalWebhookService $approvalWebhookService,
         private readonly string $secret,
     ) {
         parent::__construct($logger, $templateRenderer, $jsonService);
@@ -66,19 +70,20 @@ final class GitlabWebhookController extends Controller
         $body  = (string) $request->getBody();
         $event = $request->getHeaderLine('X-Gitlab-Event');
 
-        return $this->dispatch($body, $event, $response);
+        return $this->dispatch($request, $body, $event, $response);
     }
 
     /**
      * Decode and dispatch the payload to the right handler
      *
+     * @param Request  $request  The webhook delivery
      * @param string   $body     The raw payload
      * @param string   $event    The X-Gitlab-Event header value
      * @param Response $response The PSR response
      *
      * @return Response
      */
-    private function dispatch(string $body, string $event, Response $response): Response
+    private function dispatch(Request $request, string $body, string $event, Response $response): Response
     {
         $eventLower = strtolower($event);
 
@@ -92,6 +97,10 @@ final class GitlabWebhookController extends Controller
             $this->logger->error('GitLab webhook: scalar body', ['error' => $e->getMessage()]);
 
             return $this->renderJson($response, ['outcome' => 'ignored: scalar body'], StatusCode::OK);
+        }
+
+        if (in_array($eventLower, ['merge request hook', 'emoji hook'], true)) {
+            return $this->approval($request, $body, $response);
         }
 
         return match ($eventLower) {
@@ -133,5 +142,26 @@ final class GitlabWebhookController extends Controller
         $this->logger->info('GitLab webhook: issue', ['result' => $result]);
 
         return $this->renderJson($response, ['outcome' => $result], StatusCode::OK);
+    }
+
+    /**
+     * Hand a Merge Request or Emoji Hook to the approval service
+     *
+     * The service answers 200 for everything but a wrong secret, GitLab-side errors included,
+     * so GitLab never disables the hook.
+     *
+     * @param Request  $request  The webhook delivery
+     * @param string   $body     The raw payload
+     * @param Response $response The PSR response
+     *
+     * @return Response
+     */
+    private function approval(Request $request, string $body, Response $response): Response
+    {
+        $result = $this->approvalWebhookService->handle($request->getHeaderLine('X-Gitlab-Token'), $body);
+
+        $this->logger->info('GitLab webhook: approval', ['result' => $result['outcome']]);
+
+        return $this->renderJson($response, ['outcome' => $result['outcome']], $result['status'] === 401 ? StatusCode::UNAUTHORIZED : StatusCode::OK);
     }
 }

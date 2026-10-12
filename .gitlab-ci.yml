@@ -26,10 +26,15 @@ default:
 stages:
   - build
   - lint-and-test
+  - approval
 
 .registry_login:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+
+.mr_only:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 # Merge requests and deploy branches both run the gate; feature-branch pushes
 # produce no pipeline of their own (their checks belong to the MR).
@@ -97,3 +102,27 @@ phpunit:
       docker run --rm --workdir /web \
         "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
         sh -c "set -e && vendor/bin/phpunit"
+
+# Every merge needs a human sign-off (uBixCore `bin/ubix ci:requireApproval`, standard:
+# uBixCore docs/standards/branching-and-git-workflow.md, Merge sign-off). Fails until the MR
+# has an Approve or a thumbs-up; with "Pipelines must succeed" on, that blocks the merge.
+# GitLab does not re-run a pipeline on approval: Kelpie's webhook receiver (POST
+# /gitlab/webhook, docs/merge-signoff.md) retries this job when someone signs off.
+# Last stage, so a red verdict never hides behind, or holds up, the real checks.
+# Agents never approve (CLAUDE.md). Needs the project CI variable APPROVAL_GITLAB_TOKEN (or
+# AI_REVIEW_GITLAB_TOKEN; Reporter role, `api` scope, masked). WITHOUT IT THE JOB PASSES
+# ("UNVERIFIED -- no APPROVAL_GITLAB_TOKEN"): it fails open, so the gate enforces nothing.
+# MERGE_APPROVAL_OWNERS is not set: nobody may sign off their own MR until the owner decides.
+require-approval-mr:
+  extends: [.registry_login, .mr_only]
+  stage: approval
+  tags: [shell]
+  needs: [build]
+  timeout: 5 minutes
+  script:
+    - |
+      docker run --rm --workdir /web \
+        -e APPROVAL_GITLAB_TOKEN -e AI_REVIEW_GITLAB_TOKEN -e MERGE_APPROVAL_OWNERS \
+        -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_COMMIT_BRANCH \
+        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
+        php bin/ubix ci:requireApproval

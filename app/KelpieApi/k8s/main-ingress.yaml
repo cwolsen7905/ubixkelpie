@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kelpie-api
+  namespace: kelpie-prod
+  labels:
+    app.kubernetes.io/name: kelpie-api
+    app.kubernetes.io/part-of: kelpie
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: kelpie.prod.ubixsys.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: kelpie-api
+            port:
+              number: 8080
+        path: /
+        pathType: Prefix
+  tls:
+    - hosts:
+      - kelpie.prod.ubixsys.com
+      secretName: tls-wildcard-ubixsys-prod

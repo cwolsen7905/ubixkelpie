@@ -7,8 +7,9 @@ monitor code, and does that kind of work. Built on
 The PHP namespace is `Kelpie\` (the "uBix" is understood).
 
 > **Status: foundation only.** This repo is the uBixCore app skeleton, modelled on
-> [kitg](https://gitlab.brainchurts.com/kitg/kitg). It has a health endpoint and the quality gate;
-> the product features (issue fixing, code monitoring) are not built yet.
+> [kitg](https://gitlab.brainchurts.com/kitg/kitg). It has a health endpoint, the GitLab webhook
+> receiver, the quality gate and a dev/staging/prod deployment; the product features (issue
+> fixing, code monitoring) are not built yet.
 
 ## Shape
 
@@ -23,6 +24,8 @@ app/<App>/src/                  per-app Dependencies.php, Middleware.php, Routes
 tests/                          mirrors php/Kelpie/; PhpunitTestCasesTest enforces a test per class
 templates/default  sql/migrations   framework-required, empty for now
 config/devops/nginx.conf        nginx site for the runtime image
+bin/deploy.sh promote.sh        deploy a branch to its namespace; fast-forward the next branch
+app/KelpieApi/k8s/              <env>-{deploy,service,ingress}.yaml per environment (dev, staging, main)
 Dockerfile  Dockerfile_Test     runtime image, and the test image the CI gate runs in
 ```
 
@@ -45,16 +48,35 @@ Individual tools: `vendor/bin/phpunit`, `vendor/bin/phpstan`, `vendor/bin/phpcs`
 ## CI
 
 `.gitlab-ci.yml` builds the runtime and test images and runs phpcs, phpstan and phpunit on merge
-requests and on `dev`. Migrate, deploy, promote and notify stages are deliberately not wired yet;
-they need Kelpie's namespace, hostnames and Vault paths, which are not decided.
+requests and on `dev`, `staging` and `main`. A green deploy of `dev` fast-forwards `staging`, a
+green deploy of `staging` fast-forwards `main` (`bin/promote.sh`, ff-only), and each branch deploys
+with `bin/deploy.sh`:
+
+| Branch | Namespace | URL |
+| --- | --- | --- |
+| `dev` | `kelpie-dev` | https://kelpie.dev.ubixsys.com |
+| `staging` | `kelpie-staging` | https://kelpie.staging.ubixsys.com |
+| `main` | `kelpie-prod` | https://kelpie.prod.ubixsys.com |
+
+Manifests are in `app/KelpieApi/k8s/`; secrets come from uBixVault (`kelpie/<env>/app`) and are
+never committed. What must exist outside this repo first is listed in
+[`docs/merge-signoff.md`](docs/merge-signoff.md#outside-this-repo-kubernetes-repo--gitlab-before-the-first-deploy).
+No migrate or notify stage: Kelpie has no database or chat channel yet.
 
 CI pulls uBixCore with the job token, so `ubixsys/ubixkelpie` must be on ubixcore's CI job-token
 allowlist.
 
 ## Merge sign-off
 
-Approving an MR re-runs the `require-approval` job through uBixOps, which lives in uBixCore, not
-here. How to wire a repo to it: [`docs/merge-signoff.md`](docs/merge-signoff.md).
+Approving an MR re-runs the `require-approval` job. Kelpie receives the GitLab webhook itself:
+
+- URL: `https://kelpie.prod.ubixsys.com/gitlab/webhook`
+- Secret token: `GITLAB_WEBHOOK_SECRET` (uBixVault `kelpie/prod/app`)
+- Triggers: **Merge request events** and **Emoji events**
+- SSL verification on
+
+Once Kelpie's prod is live, **remove the old uBixOps hook** from the projects that now use this one.
+Full wiring: [`docs/merge-signoff.md`](docs/merge-signoff.md).
 
 ## Branching
 

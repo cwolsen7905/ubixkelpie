@@ -13,7 +13,8 @@ servers that monitor code, and does that kind of work. It builds on
 - PHP namespace: **`Kelpie\`** in `php/Kelpie/` (tests: `Kelpie\Tests\` in `tests/`). "uBix" is understood.
 - Modelled on kitg (`~/git/kitg`), the reference for how an app sits on uBixCore. When unsure how
   something should look, read how kitg does it, then leave out what is specific to Sowing.me.
-- **Current state: foundation only.** Health endpoint and quality gate. No product features yet.
+- **Current state: foundation only.** `app/HelloApi` (health), `app/KelpieApi` (health, version,
+  CORS, JSON errors; no database, no auth yet) and the quality gate. No product features yet.
 
 ## Build, test, lint
 

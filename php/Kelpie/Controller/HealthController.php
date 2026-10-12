@@ -9,7 +9,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Ubix\Controller\AbstractController as Controller;
 
 /**
- * Health check controller for the HelloApi app
+ * Health check controller for the Kelpie apps
  *
  * @see \Kelpie\Tests\Controller\HealthControllerTest PHPUnit test case
  */
@@ -25,6 +25,6 @@ final class HealthController extends Controller
      */
     public function health(Request $request, Response $response): Response // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter -- Slim passes the request to every action
     {
-        return $this->renderJson($response, ['status' => 'ok', 'app' => getenv('APP_NAME') ?: 'HelloApi']);
+        return $this->renderJson($response, ['status' => 'ok', 'app' => getenv('APP_NAME') ?: 'unknown']);
     }
 }

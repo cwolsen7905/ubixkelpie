@@ -9,6 +9,7 @@ use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface as Logger;
+use TypeError;
 use Ubix\Controller\AbstractController as Controller;
 use Ubix\Enum\StatusCode;
 use Ubix\Exception\DtoException;
@@ -87,7 +88,7 @@ final class GitlabWebhookController extends Controller
             $this->logger->error('GitLab webhook: not JSON', ['error' => $e->getMessage()]);
 
             return $this->renderJson($response, ['outcome' => 'error: invalid JSON'], StatusCode::OK);
-        } catch (\TypeError $e) {
+        } catch (TypeError $e) {
             $this->logger->error('GitLab webhook: scalar body', ['error' => $e->getMessage()]);
 
             return $this->renderJson($response, ['outcome' => 'ignored: scalar body'], StatusCode::OK);

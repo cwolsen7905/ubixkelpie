@@ -51,6 +51,11 @@ they need Kelpie's namespace, hostnames and Vault paths, which are not decided.
 CI pulls uBixCore with the job token, so `ubixsys/ubixkelpie` must be on ubixcore's CI job-token
 allowlist.
 
+## Merge sign-off
+
+Approving an MR re-runs the `require-approval` job through uBixOps, which lives in uBixCore, not
+here. How to wire a repo to it: [`docs/merge-signoff.md`](docs/merge-signoff.md).
+
 ## Branching
 
 `dev` is the base branch and is MR-only. See `AGENTS-COORD.template.md` for working with several

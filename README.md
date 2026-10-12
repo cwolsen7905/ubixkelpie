@@ -33,7 +33,8 @@ composer install                # uBixCore from the GitLab Composer registry (ne
 cp .env.example .env            # local dev only; secrets belong in uBixVault
 
 php bin/ubix list               # CLI, commands auto-discovered
-php bin/ubix code:review        # phpcs + phpstan + phpunit, the same gate CI runs
+vendor/bin/phpcs && vendor/bin/phpstan && vendor/bin/phpunit   # the gate CI runs
+# (php bin/ubix code:review wraps these, but errors in its phpstan step on ubixcore 0.45.0)
 
 APP_NAME=HelloApi php -S 127.0.0.1:8080 -t public
 curl http://127.0.0.1:8080/health     # {"status":"ok","app":"HelloApi"}

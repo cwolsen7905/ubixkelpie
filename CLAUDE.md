@@ -31,7 +31,10 @@ vendor/bin/rector
 APP_NAME=HelloApi php -S 127.0.0.1:8080 -t public    # serve one app
 ```
 
-**Always run `php bin/ubix code:review` (or the three tools above) before opening an MR.**
+**Always run the gate before opening an MR.** CI runs `vendor/bin/phpcs`, `vendor/bin/phpstan` and
+`vendor/bin/phpunit`. Known issue: with ubixcore 0.45.0, `php bin/ubix code:review` dies in its
+phpstan step with "PHPStan cache is not an array" (its reader of `.phpstan.cache/resultCache.php`
+no longer matches the installed PHPStan); run the three tools directly until that is fixed upstream.
 
 ## Layout
 

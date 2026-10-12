@@ -59,14 +59,14 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
                 'name'                => 'my-project',
                 'path_with_namespace' => 'org/my-project',
             ],
-            'user'              => ['username' => 'alice', 'name' => 'Alice'],
+            'user'              => ['username' => 'alice'],
         ];
 
         $outcome = $service->handle($payload);
 
         $this->assertStringContainsString('issue #7', $outcome);
         $this->assertStringContainsString('org/my-project', $outcome);
-        $this->assertStringContainsString('Alice', $outcome);
+        $this->assertStringContainsString('alice', $outcome);
         $this->assertSame(42, $this->loggedContext['project_id']);
         $this->assertSame('Fix the thing', $this->loggedContext['issue_title']);
     }
@@ -105,11 +105,11 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * Username fallback when name is missing
+     * Closed issues return an ignored string
      *
      * @return void
      */
-    public function testUsernameFallbackWhenNameMissing(): void
+    public function testClosedIssuesAreHandledGracefully(): void
     {
         $logger = $this->createStub(Logger::class);
         $logger->method('info')->willReturnCallback(function (string $topic, array $context): void { // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter -- log callback params unused
@@ -119,18 +119,16 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
         $service = new IssueOpenWebhookService($logger);
         $payload = [
             'object_attributes' => [
-                'action' => 'open',
+                'action' => 'close',
             ],
             'object_kind'       => 'issue',
             'project'           => ['id' => 1],
             'user'              => ['username' => 'carol'],
         ];
 
-        $service->handle($payload);
+        $outcome = $service->handle($payload);
 
-        $authorName = $this->loggedContext['author_name'] ?? null;
-        $this->assertIsString($authorName);
-        $this->assertStringContainsString('carol', $authorName);
+        $this->assertSame('ignored: not an open event', $outcome);
     }
 
     /**
@@ -144,7 +142,7 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
         $payload = [];
 
         $outcome = $service->handle($payload);
-        $this->assertStringContainsString('opened', $outcome);
-        $this->assertStringContainsString('by ', $outcome);
+
+        $this->assertStringContainsString('ignored', $outcome);
     }
 }

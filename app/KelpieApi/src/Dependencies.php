@@ -4,14 +4,7 @@ declare(strict_types=1);
 
 use DI\Container;
 use DI\ContainerBuilder;
-use Kelpie\Service\Gitlab\IssueOpenWebhookService;
-use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
-use Latte\Engine;
-use Latte\Loaders\FileLoader;
-use Monolog\Handler\StreamHandler;
-use Monolog\Level;
-use Monolog\Logger as MonologLogger;
-use Monolog\Processor\UidProcessor;
+use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
@@ -71,8 +64,7 @@ return static function (): Container {
         RequestFactory::class          => get(Psr17Factory::class),
         ResponseFactory::class         => autowire(SlimResponseFactory::class),
         StreamFactory::class           => get(Psr17Factory::class),
-        NoteOnMrWebhookService::class  => autowire(),
-        IssueOpenWebhookService::class => autowire(),
+        GitlabWebhookController::class => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 
     return $container->build();

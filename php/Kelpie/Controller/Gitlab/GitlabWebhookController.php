@@ -19,8 +19,7 @@ use Ubix\Service\JsonService;
  * GitLab webhook receiver for Kelpie
  *
  * Verifies X-Gitlab-Token against GITLAB_WEBHOOK_SECRET, dispatches by
- * X-Gitlab-Event header. 👍 (Emoji Hook) is not handled here — that goes
- * upstream in uBixOps.
+ * X-Gitlab-Event header.
  *
  * @see \Kelpie\Tests\Controller\Gitlab\GitlabWebhookControllerTest PHPUnit test case
  */
@@ -63,8 +62,23 @@ final class GitlabWebhookController extends Controller
             return $this->renderJson($response, ['outcome' => 'rejected: webhook secret does not match'], StatusCode::UNAUTHORIZED);
         }
 
-        $body       = (string) $request->getBody();
-        $event      = $request->getHeaderLine('X-Gitlab-Event');
+        $body  = (string) $request->getBody();
+        $event = $request->getHeaderLine('X-Gitlab-Event');
+
+        return $this->dispatch($body, $event, $response);
+    }
+
+    /**
+     * Decode and dispatch the payload to the right handler
+     *
+     * @param string   $body     The raw payload
+     * @param string   $event    The X-Gitlab-Event header value
+     * @param Response $response The PSR response
+     *
+     * @return Response
+     */
+    private function dispatch(string $body, string $event, Response $response): Response
+    {
         $eventLower = strtolower($event);
 
         try {
@@ -73,65 +87,49 @@ final class GitlabWebhookController extends Controller
             $this->logger->error('GitLab webhook: not JSON', ['error' => $e->getMessage()]);
 
             return $this->renderJson($response, ['outcome' => 'error: invalid JSON'], StatusCode::OK);
+        } catch (\TypeError $e) {
+            $this->logger->error('GitLab webhook: scalar body', ['error' => $e->getMessage()]);
+
+            return $this->renderJson($response, ['outcome' => 'ignored: scalar body'], StatusCode::OK);
         }
 
         return match ($eventLower) {
-            'note hook' => $this->handleNote($payload, $response),
-            'issue hook' => $this->handleIssue($payload, $response),
+            'note hook' => $this->note($payload, $response),
+            'issue hook' => $this->issue($payload, $response),
             default => $this->renderJson($response, ['outcome' => 'ignored: not handled'], StatusCode::OK),
         };
     }
 
     /**
-     * Handle a Note Hook payload
-     *
-     * Only MR notes are handled; issue/wiki comments are ignored.
+     * Dispatch to the Note Hook handler
      *
      * @param array<int|string, mixed> $payload  The decoded payload
      * @param Response                 $response The PSR response
      *
      * @return Response
      */
-    private function handleNote(array $payload, Response $response): Response
+    private function note(array $payload, Response $response): Response
     {
-        $objectAttributes = is_array($payload['object_attributes'] ?? null) ? $payload['object_attributes'] : [];
-
-        $noteableType = $objectAttributes['noteable_type'] ?? '';
-
-        if ($noteableType !== 'MergeRequest') {
-            return $this->renderJson($response, ['outcome' => 'ignored: not an MR note'], StatusCode::OK);
-        }
-
         $result = $this->noteOnMrWebhookService->handle($payload);
 
-        $this->logger->info('GitLab webhook: note on MR', ['result' => $result]);
+        $this->logger->info('GitLab webhook: note', ['result' => $result]);
 
         return $this->renderJson($response, ['outcome' => $result], StatusCode::OK);
     }
 
     /**
-     * Handle an Issue Hook payload
-     *
-     * Only open actions are handled.
+     * Dispatch to the Issue Hook handler
      *
      * @param array<int|string, mixed> $payload  The decoded payload
      * @param Response                 $response The PSR response
      *
      * @return Response
      */
-    private function handleIssue(array $payload, Response $response): Response
+    private function issue(array $payload, Response $response): Response
     {
-        $objectAttributes = is_array($payload['object_attributes'] ?? null) ? $payload['object_attributes'] : [];
-
-        $action = $objectAttributes['action'] ?? '';
-
-        if ($action !== 'open') {
-            return $this->renderJson($response, ['outcome' => 'ignored: not an open event'], StatusCode::OK);
-        }
-
         $result = $this->issueOpenWebhookService->handle($payload);
 
-        $this->logger->info('GitLab webhook: issue open', ['result' => $result]);
+        $this->logger->info('GitLab webhook: issue', ['result' => $result]);
 
         return $this->renderJson($response, ['outcome' => $result], StatusCode::OK);
     }

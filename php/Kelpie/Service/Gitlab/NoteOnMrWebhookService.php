@@ -10,7 +10,7 @@ use Psr\Log\LoggerInterface as Logger;
  * Handle a Note Hook payload when the target is a merge request
  *
  * Extracts project, MR, and comment details and logs them.
- * Everything else is ignored (200, no error).
+ * Non-MR notes are ignored (returns a short string; controller answers 200).
  *
  * @see \Kelpie\Tests\Service\Gitlab\NoteOnMrWebhookServiceTest PHPUnit test case
  */
@@ -31,25 +31,28 @@ final class NoteOnMrWebhookService
      *
      * @param array<int|string, mixed> $payload The decoded webhook payload
      *
-     * @return string A human-readable outcome string
+     * @return string A human-readable outcome string (empty for ignored notes)
      */
     public function handle(array $payload): string
     {
-        $project = $payload['project'] ?? [];
-        $mr      = $payload['object_attributes'] ?? [];
-        $user    = $payload['user'] ?? [];
-        $project = is_array($project) ? $project : [];
-        $mr      = is_array($mr) ? $mr : [];
-        $user    = is_array($user) ? $user : [];
+        $project = is_array($payload['project'] ?? null) ? $payload['project'] : [];
+        $mr      = is_array($payload['merge_request'] ?? null) ? $payload['merge_request'] : [];
+        $user    = is_array($payload['user'] ?? null) ? $payload['user'] : [];
+        $oa      = is_array($payload['object_attributes'] ?? null) ? $payload['object_attributes'] : [];
 
-        $projectId      = is_int($mr['project_id'] ?? null) ? (int) $mr['project_id'] : (is_int($project['id'] ?? null) ? (int) $project['id'] : 0);
+        if (($oa['noteable_type'] ?? '') !== 'MergeRequest') {
+            return 'ignored: not an MR note';
+        }
+
+        $projectId      = is_int($mr['project_id'] ?? null) ? $mr['project_id'] : (is_int($project['id'] ?? null) ? $project['id'] : 0);
         $projectName    = is_string($project['name'] ?? null) ? $project['name'] : '';
         $projectPath    = is_string($project['path_with_namespace'] ?? null) ? $project['path_with_namespace'] : '';
-        $mrIid          = is_int($mr['iid'] ?? null) ? (int) $mr['iid'] : 0;
+        $mrIid          = is_int($mr['iid'] ?? null) ? $mr['iid'] : 0;
         $mrTitle        = is_string($mr['title'] ?? null) ? $mr['title'] : '';
         $authorUsername = is_string($user['username'] ?? null) ? $user['username'] : '';
-        $commentBody    = is_string($mr['message'] ?? null) ? $mr['message'] : '';
+        $commentBody    = is_string($oa['note'] ?? null) ? $oa['note'] : '';
 
+        // Log length only, not the text, to avoid leaking review comments into logs.
         $this->logger->info('GitLab webhook: note on MR', [
             'author_username' => $authorUsername,
             'comment_length'  => strlen($commentBody),

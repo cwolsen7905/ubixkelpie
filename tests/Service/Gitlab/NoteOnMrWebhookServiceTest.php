@@ -34,7 +34,7 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
-     * A valid MR note is extracted and logged
+     * A valid MR note is extracted from the real GitLab Note Hook shape
      *
      * @return void
      */
@@ -46,12 +46,21 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
         });
 
         $service = new NoteOnMrWebhookService($logger);
+
+        // Real GitLab Note Hook payload shape:
+        // - comment is object_attributes.note
+        // - MR details are at top-level merge_request.*
+        // - project is project.*
+        // - author is user.username
         $payload = [
+            'merge_request'     => [
+                'iid'        => 12,
+                'project_id' => 42,
+                'title'      => 'Add the feature',
+            ],
             'object_attributes' => [
-                'iid'           => 12,
-                'message'       => 'LGTM, looks good',
+                'note'          => 'LGTM, looks good',
                 'noteable_type' => 'MergeRequest',
-                'project_id'    => 42,
             ],
             'object_kind'       => 'note',
             'project'           => [
@@ -70,10 +79,11 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
         $this->assertSame(42, $this->loggedContext['project_id']);
         $this->assertSame('my-project', $this->loggedContext['project_name']);
         $this->assertSame(12, $this->loggedContext['mr_iid']);
+        $this->assertSame(16, $this->loggedContext['comment_length']);
     }
 
     /**
-     * Fallback to project-level fields when object_attributes lacks project_id
+     * Fallback to project-level fields when merge_request lacks project_id
      *
      * @return void
      */
@@ -86,8 +96,12 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
 
         $service = new NoteOnMrWebhookService($logger);
         $payload = [
+            'merge_request'     => [
+                'iid'   => 3,
+                'title' => 'WIP',
+            ],
             'object_attributes' => [
-                'iid'           => 3,
+                'note'          => 'fix it',
                 'noteable_type' => 'MergeRequest',
             ],
             'object_kind'       => 'note',
@@ -106,7 +120,7 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
-     * Non-MR notes return an empty result (they are ignored upstream)
+     * Non-MR notes return an ignored string
      *
      * @return void
      */
@@ -119,16 +133,19 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
 
         $service = new NoteOnMrWebhookService($logger);
         $payload = [
+            'merge_request'     => null,
             'object_attributes' => [
+                'note'          => 'issue comment',
                 'noteable_type' => 'Issue',
             ],
             'object_kind'       => 'note',
+            'project'           => ['id' => 1],
             'user'              => ['username' => 'carol'],
         ];
 
         $outcome = $service->handle($payload);
 
-        $this->assertStringContainsString('noted', $outcome);
+        $this->assertSame('ignored: not an MR note', $outcome);
     }
 
     /**
@@ -143,6 +160,6 @@ final class NoteOnMrWebhookServiceTest extends UbixConcreteClassOrEnumTestCase i
 
         $outcome = $service->handle($payload);
 
-        $this->assertStringContainsString('noted', $outcome);
+        $this->assertStringContainsString('ignored', $outcome);
     }
 }

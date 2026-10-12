@@ -19,7 +19,7 @@ use Slim\Exception\HttpNotFoundException;
  */
 
 return static function (App $app): void {
-    // phpcs:disable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma -- vertical alignment of route parameters
+    // phpcs:disable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma
     // Readiness target: cheap, unauthenticated, touches nothing.
     $app->map(['GET'],     '/health',         HealthController::class . ':health');
     $app->map(['GET'],     '/version',        VersionController::class . ':version');
@@ -28,7 +28,7 @@ return static function (App $app): void {
     // before CorsMiddleware adds its headers, and the browser refuses the real request.
     $app->map(['OPTIONS'], '/{routes:.*}',    PreflightController::class . ':options');
 
-    // GitLab webhook receiver: Note Hook and Issue Hook (👍 is upstream in uBixOps).
+    // GitLab webhook receiver: Note Hook and Issue Hook.
     $app->map(['POST'],    '/gitlab/webhook', GitlabWebhookController::class . ':webhook');
 
     // phpcs:enable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma

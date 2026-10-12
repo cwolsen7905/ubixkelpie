@@ -83,7 +83,6 @@ return static function (): Container {
             ->constructorParameter('apiUrl', getenv('GITLAB_API_URL') ?: '')
             ->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: '')
             ->constructorParameter('projectTokens', getenv('GITLAB_PROJECT_TOKENS') ?: '')
-            ->constructorParameter('apiToken', getenv('GITLAB_API_TOKEN') ?: '')
             ->constructorParameter('jobNames', $approvalJobNames),
         GitlabWebhookController::class => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);

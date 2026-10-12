@@ -34,11 +34,11 @@ Per project, once:
    `<projectId>=<token>`. Today tokens are per project; a project with no entry is ignored.
    Create it as a bot (the project access token's own user), not under a personal account, so
    the audit trail shows who retried the job.
- 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
-    - URL: uBixOps' `/gitlab/merge-request-hook` endpoint
-    - Secret token: uBixOps' `GITLAB_WEBHOOK_SECRET`
-    - Trigger: **Merge request events** and **Emoji events**
-    - SSL verification on
+3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
+   - URL: uBixOps' `/gitlab/merge-request-hook` endpoint
+   - Secret token: uBixOps' `GITLAB_WEBHOOK_SECRET`
+   - Trigger: **Merge request events** and **Emoji events**
+   - SSL verification on
 
    The hook's *Test → Merge request events* sends an `open` event, which uBixOps answers 200
    "ignored"; that proves the path and the secret.

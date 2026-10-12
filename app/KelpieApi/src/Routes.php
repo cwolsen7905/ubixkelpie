@@ -19,7 +19,7 @@ use Slim\Exception\HttpNotFoundException;
  */
 
 return static function (App $app): void {
-    // phpcs:disable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma
+    // phpcs:disable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma -- vertical alignment of route parameters
     // Readiness target: cheap, unauthenticated, touches nothing.
     $app->map(['GET'],     '/health',         HealthController::class . ':health');
     $app->map(['GET'],     '/version',        VersionController::class . ':version');

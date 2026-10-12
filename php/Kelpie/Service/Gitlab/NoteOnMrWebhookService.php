@@ -31,7 +31,7 @@ final class NoteOnMrWebhookService
      *
      * @param array<int|string, mixed> $payload The decoded webhook payload
      *
-     * @return string A human-readable outcome string (empty for ignored notes)
+     * @return string A human-readable outcome string (an 'ignored: ...' reason when the note is skipped)
      */
     public function handle(array $payload): string
     {

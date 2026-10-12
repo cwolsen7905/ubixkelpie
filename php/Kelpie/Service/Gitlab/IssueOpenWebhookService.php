@@ -31,7 +31,7 @@ final class IssueOpenWebhookService
      *
      * @param array<int|string, mixed> $payload The decoded webhook payload
      *
-     * @return string A human-readable outcome string (empty for ignored issues)
+     * @return string A human-readable outcome string (an 'ignored: ...' reason when the issue is skipped)
      */
     public function handle(array $payload): string
     {

@@ -8,6 +8,9 @@ ARG BASE_IMAGE=ghcr.io/ubixsys/ubixcore-php:8.5
 FROM ${BASE_IMAGE}
 ARG APP_NAME=HelloApi
 ENV APP_NAME=${APP_NAME}
+# The commit SHA, passed by CI; served by KelpieApi's /version.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=${APP_VERSION}
 
 USER root
 RUN apk add --no-cache git && mkdir -p /web && chown -R www:www /web && chmod -R 0755 /web

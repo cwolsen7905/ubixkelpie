@@ -69,6 +69,7 @@ build:
       printf '{"gitlab-token":{"%s":{"username":"gitlab-ci-token","token":"%s"}}}' "$CI_SERVER_HOST" "$CI_JOB_TOKEN" > "$AUTH_FILE"
       docker buildx build --pull --provenance=false --sbom=false --platform linux/amd64 --push \
         --secret id=composer_auth,src="$AUTH_FILE" \
+        --build-arg APP_VERSION="$CI_COMMIT_SHA" \
         -t "$RUNTIME_SHA_REF" -f Dockerfile .
       docker buildx build --provenance=false --sbom=false --platform linux/amd64 --push \
         --build-arg RUNTIME_IMAGE="$RUNTIME_SHA_REF" \

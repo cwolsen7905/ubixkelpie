@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<ruleset name="App">
+    <!-- The uBixCore coding standard ships in the framework package -->
+    <config name="installed_paths" value="vendor/ubixsys/ubixcore/php/Ubix,vendor/slevomat/coding-standard" />
+    <rule ref="Ubix" />
+
+    <file>app</file>
+    <file>bin</file>
+    <file>php</file>
+    <file>public</file>
+    <file>tests</file>
+
+    <arg name="bootstrap" value="vendor/autoload.php" />
+    <arg name="parallel" value="4" />
+    <arg name="cache" value=".phpcs.cache" />
+    <arg name="filter" value="vendor/ubixsys/ubixcore/php/Ubix/Filters/ExtensionlessPhpScriptsFilter.php" />
+    <arg name="extensions" value="php" />
+
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/.svelte-kit/*</exclude-pattern>
+</ruleset>

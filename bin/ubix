@@ -1,0 +1,25 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * CLI entry point for this uBixCore host project
+ *
+ * Thin by design: everything lives in the framework's `Ubix\Bootstrap` functions
+ * (installed by Composer). The host owns this file and the values below: an
+ * optional CLI container file and which namespaces hold commands.
+ */
+
+use function Ubix\Bootstrap\console;
+use function Ubix\Bootstrap\environment;
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+environment(dirname(__DIR__));
+
+console(
+    dependenciesFile:  null, // The framework default; pass your own app/UbixCli/src/Dependencies.php to add bindings
+    commandNamespaces: ['Ubix\\Console\\Command', 'Kelpie\\Console\\Command'],
+    argv:              $argv ?? [],
+)->run();

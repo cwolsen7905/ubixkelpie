@@ -1,0 +1,33 @@
+.DS_Store
+**/.DS_Store
+.phpcs.cache
+.phpcs.cache/*
+.phpdoc
+.phpdoc/*
+.phpstan.cache
+.phpstan.cache/*
+.phpunit.cache
+.phpunit.cache/*
+.phpunit.result.cache
+.phpunit.cache
+.idea
+coverage
+coverage/*
+log
+log/*
+vendor
+vendor/*
+var
+*.log
+db
+.env
+.env_*
+
+# Never commit rendered k8s Secret manifests (use Vault / sealed-secrets)
+config/devops/*-secret.yaml
+
+# Per-session agent worktrees; never part of the repo
+.claude/worktrees/
+
+# Live multi-agent coordination state: per-sandbox, never pushed (AGENTS-COORD.template.md)
+AGENTS-COORD.md

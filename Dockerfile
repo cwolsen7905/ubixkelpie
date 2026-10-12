@@ -23,7 +23,10 @@ COPY --chown=www app/       /web/app/
 COPY --chown=www bin/       /web/bin/
 COPY --chown=www sql/       /web/sql/
 
-RUN composer install --working-dir=/web/ --no-dev --no-interaction --prefer-dist --no-progress \
+# auth.json for the private ubixsys Composer registry is a BuildKit secret: used for
+# this step only, never written into a layer. See .gitlab-ci.yml (build).
+RUN --mount=type=secret,id=composer_auth,target=/web/auth.json,uid=1000 \
+    composer install --working-dir=/web/ --no-dev --no-interaction --prefer-dist --no-progress \
  && mkdir -p /web/var/cache/latte /web/log && chmod -R 777 /web/var /web/log
 
 EXPOSE 8080

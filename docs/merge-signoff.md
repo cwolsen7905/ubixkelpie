@@ -128,7 +128,7 @@ secrets fails the deploy and stops promotion.
 
 ## Requires
 
-uBixCore v0.46.0 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback
+uBixCore v0.46.1 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback
 `apiToken` and skip-if-passed, and `VAULT_DB_STRATEGY=none` lets Kelpie start without a
 database (set in `app/KelpieApi/k8s/<env>-deploy.yaml`; the app's own secrets are still read
 from `VAULT_APP_KV_PATH`).
@@ -136,3 +136,6 @@ from `VAULT_APP_KV_PATH`).
 ## Limits
 
 - A job on a pipeline other than the MR's head pipeline is not touched.
+- A 👍 (`thumbsup`) on the merge request starts the sign-off job, like an Approve. This needs
+  uBixCore v0.46.1: GitLab 19.4.2 sends the emoji event's type at the top level
+  (`event_type`), which v0.46.0 did not read.

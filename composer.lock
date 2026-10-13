@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7e77b454a998656c38101a5a8878d320",
+    "content-hash": "58b4b8eaa126c74833d1fcf5030f0fd1",
     "packages": [
         {
             "name": "akrabat/proxy-detection-middleware",
@@ -5001,16 +5001,16 @@
         },
         {
             "name": "ubixsys/ubixcore",
-            "version": "v0.46.0",
+            "version": "v0.46.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/ubixsys/ubixcore.git",
-                "reference": "bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4"
+                "reference": "6874f5a863eba3c15c0a3df81f089cc72fb6b700"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ubixsys/ubixcore/zipball/bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4",
-                "reference": "bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4",
+                "url": "https://api.github.com/repos/ubixsys/ubixcore/zipball/6874f5a863eba3c15c0a3df81f089cc72fb6b700",
+                "reference": "6874f5a863eba3c15c0a3df81f089cc72fb6b700",
                 "shasum": ""
             },
             "require": {
@@ -5086,9 +5086,9 @@
             "description": "uBix Core - The last repo!",
             "support": {
                 "issues": "https://github.com/ubixsys/ubixcore/issues",
-                "source": "https://github.com/ubixsys/ubixcore/tree/v0.46.0"
+                "source": "https://github.com/ubixsys/ubixcore/tree/v0.46.1"
             },
-            "time": "2026-10-12T21:08:57+00:00"
+            "time": "2026-10-13T15:00:20+00:00"
         },
         {
             "name": "vlucas/phpdotenv",

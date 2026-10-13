@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8fc0014b6065b55b3a0aabd7dd55ab1f",
+    "content-hash": "7e77b454a998656c38101a5a8878d320",
     "packages": [
         {
             "name": "akrabat/proxy-detection-middleware",
@@ -5001,16 +5001,16 @@
         },
         {
             "name": "ubixsys/ubixcore",
-            "version": "0.45.0",
+            "version": "v0.46.0",
             "source": {
                 "type": "git",
-                "url": "git@gitlab.brainchurts.com:ubixsys/ubixcore.git",
-                "reference": "54c261c805351aa58956bd6117318e011262e985"
+                "url": "https://github.com/ubixsys/ubixcore.git",
+                "reference": "bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://gitlab.brainchurts.com/api/v4/projects/49/packages/composer/archives/ubixsys/ubixcore.zip?sha=54c261c805351aa58956bd6117318e011262e985",
-                "reference": "54c261c805351aa58956bd6117318e011262e985",
+                "url": "https://api.github.com/repos/ubixsys/ubixcore/zipball/bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4",
+                "reference": "bf0af6677edaa7b2a7de539ecec6b5125d0d6cc4",
                 "shasum": ""
             },
             "require": {
@@ -5073,6 +5073,7 @@
                     "PHP_CodeSniffer\\": "vendor/squizlabs/php_codesniffer/src/"
                 }
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "BSD-3-Clause"
             ],
@@ -5082,7 +5083,12 @@
                     "email": "cwolsen@uBixSys.com"
                 }
             ],
-            "description": "uBix Core - The last repo!"
+            "description": "uBix Core - The last repo!",
+            "support": {
+                "issues": "https://github.com/ubixsys/ubixcore/issues",
+                "source": "https://github.com/ubixsys/ubixcore/tree/v0.46.0"
+            },
+            "time": "2026-10-12T21:08:57+00:00"
         },
         {
             "name": "vlucas/phpdotenv",

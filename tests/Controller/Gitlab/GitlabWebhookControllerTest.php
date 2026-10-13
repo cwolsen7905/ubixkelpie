@@ -379,7 +379,25 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * Emoji events that are not a sign-off are ignored, and nothing is sent
+     * A thumbs-up on a merge request counts the same as an Approve
+     *
+     * @return void
+     */
+    public function testAThumbsUpOnAMergeRequestRetriesTheJob(): void
+    {
+        $reply = $this->deliver('Emoji Hook', $this->encode([
+            'merge_request'     => ['iid' => 3],
+            'object_attributes' => ['action' => 'award', 'awardable_type' => 'MergeRequest', 'name' => 'thumbsup'],
+            'object_kind'       => 'emoji',
+            'project'           => ['id' => 7],
+        ]));
+
+        $this->assertStringContainsString('retried: job 12', $reply);
+        $this->assertContains('POST /api/v4/projects/7/jobs/12/retry', $this->sent);
+    }
+
+    /**
+     * Another emoji, or a thumbs-up on something that is not a merge request, does nothing
      *
      * @return void
      */
@@ -544,6 +562,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             'https://gitlab.example.com/api/v4',
             $secret,
             '7=project-token',
+            '',
             ['require-approval', 'require-approval-mr'],
         );
 

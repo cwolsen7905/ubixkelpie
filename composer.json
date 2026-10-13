@@ -5,15 +5,9 @@
     "license": "BSD-3-Clause",
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "repositories": [
-        {
-            "type": "composer",
-            "url": "https://gitlab.brainchurts.com/api/v4/group/26/-/packages/composer/packages.json"
-        }
-    ],
     "require": {
         "php": "^8.5",
-        "ubixsys/ubixcore": "^0.45"
+        "ubixsys/ubixcore": "^0.46"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.1",
@@ -37,10 +31,7 @@
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "php-http/discovery": true
         },
-        "sort-packages": true,
-        "gitlab-domains": [
-            "gitlab.brainchurts.com"
-        ]
+        "sort-packages": true
     },
     "scripts": {
         "post-create-project-cmd": [

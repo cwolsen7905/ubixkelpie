@@ -53,6 +53,9 @@ spec:
         # Bound to namespace kelpie-staging; created by ubixvault configure.sh (kubernetes repo).
         - name: VAULT_K8S_ROLE
           value: "kelpie-staging"
+        # Kelpie has no database: skip the DB secret read, still hydrate VAULT_APP_KV_PATH.
+        - name: VAULT_DB_STRATEGY
+          value: "none"
         # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, APPROVAL_JOB_NAMES.
         # uBixVault fails closed on a missing path or key, so the pod never goes
         # ready without them and the deploy's rollout wait fails.

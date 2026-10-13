@@ -18,12 +18,13 @@ in `CLAUDE.md`. Reference: uBixCore `docs/architecture/ubix-ops.md` and
 
 1. A wrong or missing `X-Gitlab-Token` is refused with 401. Everything else is answered 200,
    so GitLab never disables the hook.
-2. `Merge Request Hook` with action `approval` / `approved` / `unapproval` / `unapproved`
-   goes to `ApprovalWebhookService`. `Emoji Hook` is routed there too, but the pinned uBixCore
-   (v0.45.0) does not act on it yet (see Limits). Anything else is answered 200 and ignored.
+2. `Merge Request Hook` with action `approval` / `approved` / `unapproval` / `unapproved`, and
+   `Emoji Hook` with a `thumbsup` awarded or revoked on a merge request, go to
+   `ApprovalWebhookService`. Anything else is answered 200 and ignored.
 3. It reads the MR's head pipeline, finds the newest job named in `APPROVAL_JOB_NAMES` (default
-   `require-approval`, `require-approval-mr`) and retries that one job. A job already queued or
-   running is left alone. It never creates a pipeline.
+   `require-approval`, `require-approval-mr`) and retries that one job (plays it if it is
+   manual). A job already queued or running is left alone, and an already-passed job is left
+   alone unless the sign-off was withdrawn. It never creates a pipeline.
 4. A GitLab failure is logged and still answered 200.
 
 The same endpoint also takes `Note Hook` (on merge requests) and `Issue Hook` (open); those
@@ -48,9 +49,10 @@ All from the environment (filled from uBixVault in deployment; nothing is commit
 | `GITLAB_WEBHOOK_SECRET` | The webhook's secret token; empty refuses everything |
 | `GITLAB_API_URL` | GitLab API v4 base, e.g. `https://gitlab.example.com/api/v4` |
 | `GITLAB_PROJECT_TOKENS` | `projectId=token,projectId=token`: Developer role, `api` scope |
+| `GITLAB_API_TOKEN` | Optional fallback for a project with no entry above (e.g. a group token) |
 | `APPROVAL_JOB_NAMES` | Optional, comma-separated sign-off job names |
 
-A project with no token is ignored. Create tokens as a bot (the project
+A project with no token (and no fallback) is ignored. Create tokens as a bot (the project
 access token's own user), not under a personal account, so the audit trail shows who retried.
 
 ## Wiring a project to Kelpie
@@ -82,8 +84,7 @@ been answered 200, remove the old uBixOps hook from every project that now point
 
 A group-level hook would cover every project with one entry, but group webhooks are a
 paid-tier GitLab feature. Confirm the instance's tier; without it, add the hook per project.
-uBixCore's fallback-token support (one group-scoped token) is unreleased; until then each
-project needs its own entry in `GITLAB_PROJECT_TOKENS`.
+`GITLAB_API_TOKEN` accepts one group-scoped token as the fallback.
 
 ## Where it runs
 
@@ -125,13 +126,13 @@ secrets fails the deploy and stops promotion.
 - The runner's `~/.kube/devstageconfig` (or `KELPIE_KUBECONFIG`) must be able to apply into
   the three namespaces.
 
+## Requires
+
+uBixCore v0.46.0 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback
+`apiToken` and skip-if-passed, and `VAULT_DB_STRATEGY=none` lets Kelpie start without a
+database (set in `app/KelpieApi/k8s/<env>-deploy.yaml`; the app's own secrets are still read
+from `VAULT_APP_KV_PATH`).
+
 ## Limits
 
-- **👍 does not trigger a retry yet.** uBixCore v0.45.0's `ApprovalWebhookService` has no emoji
-  handling. It is merged on uBixCore `main` (together with the fallback token, playing a
-  manual job and skipping an already-passed job) but untagged. When it is released: bump the
-  pin, add `GITLAB_API_TOKEN` to the service wiring in `app/KelpieApi/src/Dependencies.php`
-  (a new constructor argument) and add the thumbs-up tests. Until then, retry the job by hand
-  after a 👍.
-- On v0.45.0 an already-successful job is retried too (harmless, noisy), and a manual job is
-  not played.
+- A job on a pipeline other than the MR's head pipeline is not touched.

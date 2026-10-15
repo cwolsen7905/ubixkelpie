@@ -1,0 +1,18 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Kelpie\Enum;
+
+/**
+ * What triage decided about one review thread (docs/design/mr-thread-autofix.md, section 2)
+ *
+ * @see \Kelpie\Tests\Enum\TriageClassTest PHPUnit test case
+ */
+enum TriageClass: string
+{
+    case Fix          = 'fix';
+    case NeedsHuman   = 'needs_human';
+    case NotAnIssue   = 'not_an_issue';
+    case AlreadyFixed = 'already_fixed';
+}

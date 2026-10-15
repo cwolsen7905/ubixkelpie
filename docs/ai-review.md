@@ -77,9 +77,15 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
 3. Over the size cap, or past the round cap without the label: posts a note and stops.
 4. Runs OpenCode (`opencode run`) in a container with the repo mounted **read-only** and
    only `read`, `grep` and `glob` allowed (no shell, edit or web). The GitLab token is not
-   in OpenCode's environment.
+   in OpenCode's environment. The container runs as the runner's own uid/gid on a cached
+   tools image (`ai-review-tools:<hash>`, built once per image + opencode version), so
+   nothing it writes is root-owned and the job's workdir is removed by plain `rm`.
 5. Validates the reply with `jq` (one retry on bad JSON). Two failures: UNREVIEWED, exit 75.
-6. Posts one thread per new finding and one summary note, replaced on every push.
+6. Posts one inline thread per new finding (a plain thread if GitLab refuses the position;
+   the reason is in the job log) and one summary note, replaced on every push. A finding
+   already open or dismissed is matched by its id or by file + title, so a reworded slug does
+   not duplicate it. Open threads the run no longer reports are listed in the summary; they
+   are never resolved automatically.
 
 Output schema: `{verdict, summary, findings:[{severity, confidence, file, line, title,
 why, fingerprint}]}`; see `ci/ai-review/prompt.md`.
@@ -123,6 +129,10 @@ GitLab. Needs `bash`, `jq`, `curl`, `git` and, for a real model, `opencode` and
 `OPENROUTER_API_KEY`.
 
 ## Notes
+
+- **A job retry reuses the pipeline's old CI config.** After changing `ai-review.yml` (or
+  the include ref), verify with a new push, not a retry; `review.sh` itself is fetched fresh
+  at `AI_REVIEW_REF` on every run.
 
 - Findings are only as good as the model. Advisory mode exists so a pilot can measure noise
   before anything can block a merge.

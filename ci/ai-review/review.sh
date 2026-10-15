@@ -65,7 +65,10 @@ gl() {
   fi
   local args=(-sS --fail-with-body --retry 2 --max-time 30 -X "$method" -H "PRIVATE-TOKEN: $TOKEN")
   [ -n "$data" ] && args+=(-H 'Content-Type: application/json' --data "$data")
-  curl "${args[@]}" "$API$path"
+  # /user is not under the MR.
+  local url="$API$path"
+  [ "$path" = /user ] && url="${CI_API_V4_URL:-}/user"
+  curl "${args[@]}" "$url"
 }
 
 # Guards against GitLab quick actions in model- or diff-derived text: a line that starts
@@ -181,15 +184,32 @@ if [ "$ROUND" -gt "$MAX_ROUNDS" ] && [[ ",${LABELS// /}," != *",$EXTRA_LABEL,"* 
   exit 0
 fi
 
-# Fingerprints already on the MR, split by whether a person dismissed them.
-# Marker format on a finding thread: <!-- ai-review:fp=<12 hex> -->
-OPEN_FPS=$(jq -r '[.[] | select(.notes[0].body | contains("<!-- ai-review:fp=")) |
-  select([.notes[]? | .resolved] | all(. != true)) |
-  .notes[0].body | capture("ai-review:fp=(?<f>[0-9a-f]+)").f] | unique | .[]' <<<"$DISC")
-DISMISSED_FPS=$(jq -r --argjson bot "$BOT_ID" '[.[] | select(.notes[0].body | contains("<!-- ai-review:fp=")) |
-  select([.notes[]? | .resolved] | any(. == true)) |
-  select([.notes[1:][]? | select((.author.id // 0) != $bot) | .body | test("^\\s*Dismissed:"; "i")] | any) |
-  .notes[0].body | capture("ai-review:fp=(?<f>[0-9a-f]+)").f] | unique | .[]' <<<"$DISC")
+# Finding threads already on the MR. Marker format on a finding thread:
+# <!-- ai-review:fp=<12 hex> -->. Rows are "fp<TAB>file<TAB>title", parsed back out of the
+# thread body so the model can be told what was raised in words, not hashes.
+# thread_rows open|dismissed
+# Open means no resolved note; dismissed means resolved with a person's `Dismissed:` reply.
+thread_rows() {
+  jq -r --arg want "$1" --argjson bot "$BOT_ID" '
+    def state:
+      if ([.notes[]? | .resolved] | all(. != true)) then "open"
+      elif ([.notes[1:][]? | select((.author.id // 0) != $bot) | .body | test("^\\s*Dismissed:"; "i")] | any)
+      then "dismissed" else "resolved" end;
+    [.[] | select(.notes[0].body | contains("<!-- ai-review:fp=")) | select(state == $want)
+      | .notes[0].body as $b
+      | [ ($b | capture("ai-review:fp=(?<f>[0-9a-f]+)").f),
+          ([$b | capture("`(?<p>[^`:]+):[0-9]+`").p][0] // ""),
+          ([$b | capture("\\): (?<t>[^\n]+)").t][0] // "") ] | join("\t")]
+    | unique | .[]' <<<"$DISC"
+}
+OPEN_ROWS=$(thread_rows open)
+DISMISSED_ROWS=$(thread_rows dismissed)
+OPEN_FPS=$(cut -f1 <<<"$OPEN_ROWS")
+DISMISSED_FPS=$(cut -f1 <<<"$DISMISSED_ROWS")
+# file|lowercased title, for matching when the model words the issue's slug differently.
+row_keys() { awk -F'\t' 'NF >= 3 && $3 != "" { print $2 "|" tolower($3) }' <<<"$1"; }
+OPEN_KEYS=$(row_keys "$OPEN_ROWS")
+DISMISSED_KEYS=$(row_keys "$DISMISSED_ROWS")
 
 # --- Size guard -----------------------------------------------------------------------
 
@@ -233,7 +253,9 @@ CONTEXT="$WORK/context.md"
   done < <(repo_ls | grep -E '^(CLAUDE\.md|AGENTS\.md|CONTRIBUTING\.md|\.ai-review\.md|docs/standards/.+\.md)$' | sort)
   [ "$found" = 1 ] || printf '(none found)\n\n'
   printf '# Already raised on this MR (do not report again)\n\n'
-  { printf '%s\n%s\n' "$OPEN_FPS" "$DISMISSED_FPS"; } | grep -v '^$' | sed 's/^/- /' || true
+  { awk -F'\t' 'NF { printf "- %s: %s (open)\n", $2, ($3 != "" ? $3 : $1) }' <<<"$OPEN_ROWS"
+    awk -F'\t' 'NF { printf "- %s: %s (dismissed by a person; do not raise again)\n", $2, ($3 != "" ? $3 : $1) }' <<<"$DISMISSED_ROWS"
+  } || true
   printf '\n# Diff\n\n```diff\n'
   cat "$DIFF"
   printf '\n```\n'
@@ -307,20 +329,33 @@ jq . <<<"$RESULT"
 
 POSITION_JSON='null'
 if [ "$DRY" = 0 ]; then
-  POSITION_JSON=$(gl GET "/versions" 2>/dev/null | jq -ce '.[0] | {base_sha, start_sha, head_sha}' 2>/dev/null | head -n1)
-  [[ $POSITION_JSON == \{* ]] || POSITION_JSON=null
+  # The versions API names these base_commit_sha / start_commit_sha / head_commit_sha.
+  POSITION_JSON=$(gl GET "/versions" 2>/dev/null | jq -ce '.[0] |
+    {base_sha: .base_commit_sha, start_sha: .start_commit_sha, head_sha: .head_commit_sha} |
+    select(all(.[]; type == "string" and length > 0))' 2>/dev/null | head -n1)
+  [[ $POSITION_JSON == \{* ]] || { log "could not read the MR diff version; threads will not be inline"; POSITION_JSON=null; }
 fi
 
+SEEN_IDS="$WORK/seen-ids.txt" SEEN_KEYS="$WORK/seen-keys.txt"
+: >"$SEEN_IDS" && : >"$SEEN_KEYS"
 posted=0 skipped_open=0 skipped_dismissed=0 failed=0 blocking=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   id=$(jq -r .id <<<"$f")
   sev=$(jq -r .severity <<<"$f")
-  if grep -qx "$id" <<<"$DISMISSED_FPS"; then skipped_dismissed=$((skipped_dismissed + 1)); continue; fi
+  # The same issue under another slug on a rerun is matched by file and title.
+  key=$(jq -r '.file + "|" + (.title | ascii_downcase)' <<<"$f")
+  printf '%s\n' "$id" >>"$SEEN_IDS"
+  if grep -qx "$id" <<<"$DISMISSED_FPS" || grep -qxF -- "$key" <<<"$DISMISSED_KEYS"; then
+    skipped_dismissed=$((skipped_dismissed + 1)); continue
+  fi
   if [ "$sev" = blocker ] || [ "$sev" = major ]; then
     [ "$(jq -r .confidence <<<"$f")" = high ] && blocking=$((blocking + 1))
   fi
-  if grep -qx "$id" <<<"$OPEN_FPS"; then skipped_open=$((skipped_open + 1)); continue; fi
+  if grep -qx "$id" <<<"$OPEN_FPS" || grep -qxF -- "$key" <<<"$OPEN_KEYS"; then
+    printf '%s\n' "$key" >>"$SEEN_KEYS"
+    skipped_open=$((skipped_open + 1)); continue
+  fi
 
   body=$(jq -r '"**" + .severity + "** (" + .confidence + " confidence): " + .title +
     "\n\n`" + .file + ":" + (.line | tostring) + "`\n\n" + .why +
@@ -336,14 +371,27 @@ while IFS= read -r f; do
   payload=$(jq -n --arg b "$body" --arg file "$file" --argjson line "$line" --argjson pos "$POSITION_JSON" '
     {body: $b} + (if $pos != null and $line > 0 then
       {position: ($pos + {position_type: "text", new_path: $file, old_path: $file, new_line: $line})} else {} end)')
-  # A line outside the diff is refused by GitLab; fall back to a plain thread.
-  if gl POST /discussions "$payload" >/dev/null 2>&1 ||
-    gl POST /discussions "$(jq -n --arg b "$body" '{body: $b}')" >/dev/null; then
+  # A line outside the diff is refused by GitLab; fall back to a plain thread, and say why.
+  if resp=$(gl POST /discussions "$payload" 2>&1); then
+    ok=1
+  else
+    log "inline thread for $file:$line refused, posting a plain thread: $(head -c 300 <<<"$resp")"
+    gl POST /discussions "$(jq -n --arg b "$body" '{body: $b}')" >/dev/null && ok=1 || ok=0
+  fi
+  if [ "$ok" = 1 ]; then
     posted=$((posted + 1))
   else
     failed=$((failed + 1))
   fi
 done <"$FINDINGS"
+
+# Open threads of ours whose finding this run no longer reports. They are listed, never
+# resolved: the model is not deterministic, so a person decides whether they are fixed.
+STALE=$(awk -F'\t' 'NF >= 3' <<<"$OPEN_ROWS" | while IFS=$'\t' read -r sfp sfile stitle; do
+  grep -qx "$sfp" "$SEEN_IDS" && continue
+  grep -qxF -- "$sfile|$(tr '[:upper:]' '[:lower:]' <<<"$stitle")" "$SEEN_KEYS" && continue
+  printf -- "- \`%s\`: %s\n" "$sfile" "$stitle"
+done)
 
 counts=$(jq -r '[.findings[].severity] | group_by(.) | map("\(length) \(.[0])") | join(", ")' <<<"$RESULT")
 {
@@ -352,6 +400,11 @@ counts=$(jq -r '[.findings[].severity] | group_by(.) | map("\(length) \(.[0])") 
   jq -r .summary <<<"$RESULT" | neutralize
   echo
   echo "Findings: ${counts:-none}. New threads: $posted. Already open: $skipped_open. Dismissed: $skipped_dismissed."
+  if [ -n "$STALE" ]; then
+    echo
+    echo "Open threads this run no longer reports (fixed? resolve them if so):"
+    printf '%s\n' "$STALE" | neutralize
+  fi
   echo
   echo "_Model \`$MODEL\` on \`${HEAD_SHA:0:8}\`. Beside \`code:review\`, not instead of it. Resolve a thread with \`Dismissed: <reason>\` to override a finding._"
 } >"$WORK/summary.md"

@@ -29,6 +29,10 @@ CI_MERGE_REQUEST_LABELS="a,review:extra" CI_COMMIT_SHA=def AI_REVIEW_MAX_ROUNDS=
   run --diff "$sample" --canned "$ok" --existing "$existing"
 ! has 'round limit reached'; expect "review:extra label lifts the cap" $?
 
+# The real model path, with a stub that parses arguments like opencode (prompt vs --file).
+PATH="$here/bin:$PATH" STUB_REPLY="$ok" run --diff "$sample"
+[ "$rc" = 0 ] && has 'would open a thread'; expect "opencode call: prompt and --file arrive as the CLI parses them" $?
+
 run --diff "$sample" --canned "$here/canned-bad.txt"
 [ "$rc" = 75 ]; expect "bad model JSON exits 75" $?
 has 'UNREVIEWED'; expect "bad model JSON posts UNREVIEWED" $?

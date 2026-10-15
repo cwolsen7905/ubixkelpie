@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Stand-in for `opencode run` that parses its arguments like the real CLI (yargs): --file is
+# an array option, so every positional after it is taken as another file. Emits the canned
+# reply as a JSON event stream.
+[ "${1:-}" = run ] || { echo "stub: expected 'run'" >&2; exit 2; }
+shift
+msg=() files=() infile=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --format | --model) shift 2; infile=0; continue ;;
+    --file | -f) infile=1; shift; continue ;;
+    -*) infile=0 ;;
+    *) if [ "$infile" = 1 ]; then files+=("$1"); else msg+=("$1"); fi ;;
+  esac
+  shift
+done
+for f in "${files[@]}"; do
+  [ -f "$f" ] || { echo "Error: File not found: ${f:0:60}" >&2; exit 1; }
+done
+[ "${#msg[@]}" -ge 1 ] || { echo "Error: no message" >&2; exit 1; }
+jq -cn --rawfile t "$STUB_REPLY" '{type: "text", part: {text: $t}}'

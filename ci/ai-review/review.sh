@@ -162,7 +162,10 @@ if [ "$DRY" = 0 ] || [ -n "$EXISTING_FILE" ]; then
 fi
 BOT_ID=0
 [ "$DRY" = 0 ] && BOT_ID=$(gl GET /user 2>/dev/null | jq -r '.id // 0' 2>/dev/null || echo 0)
-BOT_ID=${BOT_ID:-0}
+# --argjson needs one JSON number: an error body, a retry's repeated body or an empty reply
+# must not reach it.
+BOT_ID=$(head -n1 <<<"$BOT_ID")
+[[ $BOT_ID =~ ^[0-9]+$ ]] || BOT_ID=0
 
 prev=$(jq -r '[.[].notes[]? | select(.body | startswith("<!-- ai-review:summary"))][0] // empty |
   [.id, (.body | capture("round=(?<r>[0-9]+) sha=(?<s>[0-9a-f]+)") | .r + " " + .s)] | join(" ")' <<<"$DISC")
@@ -270,9 +273,10 @@ run_model() { # $1 = extra instruction, appended on a retry
   local prompt out
   prompt=$(cat "$SELF_DIR/prompt.md")$'\n\n'"$1"
   if [ -n "$CANNED" ]; then cat "$CANNED"; return 0; fi
-  # The GitLab token is deliberately not in the environment OpenCode runs in.
+  # The GitLab token is deliberately not in the environment OpenCode runs in. --file is an
+  # array option and swallows any positional after it, so the prompt goes first.
   out=$(cd "$REPO" && env -u AI_REVIEW_GITLAB_TOKEN timeout "$TIMEOUT" \
-    opencode run --format json --model "$MODEL" --file "$CONTEXT" "$prompt") || return 1
+    opencode run --format json --model "$MODEL" "$prompt" --file "$CONTEXT") || return 1
   jq -rs '[.[] | select(.type == "text") | (.part.text // .text // "")] | join("")' <<<"$out" 2>/dev/null || echo "$out"
 }
 
@@ -303,7 +307,8 @@ jq . <<<"$RESULT"
 
 POSITION_JSON='null'
 if [ "$DRY" = 0 ]; then
-  POSITION_JSON=$(gl GET "/versions" | jq -c '.[0] | {base_sha, start_sha, head_sha}' 2>/dev/null || echo null)
+  POSITION_JSON=$(gl GET "/versions" 2>/dev/null | jq -ce '.[0] | {base_sha, start_sha, head_sha}' 2>/dev/null | head -n1)
+  [[ $POSITION_JSON == \{* ]] || POSITION_JSON=null
 fi
 
 posted=0 skipped_open=0 skipped_dismissed=0 failed=0 blocking=0
@@ -326,7 +331,8 @@ while IFS= read -r f; do
     posted=$((posted + 1))
     continue
   fi
-  file=$(jq -r .file <<<"$f") line=$(jq -r .line <<<"$f")
+  file=$(jq -r .file <<<"$f") line=$(jq -r '.line | floor | tostring' <<<"$f")
+  [[ $line =~ ^[0-9]+$ ]] || line=0
   payload=$(jq -n --arg b "$body" --arg file "$file" --argjson line "$line" --argjson pos "$POSITION_JSON" '
     {body: $b} + (if $pos != null and $line > 0 then
       {position: ($pos + {position_type: "text", new_path: $file, old_path: $file, new_line: $line})} else {} end)')

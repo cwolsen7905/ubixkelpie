@@ -114,7 +114,7 @@ ai-review-tests:
   timeout: 10 minutes
   script:
     - |
-      docker run --rm -v "$PWD:/src:ro" --workdir /src alpine:3.22 sh -c \
+      docker run --rm -v "$PWD:/src" --workdir /src alpine:3.22 sh -c \
         "set -e && apk add --no-cache bash jq curl git coreutils shellcheck >/dev/null \
          && git config --global --add safe.directory /src \
          && shellcheck ci/ai-review/review.sh ci/ai-review/test/run-tests.sh \

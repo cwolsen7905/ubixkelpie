@@ -146,6 +146,14 @@ carries a fresh claim from anyone; Shepherd is asked (via ask_shepherd) to honou
 
 Steps 1-5 are safe to ship before any push capability exists.
 
+**Step 5 as built** (`kelpie:respond <mr>`, run by hand; no worker calls it yet). Per thread: skip if
+Kelpie already replied and nobody has written since; claim it (`kelpie:claim` note, 30 minute TTL,
+oldest claim wins a race) and put `kelpie::working` on the MR; triage; `needs_human` gets a reply and
+the `kelpie::needs-human` label, `not_an_issue` a reply; `fix` and `already_fixed` post nothing until
+steps 6 and 7; release the claim and the working label. The job table is not touched yet: the worker
+that ties jobs to this arrives with step 6. Writes go through `BotHttpClient` (GET/POST/PUT only,
+`KELPIE_BOT_GITLAB_TOKEN`), and only for projects in `KELPIE_AUTOFIX_PROJECTS`.
+
 ## 8. Decisions
 
 All eight were put to the person with a recommendation; they took all eight, decided 2026-10-15.

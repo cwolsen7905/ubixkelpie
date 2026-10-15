@@ -1,7 +1,7 @@
 # MR thread autofix
 
-**Status:** Proposal (design only, no code). **Date:** 2026-10-15. **Owner:** the person decides
-the open questions in section 8.
+**Status:** Decided (design only, no code). **Date:** 2026-10-15. The person accepted all eight
+recommendations on 2026-10-15; they are recorded in section 8.
 
 Goal, in the person's words: Kelpie gets notified when there are issues that need resolution,
 uses AI to triage whether it can safely fix them, and if so fixes them, pushes onto the same
@@ -23,7 +23,7 @@ MR pipeline.
 | CI job after ai-review | No new service | Only sees AI threads, runs before humans comment, every repo must include it, runs inside the pipeline it would re-trigger |
 | Schedule | Simple, self-healing | Latency; wasteful polling |
 
-**Recommend the webhook**, with a scheduled sweep (every 15 min over open MRs with unresolved
+**Decision: the webhook**, with a scheduled sweep (every 15 min over open MRs with unresolved
 threads) as a safety net for lost deliveries. Both feed the same entry point, so the sweep adds no
 second code path.
 
@@ -94,11 +94,10 @@ violating any one downgrades to `needs_human`):
 Reply in the thread (never a top-level note), e.g. "Fixed in <commit link>: <one-line what changed>.
 Gate: phpcs/phpstan/phpunit green." One reply per thread, naming the commit URL.
 
-**Recommend: do not resolve the thread** for `fix`; leave it for the reviewer. The AI is
+**Decided: do not resolve the thread** for `fix`; leave it for the reviewer. The AI is
 unverified and the reviewer should confirm; an MR's "all threads resolved" gate then still means a
 person looked. Exceptions the bot resolves itself: `already_fixed` (the thread is stale, nothing to
-confirm). AI-authored (ai-review) threads on a `fix` may be resolved automatically if the person
-opts in (open question 3).
+confirm). AI-authored (ai-review) threads on a `fix` are not auto-resolved either, for now (decision 3).
 
 ## 5. Not-safe path
 
@@ -114,8 +113,8 @@ notice. A thread the bot has classified is not re-triaged until a new note arriv
   `GITLAB_WEBHOOK_SECRET` (existing). The runner receives the token only for clone/push, via
   a credential helper, never in the agent's environment. Nothing in `.env`.
 - **State:** a small table (job, MR, head sha, thread, class, attempt, commit) is needed for
-  coalescing, idempotency and caps, which means Kelpie's first database and migrations. This is
-  the dependency to decide (question 4).
+  coalescing, idempotency and caps, which means Kelpie's first database and migrations. Decision 4
+  accepts this.
 - **Boundary (CLAUDE.md):** to uBixCore only generic primitives: a queue/job runner, a
   GitLab API client, an OpenRouter/LLM client, a sandboxed process runner. In `Kelpie\`: thread
   and triage models, the safety policy, the prompts, the bot's comment text, the orchestration.
@@ -147,16 +146,20 @@ carries a fresh claim from anyone; Shepherd is asked (via ask_shepherd) to honou
 
 Steps 1-5 are safe to ship before any push capability exists.
 
-## 8. Open questions for the person
+## 8. Decisions
 
-1. **Which projects first?** Recommend `ubixsys/ubixkelpie` only, then widen by allow-list.
-2. **Resolve threads after a fix?** Recommend no: leave it for the reviewer (section 4).
-3. **Auto-resolve ai-review threads on a green fix?** Recommend no at first; revisit after a month of data.
-4. **Database for job state?** Recommend yes (MariaDB like kitg), since caps and idempotency need it.
-   The alternative is GitLab labels/notes as the only state, which is fragile.
-5. **Bot account and token:** a new `kelpie-bot` user with Developer on the ubixsys group. Recommend
-   yes; reusing `AI_REVIEW_GITLAB_TOKEN` (Reporter) cannot push.
-6. **Fix model cost ceiling?** Recommend a per-MR token budget and a daily spend cap with a hard stop.
-7. **Failed pipelines:** fix only gate failures (lint, static analysis, tests), not deploy or infra
-   jobs? Recommend yes.
-8. **Chat channel for needs-human?** Not wired; recommend GitLab-only until one exists.
+All eight were put to the person with a recommendation; they took all eight, decided 2026-10-15.
+
+| # | Question | Decision | Decided |
+| --- | --- | --- | --- |
+| 1 | Which projects first? | `ubixsys/ubixkelpie` only, then widen by allow-list | 2026-10-15 |
+| 2 | Resolve threads after a fix? | No: leave it for the reviewer (section 4) | 2026-10-15 |
+| 3 | Auto-resolve ai-review threads on a green fix? | No at first; revisit after a month of data | 2026-10-15 |
+| 4 | Database for job state? | Yes (MariaDB like kitg); caps and idempotency need it | 2026-10-15 |
+| 5 | Bot account and token? | New `kelpie-bot` user, Developer on the ubixsys group; `AI_REVIEW_GITLAB_TOKEN` (Reporter) is not reused | 2026-10-15 |
+| 6 | Fix model cost ceiling? | Per-MR token budget and a daily spend cap with a hard stop | 2026-10-15 |
+| 7 | Failed pipelines? | Fix gate failures only (lint, static analysis, tests), not deploy or infra jobs | 2026-10-15 |
+| 8 | Chat channel for needs-human? | GitLab-only until a channel is wired | 2026-10-15 |
+
+Still to settle at implementation time, not decisions here: the exact budget and cap figures (6),
+and how a Shepherd-owned MR is recognised (section 6).

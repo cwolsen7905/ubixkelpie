@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use DI\Container;
 use DI\ContainerBuilder;
+use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Latte\Engine;
@@ -55,6 +56,18 @@ return static function (): Container {
     // Sign-off job names the approval retry may re-run (kitg's and the framework's default).
     $approvalJobNames = array_values(array_filter(array_map('trim', explode(',', getenv('APPROVAL_JOB_NAMES') ?: 'require-approval,require-approval-mr'))));
 
+    // Comma-separated env list to a clean list; an unset variable yields the default.
+    /**
+     * @param list<string> $default
+     *
+     * @return list<string>
+     */
+    $envList = static function (string $name, array $default = []): array {
+        $raw = getenv($name);
+
+        return $raw === false ? $default : array_values(array_filter(array_map('trim', explode(',', $raw))));
+    };
+
     $container = new ContainerBuilder();
     $container->addDefinitions([
         Engine::class                  => autowire()->method('setAutoRefresh', true)->method('setTempDirectory', $cacheDir)->method('setLoader', new FileLoader($templateDir)),
@@ -85,6 +98,12 @@ return static function (): Container {
             ->constructorParameter('projectTokens', getenv('GITLAB_PROJECT_TOKENS') ?: '')
             ->constructorParameter('apiToken', getenv('GITLAB_API_TOKEN') ?: '')
             ->constructorParameter('jobNames', $approvalJobNames),
+        // Autofix event filter: loop guards and the allow-list. Defaults keep to ubixsys/ubixkelpie (design decision 1).
+        EventFilter::class             => autowire()
+            ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
+            ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
+            ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
+            ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES')),
         GitlabWebhookController::class => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 

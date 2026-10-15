@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Controller\Gitlab;
 
+use Kelpie\Autofix\EnqueueService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -21,7 +22,7 @@ use Ubix\Service\JsonService;
  * GitLab webhook receiver for Kelpie
  *
  * Verifies X-Gitlab-Token against GITLAB_WEBHOOK_SECRET, dispatches by
- * X-Gitlab-Event header. Merge Request and Emoji hooks are handed to uBixCore's
+ * X-Gitlab-Event header. Note and Pipeline hooks also feed the autofix event filter (logs only). Merge Request and Emoji hooks are handed to uBixCore's
  * ApprovalWebhookService, which re-runs the MR's sign-off job on an approval or a thumbs-up.
  *
  * @see \Kelpie\Tests\Controller\Gitlab\GitlabWebhookControllerTest PHPUnit test case
@@ -37,6 +38,7 @@ final class GitlabWebhookController extends Controller
      * @param NoteOnMrWebhookService  $noteOnMrWebhookService  Handles Note Hook on MRs
      * @param IssueOpenWebhookService $issueOpenWebhookService Handles Issue Hook open events
      * @param ApprovalWebhookService  $approvalWebhookService  Re-runs the sign-off job on an approval (uBixCore)
+     * @param EnqueueService          $enqueueService          Filters Note and Pipeline hooks into autofix jobs (logs only)
      * @param string                  $secret                  The webhook secret token
      */
     public function __construct(
@@ -46,6 +48,7 @@ final class GitlabWebhookController extends Controller
         private readonly NoteOnMrWebhookService $noteOnMrWebhookService,
         private readonly IssueOpenWebhookService $issueOpenWebhookService,
         private readonly ApprovalWebhookService $approvalWebhookService,
+        private readonly EnqueueService $enqueueService,
         private readonly string $secret,
     ) {
         parent::__construct($logger, $templateRenderer, $jsonService);
@@ -104,7 +107,8 @@ final class GitlabWebhookController extends Controller
         }
 
         return match ($eventLower) {
-            'note hook' => $this->note($payload, $response),
+            'note hook' => $this->note($payload, $response, $event),
+            'pipeline hook' => $this->pipeline($payload, $response, $event),
             'issue hook' => $this->issue($payload, $response),
             default => $this->renderJson($response, ['outcome' => 'ignored: not handled'], StatusCode::OK),
         };
@@ -115,16 +119,35 @@ final class GitlabWebhookController extends Controller
      *
      * @param array<int|string, mixed> $payload  The decoded payload
      * @param Response                 $response The PSR response
+     * @param string                   $event    The X-Gitlab-Event header value
      *
      * @return Response
      */
-    private function note(array $payload, Response $response): Response
+    private function note(array $payload, Response $response, string $event): Response
     {
         $result = $this->noteOnMrWebhookService->handle($payload);
 
         $this->logger->info('GitLab webhook: note', ['result' => $result]);
 
-        return $this->renderJson($response, ['outcome' => $result], StatusCode::OK);
+        $autofix = $this->enqueueService->handle($event, $payload);
+
+        return $this->renderJson($response, ['outcome' => $result, 'autofix' => $autofix], StatusCode::OK);
+    }
+
+    /**
+     * Dispatch to the autofix filter for a Pipeline Hook
+     *
+     * @param array<int|string, mixed> $payload  The decoded payload
+     * @param Response                 $response The PSR response
+     * @param string                   $event    The X-Gitlab-Event header value
+     *
+     * @return Response
+     */
+    private function pipeline(array $payload, Response $response, string $event): Response
+    {
+        $autofix = $this->enqueueService->handle($event, $payload);
+
+        return $this->renderJson($response, ['outcome' => $autofix, 'autofix' => $autofix], StatusCode::OK);
     }
 
     /**

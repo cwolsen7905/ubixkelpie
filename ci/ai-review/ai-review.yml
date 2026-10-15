@@ -67,10 +67,21 @@ ai-review-mr:
         -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL \
         -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
         -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
+        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
         "$AI_REVIEW_IMAGE" sh -c '
           apk add -q --no-cache bash jq curl git coreutils >/dev/null || exit 75
           npm install -g --silent --no-fund --no-audit "opencode-ai@'"$AI_REVIEW_OPENCODE_VERSION"'" || exit 75;
-          exec bash /ai/review.sh'
+          bash /ai/review.sh; rc=$?
+          # Hand the work dir back to the runner user so the job can remove it.
+          chown -R "$HOST_UID:$HOST_GID" /work 2>/dev/null
+          exit $rc'
   after_script:
     - docker rm -f "ai-review-$CI_JOB_ID" >/dev/null 2>&1 || true
-    - 'rm -rf "/tmp/ai-review-$CI_JOB_ID"'
+    # Root-owned leftovers (a killed container) are removed through docker.
+    - |
+      d="/tmp/ai-review-$CI_JOB_ID"
+      rm -rf "$d" 2>/dev/null || true
+      if [ -e "$d" ]; then
+        docker run --rm -v "$d:/w" "$AI_REVIEW_IMAGE" sh -c 'rm -rf /w/* /w/.[!.]*' >/dev/null 2>&1 || true
+        rm -rf "$d" || true
+      fi

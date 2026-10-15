@@ -7,6 +7,9 @@ use DI\ContainerBuilder;
 use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
+use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
+use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
+use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Latte\Engine;
 use Latte\Loaders\FileLoader;
 use Monolog\Handler\StreamHandler;
@@ -23,6 +26,8 @@ use Slim\Psr7\Factory\ResponseFactory as SlimResponseFactory;
 use Ubix\HttpClient\CurlHttpClient;
 use Ubix\Middleware\CorsMiddleware;
 use Ubix\Service\Ci\ApprovalWebhookService;
+use Ubix\Service\Sql\MysqlPdoSqlService;
+use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 
 use function DI\autowire;
 use function DI\get;
@@ -104,6 +109,11 @@ return static function (): Container {
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
             ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
             ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES')),
+        // Job state (design section 6): MariaDB, credentials from uBixVault (VAULT_DB_KV_PATH). The
+        // connection opens on first query, so an app that never touches a job needs no database.
+        SqlService::class              => autowire(MysqlPdoSqlService::class),
+        AutofixJobReader::class        => autowire(AutofixJobSqlRepository::class),
+        AutofixJobWriter::class        => autowire(AutofixJobSqlRepository::class),
         GitlabWebhookController::class => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 

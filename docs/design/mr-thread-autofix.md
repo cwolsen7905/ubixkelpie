@@ -154,6 +154,37 @@ steps 6 and 7; release the claim and the working label. The job table is not tou
 that ties jobs to this arrives with step 6. Writes go through `BotHttpClient` (GET/POST/PUT only,
 `KELPIE_BOT_GITLAB_TOKEN`), and only for projects in `KELPIE_AUTOFIX_PROJECTS`.
 
+**Step 6 as built** (`kelpie:fix <mr> <discussion>`, run by hand; no worker calls it yet). Does nothing
+unless `KELPIE_AUTOFIX_ENABLED=true` (any other value is off). Per thread:
+
+1. Job: `AutofixJobService` enqueues through the coalescer (so the caps apply) and takes the one pending
+   job at the current head; otherwise it reports why not and stops. `markRunning` / `markFinished`
+   (`done` or `failed`, with the triage class and the pushed commit) are wired through it.
+2. Guards, read from GitLab: MR open, source branch in the same project (no forks), source branch not
+   `dev`/`staging`/`main`/`master`, head still the sha the thread was read at, thread not already
+   answered, claim won. Anything else supersedes or skips the job.
+3. Triage again (`fix` only proceeds; other classes go down the section 5 path).
+4. Sandbox: a temp dir per job (0700), `git clone --no-tags --branch <source>`, detached at the triaged
+   sha. The bot token reaches git only through a `GIT_ASKPASS` script that lives for one network call;
+   it is in no argv or environment. The agent (`claude` CLI, headless, `Read,Grep,Glob,Edit,Write`
+   only) gets an exact environment: PATH, a throwaway HOME and the OpenRouter key; no GitLab or Vault
+   value. The thread text is fenced as data.
+5. The real diff is measured from git and put through `SafetyPolicy` (size, files, protected paths,
+   deletes/renames, skipped tests, attempts, MR commit cap). A violation is `needs_human`, nothing
+   is gated or pushed.
+6. Gate: `composer install`, `phpcs`, `phpstan`, `phpunit` in the checkout. A red gate is fed back to
+   the agent once; a second red is `needs_human` with the failed step, nothing pushed.
+7. One commit with a `Kelpie-Autofix: thread=<id> sha=<sha>` trailer, then the head is read again; if it
+   is not the triaged sha nothing is pushed. The push is `HEAD:refs/heads/<source>`: never
+   `--force`, never a `+` refspec, so a branch that moved is rejected by the server.
+
+What it does not do yet: no container-level isolation (the "sandbox image" of section 7 needs infra),
+no reply or resolve after a push (step 7), no worker or scheduler (step 8). The process runner is local
+(`Kelpie\Sandbox\ProcOpenProcessRunner`); section 6 prefers a generic one in uBixCore, to be upstreamed.
+The caps use the `AutofixCaps` defaults; the per-MR token budget and daily spend cap of decision 6 are
+not enforced here. Database access in the web app is bound in `app/KelpieApi/src/Dependencies.php`; the
+`kelpie` database and a CI migrate stage do not exist yet, so the migration is applied by hand.
+
 ## 8. Decisions
 
 All eight were put to the person with a recommendation; they took all eight, decided 2026-10-15.

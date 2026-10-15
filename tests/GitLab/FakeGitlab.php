@@ -52,9 +52,28 @@ final class FakeGitlab implements HttpClient
     private $afterPost = null;
 
     /**
+     * Fields of the MR that override the defaults (sha, source_branch, source_project_id, ...)
+     *
+     * @var array<string, mixed>
+     */
+    private array $mrFields = [];
+
+    /**
      * Next note ID to hand out
      */
     private int $nextId = 100;
+
+    /**
+     * Override fields of the MR as GitLab returns it
+     *
+     * @param array<string, mixed> $fields The fields
+     *
+     * @return void
+     */
+    public function mergeRequestFields(array $fields): void
+    {
+        $this->mrFields = $fields;
+    }
 
     /**
      * The notes by discussion ID
@@ -193,7 +212,17 @@ final class FakeGitlab implements HttpClient
                 ));
             }
 
-            return $this->fakeJson(['iid' => 3, 'sha' => str_repeat('a', 40)]);
+            return $this->fakeJson([
+                'draft'             => false,
+                'iid'               => 3,
+                'sha'               => str_repeat('a', 40),
+                'source_branch'     => 'feat/x',
+                'source_project_id' => 1,
+                'state'             => 'opened',
+                'target_branch'     => 'dev',
+                'target_project_id' => 1,
+                ...$this->mrFields,
+            ]);
         }
 
         return $this->fakeJson(['message' => '404 Not found'], 404);

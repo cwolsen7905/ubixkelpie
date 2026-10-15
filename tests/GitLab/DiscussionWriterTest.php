@@ -77,6 +77,35 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The MR facts the fixer needs are read, and a fork is told apart
+     *
+     * @return void
+     */
+    public function testMergeRequest(): void
+    {
+        $writer = $this->gitlab->writer($this->createStub(Logger::class));
+
+        $mr = $writer->mergeRequest('1', 3);
+
+        $this->assertNotNull($mr);
+        $this->assertSame(str_repeat('a', 40), $mr->sha);
+        $this->assertSame('feat/x', $mr->sourceBranch);
+        $this->assertSame('dev', $mr->targetBranch);
+        $this->assertTrue($mr->open);
+        $this->assertFalse($mr->draft);
+        $this->assertSame($mr->sourceProjectId, $mr->targetProjectId);
+
+        $this->gitlab->mergeRequestFields(['draft' => true, 'source_project_id' => 7, 'state' => 'merged']);
+        $mr = $writer->mergeRequest('1', 3);
+        $this->assertNotNull($mr);
+        $this->assertTrue($mr->draft);
+        $this->assertFalse($mr->open);
+        $this->assertNotSame($mr->sourceProjectId, $mr->targetProjectId);
+
+        $this->assertNull($writer->mergeRequest('1', 4));
+    }
+
+    /**
      * A 404 is null/false and logged
      *
      * @return void

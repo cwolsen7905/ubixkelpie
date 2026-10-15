@@ -183,8 +183,12 @@ BOT_ID=0
 BOT_ID=$(head -n1 <<<"$BOT_ID")
 [[ $BOT_ID =~ ^[0-9]+$ ]] || BOT_ID=0
 
-prev=$(jq -r '[.[].notes[]? | select(.body | startswith("<!-- ai-review:summary"))][0] // empty |
-  [.id, (.body | capture("round=(?<r>[0-9]+) sha=(?<s>[0-9a-f]+)") | .r + " " + .s)] | join(" ")' <<<"$DISC")
+# Our summary note, as "id round sha"; empty when there is none yet.
+find_summary() {
+  jq -r '[.[].notes[]? | select(.body | startswith("<!-- ai-review:summary"))][0] // empty |
+    [.id, (.body | capture("round=(?<r>[0-9]+) sha=(?<s>[0-9a-f]+)") | .r + " " + .s)] | join(" ")' <<<"$DISC"
+}
+prev=$(find_summary)
 if [ -n "$prev" ]; then
   read -r SUMMARY_ID prev_round prev_sha <<<"$prev"
   ROUND=$prev_round
@@ -204,8 +208,10 @@ if [ "$ROUND" -gt "$MAX_ROUNDS" ] && [[ ",${LABELS// /}," != *",$EXTRA_LABEL,"* 
 fi
 
 # Finding threads already on the MR. Marker format on a finding thread:
-# <!-- ai-review:fp=<12 hex> -->. Rows are "fp<TAB>file<TAB>title", parsed back out of the
-# thread body so the model can be told what was raised in words, not hashes.
+# <!-- ai-review:fp=<12 hex> sha=<head sha when posted> -->. Rows are
+# "fp<TAB>file<TAB>title<TAB>line<TAB>sha", parsed back out of the thread so the model can be
+# told what was raised in words, not hashes. A thread from before the sha was in the marker
+# falls back to its diff position's head_sha; a plain thread has none, and the sha is empty.
 # thread_rows open|dismissed
 # Open means no resolved note; dismissed means resolved with a person's `Dismissed:` reply.
 thread_rows() {
@@ -215,20 +221,47 @@ thread_rows() {
       elif ([.notes[1:][]? | select((.author.id // 0) != $bot) | .body | test("^\\s*Dismissed:"; "i")] | any)
       then "dismissed" else "resolved" end;
     [.[] | select(.notes[0].body | contains("<!-- ai-review:fp=")) | select(state == $want)
-      | .notes[0].body as $b
-      | [ ($b | capture("ai-review:fp=(?<f>[0-9a-f]+)").f),
-          ([$b | capture("`(?<p>[^`:]+):[0-9]+`").p][0] // ""),
-          ([$b | capture("\\): (?<t>[^\n]+)").t][0] // "") ] | join("\t")]
+      | .notes[0] as $n | $n.body as $b
+      | ($b | capture("ai-review:fp=(?<f>[0-9a-f]+)").f) as $fp
+      | [ $fp,
+          ([$b | capture("`(?<p>[^`:]+):[0-9]+`").p][0] // "-"),
+          ([$b | capture("\\): (?<t>[^\n]+)").t][0] // $fp),
+          ([$b | capture("`[^`:]+:(?<l>[0-9]+)`").l][0] // "0"),
+          ([$b | capture("ai-review:fp=[0-9a-f]+ sha=(?<s>[0-9a-f]+)").s][0] // $n.position.head_sha // "") ]
+      | join("\t")]
     | unique | .[]' <<<"$DISC"
 }
-OPEN_ROWS=$(thread_rows open)
-DISMISSED_ROWS=$(thread_rows dismissed)
-OPEN_FPS=$(cut -f1 <<<"$OPEN_ROWS")
-DISMISSED_FPS=$(cut -f1 <<<"$DISMISSED_ROWS")
 # file|lowercased title, for matching when the model words the issue's slug differently.
 row_keys() { awk -F'\t' 'NF >= 3 && $3 != "" { print $2 "|" tolower($3) }' <<<"$1"; }
-OPEN_KEYS=$(row_keys "$OPEN_ROWS")
-DISMISSED_KEYS=$(row_keys "$DISMISSED_ROWS")
+# file|line, for a new finding that lands on a line an open thread already covers.
+row_lines() { awk -F'\t' 'NF >= 4 && $4 > 0 { print $2 "|" $4 }' <<<"$1"; }
+
+load_threads() {
+  OPEN_ROWS=$(thread_rows open)
+  DISMISSED_ROWS=$(thread_rows dismissed)
+  OPEN_FPS=$(cut -f1 <<<"$OPEN_ROWS")
+  DISMISSED_FPS=$(cut -f1 <<<"$DISMISSED_ROWS")
+  OPEN_KEYS=$(row_keys "$OPEN_ROWS")
+  DISMISSED_KEYS=$(row_keys "$DISMISSED_ROWS")
+  OPEN_LINES=$(row_lines "$OPEN_ROWS")
+}
+load_threads
+
+# Did lines near $2 of file $1 change between the commit $3 a thread was posted on and
+# this one? Unknown (no sha, sha not fetched, no such file) answers no: an open thread is
+# only called possibly-fixed on evidence that its code moved.
+thread_changed() {
+  local file=$1 line=$2 sha=$3
+  [[ $line =~ ^[0-9]+$ ]] && [ "$line" -gt 0 ] && [ -n "$sha" ] && [ "$sha" != "$HEAD_SHA" ] || return 1
+  git_r cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+  git_r diff -U0 --no-color "$sha" "$HEAD_SHA" -- "$file" 2>/dev/null | awk -v l="$line" '
+    /^@@ / {
+      split($2, a, ","); s = substr(a[1], 2) + 0; c = (a[2] == "" ? 1 : a[2] + 0)
+      e = s + (c > 0 ? c : 1) - 1
+      if (s <= l + 3 && e >= l - 3) hit = 1
+    }
+    END { exit hit ? 0 : 1 }'
+}
 
 # --- Size guard -----------------------------------------------------------------------
 
@@ -299,7 +332,7 @@ validate() {
     and (.findings | type == "array")
     and all(.findings[]; type == "object"
       and (.severity | type == "string" and sev) and (.confidence | type == "string" and conf)
-      and (.file | type == "string" and length > 0) and (.line | type == "number")
+      and (.file | type == "string" and length > 0) and (.line | type == "number" or . == null)
       and (.title | type == "string" and length > 0) and (.why | type == "string")
       and (.fingerprint | type == "string" and length > 0))' >/dev/null
 }
@@ -333,7 +366,7 @@ done
 [ -n "$RESULT" ] || unreviewed "the model did not return a valid review after a retry."
 
 # Stable per-finding id: file + the model's issue slug, never the line or the wording.
-RESULT=$(jq -c '.findings |= map(.line |= floor)' <<<"$RESULT")
+RESULT=$(jq -c '.findings |= map(.line |= (if type == "number" then floor else 0 end))' <<<"$RESULT")
 FINDINGS="$WORK/findings.ndjson"
 jq -c '.findings[]' <<<"$RESULT" | while IFS= read -r f; do
   key=$(jq -r '.file + "|" + (.fingerprint | ascii_downcase)' <<<"$f")
@@ -355,9 +388,25 @@ if [ "$DRY" = 0 ]; then
   [[ $POSITION_JSON == \{* ]] || { log "could not read the MR diff version; threads will not be inline"; POSITION_JSON=null; }
 fi
 
+# The model run takes minutes; another job may have posted since the first read. Reread, so
+# a thread that appeared meanwhile is deduped rather than posted twice.
+if [ "$DRY" = 0 ] && [ -z "$EXISTING_FILE" ]; then
+  if fresh=$(discussions); then
+    DISC=$fresh
+    load_threads
+    if [ -z "$SUMMARY_ID" ]; then
+      prev=$(find_summary)
+      [ -n "$prev" ] && read -r SUMMARY_ID _ <<<"$prev"
+    fi
+  else
+    log "could not reread the MR's discussions; deduping against the earlier read"
+  fi
+fi
+
 SEEN_IDS="$WORK/seen-ids.txt" SEEN_KEYS="$WORK/seen-keys.txt"
 : >"$SEEN_IDS" && : >"$SEEN_KEYS"
 posted=0 skipped_open=0 skipped_dismissed=0 failed=0 blocking=0
+FILE_LEVEL="" SAME_LINE=""
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   id=$(jq -r .id <<<"$f")
@@ -375,18 +424,31 @@ while IFS= read -r f; do
     printf '%s\n' "$key" >>"$SEEN_KEYS"
     skipped_open=$((skipped_open + 1)); continue
   fi
+  line_no=$(jq -r '(.line // 0) | floor | tostring' <<<"$f")
+  title=$(jq -r .title <<<"$f" | neutralize)
+  file=$(jq -r .file <<<"$f")
+  # Not about one line (a whole file or package): it goes in the summary, which is replaced
+  # on every push, rather than in a thread pinned to a line that happens to be near.
+  if ! [[ $line_no =~ ^[0-9]+$ ]] || [ "$line_no" -le 0 ]; then
+    FILE_LEVEL+="- \`$file\`: **$sev** ($(jq -r .confidence <<<"$f")): $title. $(jq -r .why <<<"$f" | tr '\n' ' ' | neutralize)"$'\n'
+    continue
+  fi
+  # The same line as an open thread is the same defect, reworded; a blocker is still posted.
+  if [ "$sev" != blocker ] && grep -qxF -- "$file|$line_no" <<<"$OPEN_LINES"; then
+    SAME_LINE+="- \`$file:$line_no\`: $title"$'\n'
+    skipped_open=$((skipped_open + 1)); continue
+  fi
 
   body=$(jq -r '"**" + .severity + "** (" + .confidence + " confidence): " + .title +
     "\n\n`" + .file + ":" + (.line | tostring) + "`\n\n" + .why +
     "\n\n_Fix and resolve this thread, or resolve it with a reply starting `Dismissed: <reason>`._\n" +
-    "<!-- ai-review:fp=" + .id + " -->"' <<<"$f" | neutralize)
+    "<!-- ai-review:fp=" + .id + " sha=" + $sha + " -->"' --arg sha "$HEAD_SHA" <<<"$f" | neutralize)
   if [ "$DRY" = 1 ]; then
     printf '\n--- would open a thread ---\n%s\n' "$body"
     posted=$((posted + 1))
     continue
   fi
-  file=$(jq -r .file <<<"$f") line=$(jq -r '.line | floor | tostring' <<<"$f")
-  [[ $line =~ ^[0-9]+$ ]] || line=0
+  line=$line_no
   payload=$(jq -n --arg b "$body" --arg file "$file" --argjson line "$line" --argjson pos "$POSITION_JSON" '
     {body: $b} + (if $pos != null and $line > 0 then
       {position: ($pos + {position_type: "text", new_path: $file, old_path: $file, new_line: $line})} else {} end)')
@@ -404,13 +466,23 @@ while IFS= read -r f; do
   fi
 done <"$FINDINGS"
 
-# Open threads of ours whose finding this run no longer reports. They are listed, never
-# resolved: the model is not deterministic, so a person decides whether they are fixed.
-STALE=$(awk -F'\t' 'NF >= 3' <<<"$OPEN_ROWS" | while IFS=$'\t' read -r sfp sfile stitle; do
+# Open threads of ours the model did not re-raise. Not re-raising is what it was told to do
+# for an issue already open, so it says nothing about a fix: a thread is only listed as
+# possibly fixed when the lines it points at changed since it was posted. Listed, never
+# resolved: a person decides.
+STALE="" stale_n=0
+while IFS=$'\t' read -r sfp sfile stitle sline ssha; do
+  [ -n "$sfp" ] || continue
   grep -qx "$sfp" "$SEEN_IDS" && continue
   grep -qxF -- "$sfile|$(tr '[:upper:]' '[:lower:]' <<<"$stitle")" "$SEEN_KEYS" && continue
-  printf -- "- \`%s\`: %s\n" "$sfile" "$stitle"
-done)
+  thread_changed "$sfile" "$sline" "$ssha" || continue
+  STALE+="- \`$sfile\`: $stitle"$'\n'
+  stale_n=$((stale_n + 1))
+done <<<"$OPEN_ROWS"
+STALE=${STALE%$'\n'}
+# Every open thread that is not listed above is still open, re-raised or not.
+open_total=$(awk -F'\t' 'NF >= 3' <<<"$OPEN_ROWS" | wc -l | tr -d ' ')
+still_open=$((open_total - stale_n))
 
 CLEAN=0
 [ ! -s "$FINDINGS" ] && [ -z "$STALE" ] && CLEAN=1
@@ -434,10 +506,20 @@ else
   echo
   jq -r .summary <<<"$RESULT" | neutralize
   echo
-  echo "Findings: ${counts:-none}. New threads: $posted. Already open: $skipped_open. Dismissed: $skipped_dismissed."
+  echo "Findings: ${counts:-none}. New threads: $posted. Already open: $still_open. Dismissed: $skipped_dismissed."
+  if [ -n "$FILE_LEVEL" ]; then
+    echo
+    echo "Not tied to one line (no thread; this note is updated on each push):"
+    printf '%s' "$FILE_LEVEL"
+  fi
+  if [ -n "$SAME_LINE" ]; then
+    echo
+    echo "Not opened as new threads (the line already has an open thread; see it):"
+    printf '%s' "$SAME_LINE"
+  fi
   if [ -n "$STALE" ]; then
     echo
-    echo "Open threads this run no longer reports (fixed? resolve them if so):"
+    echo "Open threads whose lines changed since they were posted and that this run no longer reports (fixed? resolve them if so):"
     printf '%s\n' "$STALE" | neutralize
   fi
   echo

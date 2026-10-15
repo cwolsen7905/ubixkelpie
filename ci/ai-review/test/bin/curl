@@ -18,7 +18,11 @@ case "$method $url" in
   "GET "*/versions) echo '[{"id":1,"head_commit_sha":"hhh","base_commit_sha":"bbb","start_commit_sha":"sss"}]' ;;
   "GET "*/merge_requests/*/user) echo '{"message":"404 Not Found"}'; exit 22 ;;
   "GET "*/user) echo '{"id":9}' ;;
-  "GET "*/discussions*) echo '[]' ;;
+  "GET "*/discussions*)
+    # The first read is empty; $DISC_LATER (a file) is what a later read, after the model
+    # ran, returns: another job's threads appearing in between.
+    n=$(grep -c '^GET .*/discussions' "$CURL_LOG")
+    if [ "$n" -gt 1 ] && [ -n "${DISC_LATER:-}" ]; then cat "$DISC_LATER"; else echo '[]'; fi ;;
   "POST "*/discussions)
     if grep -q '"position"' <<<"$data" && grep -Eq '"(base|head|start)_sha":null' <<<"$data"; then
       echo '{"message":"400 Bad request - position is invalid"}'; exit 22

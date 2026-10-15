@@ -52,6 +52,23 @@ has 'too large, human review required'; expect "oversize diff is not reviewed" $
 CI_MERGE_REQUEST_TITLE="Draft: wip" run --diff "$sample" --canned "$ok"
 has 'draft MR'; expect "draft MR is skipped" $?
 
+# A clean review leaves a visible plain note, replaced on a rerun; a skip is reported too.
+printf '{"verdict":"pass","summary":"Looks right.","findings":[]}\n' >"$here/.clean.json"
+run --diff "$sample" --canned "$here/.clean.json"
+[ "$rc" = 0 ] && has 'ran, no findings'; expect "clean review posts a no-findings note" $?
+has 'would post the summary'; expect "clean note is one plain note, not a thread" $?
+! has 'would open a thread'; expect "clean review opens no thread" $?
+has 'src/Transfer.php'; expect "clean note lists the files covered" $?
+has 'Model `openrouter/'; expect "clean note names the model" $?
+CI_COMMIT_SHA=cafe1234 run --diff "$sample" --canned "$here/.clean.json" --existing "$existing"
+has 'would replace the summary'; expect "clean note replaces the earlier summary" $?
+has 'cafe1234'; expect "clean note names the reviewed sha" $?
+rm -f "$here/.clean.json"
+printf 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-a\n+b\n' >"$here/.docs.diff"
+run --diff "$here/.docs.diff" --canned "$ok"
+rm -f "$here/.docs.diff"
+has 'AI review: skipped'; expect "docs-only skip is reported in a note" $?
+
 # Inline threads: the position comes from /versions' *_commit_sha fields.
 export CURL_LOG; CURL_LOG=$(mktemp)
 PATH="$here/bin:$PATH" AI_REVIEW_GITLAB_TOKEN=t CI_API_V4_URL=http://gl/api CI_PROJECT_ID=1 \

@@ -87,6 +87,11 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
    not duplicate it. Open threads the run no longer reports are listed in the summary; they
    are never resolved automatically.
 
+A review that finds nothing is not silent: the summary becomes a plain note (no thread to
+resolve) saying the review ran with no findings, the model, the full commit sha and the files
+covered. A skipped review (docs only, nothing reviewable) says so in the same note. Later
+runs replace that note.
+
 Output schema: `{verdict, summary, findings:[{severity, confidence, file, line, title,
 why, fingerprint}]}`; see `ci/ai-review/prompt.md`.
 

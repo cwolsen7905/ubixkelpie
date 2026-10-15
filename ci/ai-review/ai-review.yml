@@ -1,0 +1,76 @@
+# Kelpie AI review for merge requests. Include from another ubixsys repo with:
+#
+#   include:
+#     - project: ubixsys/ubixkelpie
+#       ref: v0.1.0            # a tag, or dev; also set AI_REVIEW_REF to the same ref
+#       file: ci/ai-review/ai-review.yml
+#
+# Docs: docs/ai-review.md in ubixsys/ubixkelpie. Needs two group variables (masked, not
+# protected): OPENROUTER_API_KEY and AI_REVIEW_GITLAB_TOKEN (Reporter, `api` scope).
+# Without them the job exits 75 ("could not run") and is allowed to fail, never red.
+#
+# Variables (all optional):
+#   AI_REVIEW_MODE         advisory (default) | blocking
+#   AI_REVIEW_MODEL        default openrouter/anthropic/claude-haiku-5.5
+#   AI_REVIEW_BASE_BRANCH  review MRs targeting this branch (default dev)
+#   AI_REVIEW_REF          ref of ubixsys/ubixkelpie the scripts are fetched at (default dev)
+#   AI_REVIEW_IMAGE        container the review runs in (default node:24-alpine)
+#   AI_REVIEW_OPENCODE_VERSION  pinned opencode-ai npm version
+#   AI_REVIEW_MAX_LINES / AI_REVIEW_MAX_BYTES / AI_REVIEW_MAX_ROUNDS / AI_REVIEW_EXTRA_LABEL
+
+variables:
+  AI_REVIEW_PROJECT: ubixsys/ubixkelpie
+  AI_REVIEW_REF: dev
+  AI_REVIEW_IMAGE: node:24-alpine
+  AI_REVIEW_OPENCODE_VERSION: "1.19.0"
+
+ai-review-mr:
+  # `test` always exists; a repo with its own stage list overrides this in its own file:
+  #   ai-review-mr: {stage: lint-and-test}
+  stage: test
+  tags: [shell] # the runner with docker; override the same way
+  interruptible: true
+  timeout: 10 minutes
+  resource_group: ai-review-$CI_MERGE_REQUEST_IID
+  allow_failure:
+    exit_codes: [75] # could not run: UNREVIEWED, never a red pipeline
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^(draft|wip)[: ]/i'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $AI_REVIEW_BASE_BRANCH && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $AI_REVIEW_BASE_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $AI_REVIEW_BASE_BRANCH == null && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev"'
+  script:
+    - |
+      set -eu
+      if [ -z "${AI_REVIEW_GITLAB_TOKEN:-}" ] || [ -z "${OPENROUTER_API_KEY:-}" ]; then
+        echo "ai-review: UNREVIEWED, AI_REVIEW_GITLAB_TOKEN / OPENROUTER_API_KEY are not set" >&2
+        exit 75
+      fi
+      work=/tmp/ai-review-$CI_JOB_ID
+      mkdir -p "$work/scripts" "$work/out"
+      # The scripts come from the Kelpie repo at AI_REVIEW_REF, so including repos carry only
+      # this file. Tag both the include ref and AI_REVIEW_REF to pin them together.
+      project=$(printf '%s' "$AI_REVIEW_PROJECT" | sed 's#/#%2F#g')
+      for f in review.sh prompt.md; do
+        curl -sSf --retry 2 -H "PRIVATE-TOKEN: $AI_REVIEW_GITLAB_TOKEN" \
+          "$CI_API_V4_URL/projects/$project/repository/files/ci%2Fai-review%2F$f/raw?ref=$AI_REVIEW_REF" \
+          -o "$work/scripts/$f" || { echo "ai-review: UNREVIEWED, could not fetch $f at $AI_REVIEW_REF" >&2; exit 75; }
+      done
+      # The base commit may be outside a shallow checkout; the container's mount is read-only.
+      git fetch -q --depth=100 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || true
+      chmod 0777 "$work/out"
+      docker run --rm --name "ai-review-$CI_JOB_ID" \
+        -v "$CI_PROJECT_DIR:/repo:ro" -v "$work/scripts:/ai:ro" -v "$work/out:/work" \
+        -e HOME=/work/home -e AI_REVIEW_WORK=/work -e AI_REVIEW_REPO=/repo \
+        -e OPENROUTER_API_KEY -e AI_REVIEW_GITLAB_TOKEN \
+        -e AI_REVIEW_MODE -e AI_REVIEW_MODEL -e AI_REVIEW_MAX_LINES -e AI_REVIEW_MAX_BYTES \
+        -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL \
+        -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
+        -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
+        "$AI_REVIEW_IMAGE" sh -c '
+          apk add -q --no-cache bash jq curl git coreutils >/dev/null || exit 75
+          npm install -g --silent --no-fund --no-audit "opencode-ai@'"$AI_REVIEW_OPENCODE_VERSION"'" || exit 75;
+          exec bash /ai/review.sh'
+  after_script:
+    - docker rm -f "ai-review-$CI_JOB_ID" >/dev/null 2>&1 || true
+    - 'rm -rf "/tmp/ai-review-$CI_JOB_ID"'

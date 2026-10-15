@@ -74,6 +74,10 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertTrue($writer->removeLabel('1', 3, 'kelpie::working'));
         $this->assertSame([], $this->gitlab->labels());
         $this->assertSame(str_repeat('a', 40), $writer->headSha('1', 3));
+
+        $this->assertTrue($writer->resolve('1', 3, 'd1'));
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $this->assertFalse($writer->resolve('1', 3, 'nope'));
     }
 
     /**
@@ -94,6 +98,7 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertTrue($mr->open);
         $this->assertFalse($mr->draft);
         $this->assertSame($mr->sourceProjectId, $mr->targetProjectId);
+        $this->assertSame('https://gitlab.test/g/p/-/merge_requests/3', $mr->webUrl);
 
         $this->gitlab->mergeRequestFields(['draft' => true, 'source_project_id' => 7, 'state' => 'merged']);
         $mr = $writer->mergeRequest('1', 3);

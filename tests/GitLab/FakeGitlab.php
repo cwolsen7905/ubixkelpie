@@ -38,6 +38,18 @@ final class FakeGitlab implements HttpClient
     private array $labels = [];
 
     /**
+     * Whether resolving a thread answers with an error
+     */
+    private bool $resolveFails = false;
+
+    /**
+     * Discussion IDs resolved through the API
+     *
+     * @var list<string>
+     */
+    private array $resolved = [];
+
+    /**
      * "METHOD path" of every request
      *
      * @var list<string>
@@ -83,6 +95,26 @@ final class FakeGitlab implements HttpClient
     public function notes(): array
     {
         return $this->notes;
+    }
+
+    /**
+     * Make resolving a thread fail from now on
+     *
+     * @return void
+     */
+    public function failResolve(): void
+    {
+        $this->resolveFails = true;
+    }
+
+    /**
+     * The discussion IDs that were resolved
+     *
+     * @return list<string>
+     */
+    public function resolved(): array
+    {
+        return $this->resolved;
     }
 
     /**
@@ -201,6 +233,19 @@ final class FakeGitlab implements HttpClient
 
             return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode($all));
         }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions/(\w+)$#', $path, $m) === 1 && $method === 'PUT') {
+            if (!isset($this->notes[$m[1]])) {
+                return $this->fakeJson(['message' => '404 Not found'], 404);
+            }
+            if ($this->resolveFails) {
+                return $this->fakeJson(['message' => '403 Forbidden'], 403);
+            }
+            if (($body['resolved'] ?? '') === 'true') {
+                $this->resolved[] = $m[1];
+            }
+
+            return $this->fakeJson($this->fakeDiscussion($m[1]));
+        }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions/(\w+)$#', $path, $m) === 1 && $method === 'GET') {
             return isset($this->notes[$m[1]]) ? $this->fakeJson($this->fakeDiscussion($m[1])) : $this->fakeJson(['message' => '404 Not found'], 404);
         }
@@ -221,6 +266,7 @@ final class FakeGitlab implements HttpClient
                 'state'             => 'opened',
                 'target_branch'     => 'dev',
                 'target_project_id' => 1,
+                'web_url'           => 'https://gitlab.test/g/p/-/merge_requests/3',
                 ...$this->mrFields,
             ]);
         }

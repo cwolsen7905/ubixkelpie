@@ -23,6 +23,7 @@ final readonly class MergeRequestInfo implements Dto
      * @param bool   $open            Whether the MR is open
      * @param int    $sourceProjectId The project the source branch lives in
      * @param int    $targetProjectId The project the MR targets
+     * @param string $webUrl          The MR's web URL, empty when GitLab did not say
      */
     public function __construct(
         public string $sha,
@@ -32,6 +33,7 @@ final readonly class MergeRequestInfo implements Dto
         public bool $open,
         public int $sourceProjectId,
         public int $targetProjectId,
+        public string $webUrl = '',
     ) {
     }
 }

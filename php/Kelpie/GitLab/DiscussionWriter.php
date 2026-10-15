@@ -16,9 +16,9 @@ use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
 
 /**
- * Writes to a GitLab MR's threads: reply, edit a note, label the MR; and reads one thread's notes
+ * Writes to a GitLab MR's threads: reply, edit a note, resolve a thread, label the MR; and reads one thread's notes
  *
- * Give it the bot client (`BotHttpClient`). It never resolves a thread and never touches code.
+ * Give it the bot client (`BotHttpClient`). It never touches code.
  * A failed call is logged and reported as null/false, never thrown.
  *
  * @see \Kelpie\Tests\GitLab\DiscussionWriterTest PHPUnit test case
@@ -112,7 +112,9 @@ final class DiscussionWriter
             return null;
         }
 
-        return new MergeRequestInfo($sha, $source, $target, ($mr['draft'] ?? false) === true, ($mr['state'] ?? '') === 'opened', $from, $to);
+        $webUrl = $mr['web_url'] ?? '';
+
+        return new MergeRequestInfo($sha, $source, $target, ($mr['draft'] ?? false) === true, ($mr['state'] ?? '') === 'opened', $from, $to, is_string($webUrl) ? $webUrl : '');
     }
 
     /**
@@ -147,6 +149,20 @@ final class DiscussionWriter
     public function editNote(string $project, int $mrIid, string $discussionId, int $noteId, string $body): bool
     {
         return $this->send('PUT', $this->discussionUrl($project, $mrIid, $discussionId) . '/notes/' . $noteId, ['body' => $body]) !== null;
+    }
+
+    /**
+     * Resolve a thread
+     *
+     * @param string $project      The project ID or URL-encodable path
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The discussion ID
+     *
+     * @return bool Whether GitLab accepted it
+     */
+    public function resolve(string $project, int $mrIid, string $discussionId): bool
+    {
+        return $this->send('PUT', $this->discussionUrl($project, $mrIid, $discussionId), ['resolved' => 'true']) !== null;
     }
 
     /**

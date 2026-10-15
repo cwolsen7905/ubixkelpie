@@ -74,6 +74,22 @@ final class ThreadResponderTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
+     * An already_fixed thread is answered and resolved
+     *
+     * @return void
+     */
+    public function testAlreadyFixedThreadIsResolved(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+
+        $outcomes = $this->responder('already_fixed')->respond('1', 3, 'abc', [$this->thread('d1')]);
+
+        $this->assertSame(['d1' => ResponseOutcome::Replied], $outcomes);
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $this->assertStringContainsString('class=already_fixed', implode("\n", array_column($this->gitlab->notes()['d1'], 'body')));
+    }
+
+    /**
      * A fix thread is claimed and released, nothing said
      *
      * @return void

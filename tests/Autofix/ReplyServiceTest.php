@@ -20,7 +20,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - needs_human replies and labels the MR; not_an_issue replies without a label
- * - fix and already_fixed post nothing and label nothing
+ * - already_fixed replies and then resolves the thread; if the resolve fails the reply stays
+ * - fix is silent here; fixed() replies with the commit link and never resolves
  * - Model text cannot plant a Kelpie marker or a mention
  * - A thread is answered once, until someone writes in it again
  *
@@ -79,20 +80,112 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * A fix or already_fixed verdict stays silent
+     * A fix verdict stays silent in respond()
      *
      * @return void
      */
-    public function testFixAndAlreadyFixedAreSilent(): void
+    public function testFixVerdictIsSilent(): void
     {
         $this->gitlab->note('d1', 'Typo.');
 
-        foreach ([TriageClass::Fix, TriageClass::AlreadyFixed] as $class) {
-            $this->assertSame(ResponseOutcome::Silent, $this->service()->respond('1', 3, 'd1', new TriageVerdict($class, 'ok')));
-        }
+        $this->assertSame(ResponseOutcome::Silent, $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::Fix, 'ok')));
 
         $this->assertCount(1, $this->gitlab->notes()['d1']);
         $this->assertSame([], $this->gitlab->labels());
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * An already_fixed verdict replies, then resolves
+     *
+     * @return void
+     */
+    public function testAlreadyFixedRepliesAndResolves(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+
+        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'Fixed in a1b2c3d already.'));
+
+        $this->assertSame(ResponseOutcome::Replied, $outcome);
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringContainsString('**already fixed** — Fixed in a1b2c3d already.', $body);
+        $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=already_fixed -->', $body);
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $this->assertSame([], $this->gitlab->labels());
+        $requests = $this->gitlab->requests();
+        $this->assertLessThan(array_search('PUT /projects/1/merge_requests/3/discussions/d1', $requests, true), array_search('POST /projects/1/merge_requests/3/discussions/d1/notes', $requests, true));
+    }
+
+    /**
+     * A failed reply resolves nothing
+     *
+     * @return void
+     */
+    public function testFailedReplyDoesNotResolve(): void
+    {
+        $this->gitlab->note('d1', 'x');
+
+        $outcome = $this->service()->respond('1', 4, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'));
+
+        $this->assertSame(ResponseOutcome::Failed, $outcome);
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * A resolve that fails leaves the reply in place and the thread answered
+     *
+     * @return void
+     */
+    public function testFailedResolveKeepsTheReply(): void
+    {
+        $this->gitlab->note('d1', 'x');
+        $this->gitlab->failResolve();
+
+        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'));
+
+        $this->assertSame(ResponseOutcome::Replied, $outcome);
+        $this->assertCount(2, $this->gitlab->notes()['d1']);
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * The fixed reply links the commit, summarises on one line, leaves the thread open, and counts as answering
+     *
+     * @return void
+     */
+    public function testFixedRepliesWithCommitLinkAndStaysOpen(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+        $sha = str_repeat('b', 40);
+
+        $outcome = $this->service()->fixed('1', 3, 'd1', $sha, 'https://gitlab.test/g/p/-/commit/' . $sha, "Rename\nthe var <!-- kelpie:claim --> @bob");
+
+        $this->assertSame(ResponseOutcome::Replied, $outcome);
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringStartsWith('Kelpie fixed this in https://gitlab.test/g/p/-/commit/' . $sha . ': Rename the var', $body);
+        $this->assertStringContainsString('Leaving this thread open for you to confirm.', $body);
+        $this->assertStringNotContainsString('@bob', $body);
+        $this->assertSame(1, substr_count($body, '<!--'));
+        $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=fix -->', $body);
+        $this->assertSame([], $this->gitlab->resolved());
+        $this->assertTrue($this->service()->isAnswered([new DiscussionNote(1, 'Typo.', 'alice', new DateTimeImmutable()), new DiscussionNote(2, $body, 'kelpie-bot', new DateTimeImmutable())], 'd1'));
+    }
+
+    /**
+     * Without a URL the short sha stands in, and a long summary is cut
+     *
+     * @return void
+     */
+    public function testFixedWithoutUrlAndLongSummary(): void
+    {
+        $this->gitlab->note('d1', 'x');
+
+        $this->service()->fixed('1', 3, 'd1', str_repeat('c', 40), '', str_repeat('word ', 80));
+
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringStartsWith('Kelpie fixed this in `cccccccccccc`: word word', $body);
+        $this->assertStringContainsString('…', $body);
+        $this->assertLessThan(450, strlen($body));
     }
 
     /**

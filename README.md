@@ -29,6 +29,15 @@ app/KelpieApi/k8s/              <env>-{deploy,service,ingress}.yaml per environm
 Dockerfile  Dockerfile_Test     runtime image, and the test image the CI gate runs in
 ```
 
+## AI review for merge requests
+
+`ci/ai-review/` is a reusable GitLab CI job that reviews merge requests with OpenCode and
+OpenRouter and posts findings as threads. It complements uBixCore's `code:review` (it
+reviews logic, security and design, not lint or conventions) and is advisory by default.
+Other repos include it with `include: {project: ubixsys/ubixkelpie, ref: <tag or dev>, file:
+ci/ai-review/ai-review.yml}`. Setup, variables and overrides are in
+[docs/ai-review.md](docs/ai-review.md).
+
 ## Run it
 
 ```bash

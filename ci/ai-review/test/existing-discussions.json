@@ -1,0 +1,4 @@
+[
+ {"id":"d1","notes":[{"id":1,"body":"**major** x\n<!-- ai-review:fp=3f425c301613 -->","resolved":true,"author":{"id":9}},{"id":2,"body":"Dismissed: lookup throws upstream.","resolved":true,"author":{"id":5}}]},
+ {"id":"d2","notes":[{"id":3,"body":"<!-- ai-review:summary round=1 sha=abc -->\nold","resolved":null,"author":{"id":9}}]}
+]

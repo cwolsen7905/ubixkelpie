@@ -1,0 +1,6 @@
+{"verdict":"block","summary":"Adds an account transfer. Two saves are not atomic and a missing account is unhandled.",
+ "findings":[
+  {"severity":"blocker","confidence":"high","file":"src/Transfer.php","line":15,"title":"Withdraw and deposit are saved separately","why":"If the second save fails the money has left the source and never arrived. Wrap both saves in one transaction.","fingerprint":"non-atomic-transfer-saves"},
+  {"severity":"major","confidence":"medium","file":"src/Transfer.php","line":12,"title":"find() result is not checked for null","why":"An unknown id gives a fatal error on withdraw(). Throw a domain exception first.","fingerprint":"unchecked-null-account-lookup"},
+  {"severity":"minor","confidence":"high","file":"src/Transfer.php","line":10,"title":"No test for a negative amount","why":"move() accepts any int, so a negative cents value reverses the transfer.","fingerprint":"negative-amount-untested"}
+ ]}

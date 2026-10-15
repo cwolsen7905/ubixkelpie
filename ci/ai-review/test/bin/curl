@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stand-in for curl against the GitLab API: logs "METHOD URL DATA" to $CURL_LOG and answers
+# per path. An inline thread whose position carries a null sha is refused, like GitLab does.
+method=GET data="" url=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    -X) method=$2; shift ;;
+    --data) data=$2; shift ;;
+    -H | --retry | --max-time) shift ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+[ -n "$data" ] && data=$(jq -c . <<<"$data")
+printf '%s %s %s\n' "$method" "$url" "$data" >>"$CURL_LOG"
+case "$method $url" in
+  "GET "*/versions) echo '[{"id":1,"head_commit_sha":"hhh","base_commit_sha":"bbb","start_commit_sha":"sss"}]' ;;
+  "GET "*/merge_requests/*/user) echo '{"message":"404 Not Found"}'; exit 22 ;;
+  "GET "*/user) echo '{"id":9}' ;;
+  "GET "*/discussions*) echo '[]' ;;
+  "POST "*/discussions)
+    if grep -q '"position"' <<<"$data" && grep -Eq '"(base|head|start)_sha":null' <<<"$data"; then
+      echo '{"message":"400 Bad request - position is invalid"}'; exit 22
+    fi
+    echo '{}' ;;
+  *) echo '{}' ;;
+esac

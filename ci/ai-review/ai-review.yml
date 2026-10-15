@@ -58,30 +58,38 @@ ai-review-mr:
       done
       # The base commit may be outside a shallow checkout; the container's mount is read-only.
       git fetch -q --depth=100 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || true
-      chmod 0777 "$work/out"
-      docker run --rm --name "ai-review-$CI_JOB_ID" \
+      # The tools are baked into a cached image (root only ever runs the build), so the review
+      # itself runs as the runner's own uid/gid and every file it writes is removable by us.
+      tag=ai-review-tools:$(printf '%s %s' "$AI_REVIEW_IMAGE" "$AI_REVIEW_OPENCODE_VERSION" | sha1sum | cut -c1-12)
+      if ! docker image inspect "$tag" >/dev/null 2>&1; then
+        mkdir -p "$work/build"
+        printf "%s\n" "FROM $AI_REVIEW_IMAGE" \
+          'RUN apk add -q --no-cache bash jq curl git coreutils' \
+          "RUN npm install -g --silent --no-fund --no-audit opencode-ai@$AI_REVIEW_OPENCODE_VERSION" \
+          >"$work/build/Dockerfile"
+        docker build -q -t "$tag" "$work/build" >/dev/null || { echo "ai-review: UNREVIEWED, could not build the tools image" >&2; exit 75; }
+      fi
+      mkdir -p "$work/out/home"
+      docker run --rm --name "ai-review-$CI_JOB_ID" --user "$(id -u):$(id -g)" \
         -v "$CI_PROJECT_DIR:/repo:ro" -v "$work/scripts:/ai:ro" -v "$work/out:/work" \
-        -e HOME=/work/home -e AI_REVIEW_WORK=/work -e AI_REVIEW_REPO=/repo \
+        -e HOME=/work/home -e XDG_CACHE_HOME=/work/home/.cache -e TMPDIR=/work \
+        -e AI_REVIEW_WORK=/work -e AI_REVIEW_REPO=/repo \
         -e OPENROUTER_API_KEY -e AI_REVIEW_GITLAB_TOKEN \
         -e AI_REVIEW_MODE -e AI_REVIEW_MODEL -e AI_REVIEW_MAX_LINES -e AI_REVIEW_MAX_BYTES \
         -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL \
         -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
         -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
-        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-        "$AI_REVIEW_IMAGE" sh -c '
-          apk add -q --no-cache bash jq curl git coreutils >/dev/null || exit 75
-          npm install -g --silent --no-fund --no-audit "opencode-ai@'"$AI_REVIEW_OPENCODE_VERSION"'" || exit 75;
-          bash /ai/review.sh; rc=$?
-          # Hand the work dir back to the runner user so the job can remove it.
-          chown -R "$HOST_UID:$HOST_GID" /work 2>/dev/null
-          exit $rc'
+        "$tag" bash /ai/review.sh
   after_script:
+    # Nothing here may fail the job: every command is guarded and quiet.
     - docker rm -f "ai-review-$CI_JOB_ID" >/dev/null 2>&1 || true
-    # Root-owned leftovers (a killed container) are removed through docker.
     - |
       d="/tmp/ai-review-$CI_JOB_ID"
-      rm -rf "$d" 2>/dev/null || true
+      rm -rf "$d" >/dev/null 2>&1 || true
       if [ -e "$d" ]; then
-        docker run --rm -v "$d:/w" "$AI_REVIEW_IMAGE" sh -c 'rm -rf /w/* /w/.[!.]*' >/dev/null 2>&1 || true
-        rm -rf "$d" || true
+        # Root-owned leftovers (an older run, or a container that was killed) go through docker.
+        docker run --rm -v "$d:/w" "${AI_REVIEW_IMAGE:-node:24-alpine}" \
+          sh -c 'rm -rf /w/* /w/.[!.]* 2>/dev/null' >/dev/null 2>&1 || true
+        rm -rf "$d" >/dev/null 2>&1 || true
       fi
+      exit 0

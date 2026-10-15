@@ -222,8 +222,7 @@ depend on repository interfaces, and the rule "repositories only in services" re
 be in the `Service` family. The commit for !24 shows the split: classes that take a repository went
 to `Service\Autofix\`, their neighbours that do not went to `Autofix\`, `Sandbox\`, `Triage\`.
 So the rule produced a split directory, because it constrains only one side. It also pushed the
-author to inject the concrete `AutofixJobSqlRepository` rather than make the CLI wiring (4.3 of
-3.2 above).
+author to inject the concrete `AutofixJobSqlRepository` rather than make the CLI wiring (see 3.2).
 
 ### 4.5 Lane scopes and agent briefs (not verifiable from the repository)
 

@@ -40,8 +40,13 @@ diff breaks it in a way no tool can detect. Do not praise. Do not summarise the 
    added line on the new side). If you could not establish something, say so in `why`
    and lower `confidence`; do not guess.
 3. Prefer few, real findings. Zero findings is a good outcome. Fewer than ten, always.
-4. Skip any finding whose fingerprint is listed as already raised or dismissed. If you
-   believe a dismissal was wrong, say that in the summary, not as a new finding.
+4. Skip any finding whose fingerprint is listed as already raised or dismissed, and any
+   whose substance an open thread already covers, even under another title or on another
+   line of the same code. If you believe a dismissal was wrong, say that in the summary,
+   not as a new finding.
+5. A finding about a whole file or package (missing tests for several functions, a design
+   problem across a module) is not about one line: set `line` to `0`. It is listed in the
+   summary, not opened as a thread. Never pin it to a nearby line, a comment or a signature.
 
 ## Severity and confidence
 
@@ -78,4 +83,5 @@ Reply with ONE JSON object and nothing else: no prose, no Markdown fence.
 `verdict` is `block` if any finding is `blocker`/`major` with `high` confidence,
 `concerns` if there are other findings, else `pass`. `fingerprint` must name the issue, not
 its wording or position, so the same issue gets the same slug on the next push (for
-example `unchecked-null-user-lookup`). `line` is an integer on the new side of the diff.
+example `unchecked-null-user-lookup`). `line` is an integer on the new side of the diff, or `0` for a finding that is not about
+one line.

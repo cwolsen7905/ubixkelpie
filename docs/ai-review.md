@@ -84,8 +84,18 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
 6. Posts one inline thread per new finding (a plain thread if GitLab refuses the position;
    the reason is in the job log) and one summary note, replaced on every push. A finding
    already open or dismissed is matched by its id or by file + title, so a reworded slug does
-   not duplicate it. Open threads the run no longer reports are listed in the summary; they
-   are never resolved automatically.
+   not duplicate it. A finding on a line an open thread already covers is listed in the
+   summary instead of becoming a second thread (a blocker is still posted). Just before
+   posting, the discussions are read again, so a thread another job posted while the model
+   ran is not posted twice.
+   A finding with `line: 0` is about a file or package, not a line: it is listed in the
+   summary under "Not tied to one line" and opens no thread (it still counts toward
+   `blocking`).
+   An open thread is listed as "no longer reported" only when the lines it points at changed
+   since it was posted (its marker carries the commit sha; an older thread uses its diff
+   position's). Otherwise it is still open, and "Already open" counts it. A thread whose
+   commit is not in the checkout, or that has no known commit, is treated as still open.
+   Listed threads are never resolved automatically.
 
 A review that finds nothing is not silent: the summary becomes a plain note (no thread to
 resolve) saying the review ran with no findings, the model, the full commit sha and the files

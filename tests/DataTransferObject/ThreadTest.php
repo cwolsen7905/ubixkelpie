@@ -60,7 +60,7 @@ final class ThreadTest extends UbixConcreteClassOrEnumTestCase implements IUbixC
         $updatedAt = new DateTimeImmutable('2026-10-01T12:00:00Z');
 
         $thread = new Thread(
-            discussionId: 42,
+            discussionId: 'abc123',
             firstNoteId:  100,
             author:       'bob',
             body:         'Use a typed property.',
@@ -72,7 +72,7 @@ final class ThreadTest extends UbixConcreteClassOrEnumTestCase implements IUbixC
             noteCount:    2,
         );
 
-        $this->assertSame(42, $thread->discussionId);
+        $this->assertSame('abc123', $thread->discussionId);
         $this->assertSame(100, $thread->firstNoteId);
         $this->assertSame('bob', $thread->author);
         $this->assertSame('Use a typed property.', $thread->body);
@@ -92,7 +92,7 @@ final class ThreadTest extends UbixConcreteClassOrEnumTestCase implements IUbixC
     public function testDiffNoteFieldsAreNullForGeneralNotes(): void
     {
         $thread = new Thread(
-            discussionId: 5,
+            discussionId: 'def456',
             firstNoteId:  106,
             author:       'dave',
             body:         'Please add a return type hint.',

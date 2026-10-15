@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\GitLab;
 
-use DateTimeImmutable;
 use Kelpie\GitLab\DiscussionReader;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -19,19 +18,21 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\GitLab\DiscussionReader
  *
  * What must hold:
- * - Only unresolved, resolvable threads are returned
- * - Resolved threads, non-resolvable threads, and system-only threads are excluded
- * - Diff notes carry file_path and line; general notes do not
- * - Pagination via X-Next-Page header works
+ * - Only unresolved, resolvable threads are returned (resolved, non-resolvable and system-only are not)
+ * - Diff notes carry file path and line; general notes do not
+ * - Pagination follows X-Next-Page with the page number, and stops
+ * - A failing page is logged and ends the read without throwing
  *
  * @coversDefaultClass \Kelpie\GitLab\DiscussionReader
  */
 final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
     /**
-     * HTTP request call count for pagination simulation
+     * URLs requested through the stubbed HTTP client, in order
+     *
+     * @var list<string>
      */
-    private int $callCount = 0;
+    private array $requested = [];
 
     /**
      * Test that the class is following uBix standards
@@ -44,34 +45,18 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * Only unresolved, resolvable threads are returned
+     * Only unresolved, resolvable threads are returned, across both pages
      *
      * @return void
      */
     public function testOnlyUnresolvedResolvableThreadsAreReturned(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $threads = $this->buildReader($this->fixtureResponder())->read(1, 3);
 
-        $this->assertCount(2, $threads);
-
-        $discussionIds = [];
-        foreach ($threads as $thread) {
-            $discussionIds[] = $thread->discussionId;
-        }
-
-        $this->assertSame([3, 5], $discussionIds);
-    }
-
-    /**
-     * Resolved threads are excluded
-     *
-     * @return void
-     */
-    public function testResolvedThreadsAreExcluded(): void
-    {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $this->assertSame(
+            [str_repeat('b', 40), str_repeat('e', 40), str_repeat('f', 40)],
+            array_column($threads, 'discussionId'),
+        );
 
         foreach ($threads as $thread) {
             $this->assertFalse($thread->resolved);
@@ -79,176 +64,128 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * System notes are excluded from threads
+     * Pagination requests page 1 then page 2 and stops when X-Next-Page is empty
      *
      * @return void
      */
-    public function testSystemNotesAreExcluded(): void
+    public function testPaginationRequestsEachPageOnce(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $this->buildReader($this->fixtureResponder())->read(7, 3);
 
-        $authors = [];
-        foreach ($threads as $thread) {
-            $authors[] = $thread->author;
-        }
-
-        $this->assertNotContains('system', $authors);
+        $this->assertSame([
+            'https://gitlab.example.com/api/v4/projects/7/merge_requests/3/discussions?per_page=100&page=1',
+            'https://gitlab.example.com/api/v4/projects/7/merge_requests/3/discussions?per_page=100&page=2',
+        ], $this->requested);
     }
 
     /**
-     * Non-resolvable threads are excluded
+     * A thread carries the first human note's fields and counts only human notes
      *
      * @return void
      */
-    public function testNonResolvableThreadsAreExcluded(): void
+    public function testDiffThreadFieldsComeFromTheFirstNote(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $thread = $this->buildReader($this->fixtureResponder())->read(1, 3)[0];
 
-        foreach ($threads as $thread) {
-            // The fixture has no non-resolvable thread in the returned set,
-            // so we verify that the returned discussion IDs do not include them.
-            $ids = [3, 5];
-            $this->assertContains($thread->discussionId, $ids);
-        }
+        $this->assertSame(101, $thread->firstNoteId);
+        $this->assertSame('bob', $thread->author);
+        $this->assertSame('This should use a typed property.', $thread->body);
+        $this->assertSame('src/processor.php', $thread->filePath);
+        $this->assertSame(42, $thread->line);
+        $this->assertSame(2, $thread->noteCount);
+        $this->assertSame('2026-10-02T09:00:00+00:00', $thread->createdAt->format('c'));
+        $this->assertSame('2026-10-02T11:30:00+00:00', $thread->updatedAt->format('c'));
     }
 
     /**
-     * Diff notes carry file_path and line; general notes do not
+     * General notes have no file path or line; a leading system note is not the first note
      *
      * @return void
      */
-    public function testDiffNotesCarryFilePathAndLine(): void
+    public function testGeneralAndSystemLeadingThreads(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $threads = $this->buildReader($this->fixtureResponder())->read(1, 3);
 
-        $threadById = [];
-        foreach ($threads as $thread) {
-            $threadById[$thread->discussionId] = $thread;
-        }
+        $this->assertNull($threads[1]->filePath);
+        $this->assertNull($threads[1]->line);
+        $this->assertSame('dave', $threads[1]->author);
 
-        $this->assertArrayHasKey(3, $threadById);
-        $this->assertSame('bob', $threadById[3]->author);
-        $this->assertSame(42, $threadById[3]->line);
-
-        $this->assertArrayHasKey(5, $threadById);
-        $this->assertSame('dave', $threadById[5]->author);
-        $this->assertNull($threadById[5]->line);
+        $this->assertSame(107, $threads[2]->firstNoteId);
+        $this->assertSame('erin', $threads[2]->author);
+        $this->assertSame(1, $threads[2]->noteCount);
     }
 
     /**
-     * Pagination via X-Next-Page header fetches the second page
+     * A non-200 response is logged and yields what was read so far, without throwing
      *
      * @return void
      */
-    public function testPaginationFetchesSecondPage(): void
+    public function testHttpErrorEndsTheReadAndIsLogged(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('error');
 
-        $discussionIds = [];
-        foreach ($threads as $thread) {
-            $discussionIds[] = $thread->discussionId;
-        }
+        $reader = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(500);
+        }, $logger);
 
-        $this->assertSame([3, 5], $discussionIds);
+        $this->assertSame([], $reader->read(1, 3));
     }
 
     /**
-     * Thread properties match the fixture data
+     * An undecodable body is logged and yields no threads, without throwing
      *
      * @return void
      */
-    public function testThreadPropertiesMatchFixture(): void
+    public function testMalformedJsonEndsTheReadAndIsLogged(): void
     {
-        $reader  = $this->buildReader();
-        $threads = $reader->read(1, 3);
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('error');
 
-        $this->assertCount(2, $threads);
+        $reader = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(200, [], '{not json');
+        }, $logger);
 
-        $diffThread    = null;
-        $generalThread = null;
-        foreach ($threads as $thread) {
-            if ($thread->filePath === 'src/processor.php') {
-                $diffThread = $thread;
-            } else {
-                $generalThread = $thread;
-            }
-        }
-
-        $this->assertNotNull($diffThread);
-        $this->assertSame(3, $diffThread->discussionId);
-        $this->assertSame(102, $diffThread->firstNoteId);
-        $this->assertSame('bob', $diffThread->author);
-        $this->assertSame('This should use a typed property.', $diffThread->body);
-        $this->assertSame('src/processor.php', $diffThread->filePath);
-        $this->assertSame(42, $diffThread->line);
-        $this->assertFalse($diffThread->resolved);
-        $this->assertInstanceOf(DateTimeImmutable::class, $diffThread->createdAt);
-        $this->assertInstanceOf(DateTimeImmutable::class, $diffThread->updatedAt);
-        $this->assertSame(2, $diffThread->noteCount);
-
-        $this->assertNotNull($generalThread);
-        $this->assertSame(5, $generalThread->discussionId);
-        $this->assertSame(106, $generalThread->firstNoteId);
-        $this->assertSame('dave', $generalThread->author);
-        $this->assertSame('Please add a return type hint.', $generalThread->body);
-        $this->assertNull($generalThread->filePath);
-        $this->assertNull($generalThread->line);
-        $this->assertFalse($generalThread->resolved);
-        $this->assertSame(1, $generalThread->noteCount);
+        $this->assertSame([], $reader->read(1, 3));
     }
 
     /**
-     * Build a DiscussionReader with a mock HTTP client
+     * Build a responder serving the two fixture pages, recording each requested URL
+     *
+     * @return callable(Request): Psr7Response
+     */
+    private function fixtureResponder(): callable
+    {
+        return function (Request $request): Psr7Response {
+            $uri               = (string) $request->getUri();
+            $this->requested[] = $uri;
+            $page              = str_ends_with($uri, 'page=1') ? 1 : 2;
+            $json              = file_get_contents(__DIR__ . '/fixtures/mr_discussions_page' . $page . '.json');
+
+            return new Psr7Response(200, ['X-Next-Page' => $page === 1 ? '2' : ''], $json === false ? '' : $json);
+        };
+    }
+
+    /**
+     * Build a DiscussionReader whose HTTP client answers with the given responder
+     *
+     * @param callable(Request): Psr7Response $responder Produces the response for a request
+     * @param ?Logger                         $logger    Logger (a stub when null)
      *
      * @return DiscussionReader
      */
-    private function buildReader(): DiscussionReader
+    private function buildReader(callable $responder, ?Logger $logger = null): DiscussionReader
     {
-        $this->callCount = 0;
-        $requestFactory  = new Psr17Factory();
-        $httpClient      = $this->createMock(HttpClient::class);
-        $logger          = $this->createStub(Logger::class);
-        $jsonService     = new JsonService($logger);
-
-        $httpClient->method('sendRequest')
-            ->willReturnCallback(function (Request $request) use ($requestFactory, $jsonService): Psr7Response {
-                $uri = (string) $request->getUri();
-
-                if (preg_match('#/merge_requests/3/discussions$#', $uri) === 1) {
-                    $fixturePath = dirname(__DIR__) . '/GitLab/fixtures/mr_discussions.json';
-                    $json        = file_get_contents($fixturePath);
-                    assert(is_string($json));
-                    $fixture = $jsonService->decode($json);
-
-                    $firstPage  = array_slice($fixture, 0, 4);
-                    $secondPage = array_slice($fixture, 4);
-
-                    $this->callCount++;
-
-                    if ($this->callCount === 1) {
-                        $firstJson = $jsonService->encode($firstPage);
-                        return (new Psr7Response(200, ['X-Next-Page' => '5']))
-                            ->withBody($requestFactory->createStream($firstJson));
-                    }
-
-                    $secondJson = $jsonService->encode($secondPage);
-                    return (new Psr7Response(200, ['X-Next-Page' => '']))
-                        ->withBody($requestFactory->createStream($secondJson));
-                }
-
-                return new Psr7Response(404);
-            });
+        $logger   ??= $this->createStub(Logger::class);
+        $httpClient = $this->createStub(HttpClient::class);
+        $httpClient->method('sendRequest')->willReturnCallback($responder);
 
         return new DiscussionReader(
             logger:         $logger,
             httpClient:     $httpClient,
-            requestFactory: $requestFactory,
+            requestFactory: new Psr17Factory(),
             apiUrl:         'https://gitlab.example.com/api/v4',
-            jsonService:    $jsonService,
+            jsonService:    new JsonService($logger),
         );
     }
 }

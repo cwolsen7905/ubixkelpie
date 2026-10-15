@@ -165,7 +165,7 @@ fi
 # Files covered, for the notes below: first 20, then a count.
 files_covered() {
   local n; n=$(wc -l <"$CHANGED" | tr -d ' ')
-  head -n 20 "$CHANGED" | sed 's/.*/- `&`/'
+  head -n 20 "$CHANGED" | awk '{ printf "- %c%s%c\n", 96, $0, 96 }'
   [ "$n" -le 20 ] || printf -- '- ... and %s more\n' "$((n - 20))"
 }
 

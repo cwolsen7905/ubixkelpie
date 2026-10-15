@@ -210,7 +210,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $result = $controller->webhook($request, new Response());
 
         $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
-        $this->assertStringContainsString('queued: ubixsys/ubixkelpie!3@abc', (string) $result->getBody());
+        $this->assertStringContainsString('queued: ubixsys/ubixkelpie!3@abc', stripslashes((string) $result->getBody()));
     }
 
     /**

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Controller\Gitlab;
 
+use Kelpie\Autofix\EnqueueService;
+use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
@@ -178,6 +180,37 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $result = $this->logged[1]['context']['result'] ?? '';
         $this->assertIsString($result);
         $this->assertStringContainsString('noted: MR !12', $result);
+    }
+
+    /**
+     * A failed MR Pipeline Hook is filtered into an autofix job
+     *
+     * @return void
+     */
+    public function testAFailedPipelineHookIsQueuedForAutofix(): void
+    {
+        $logger     = $this->captureLogger();
+        $controller = $this->makeController($logger, 'secret');
+        $payload    = $this->encode([
+            'builds'            => [['stage' => 'lint-and-test', 'status' => 'failed']],
+            'commit'            => ['message' => 'feat: x'],
+            'merge_request'     => ['iid' => 3, 'state' => 'opened', 'title' => 't', 'target_branch' => 'dev'],
+            'object_attributes' => ['source' => 'merge_request_event', 'status' => 'failed', 'sha' => 'abc'],
+            'project'           => ['path_with_namespace' => 'ubixsys/ubixkelpie'],
+            'user'              => ['username' => 'alice'],
+        ]);
+
+        $request = (new ServerRequest(
+            'POST',
+            '/gitlab/webhook',
+            ['X-Gitlab-Token' => 'secret', 'X-Gitlab-Event' => 'Pipeline Hook'],
+        ))
+            ->withBody((new StreamFactory())->createStream($payload));
+
+        $result = $controller->webhook($request, new Response());
+
+        $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
+        $this->assertStringContainsString('queued: ubixsys/ubixkelpie!3@abc', (string) $result->getBody());
     }
 
     /**
@@ -573,6 +606,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             $noteService,
             $issueService,
             $approvalService,
+            new EnqueueService($logger, new EventFilter($logger)),
             $secret,
         );
     }

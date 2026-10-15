@@ -153,8 +153,21 @@ else
     unreviewed "could not diff against $BASE_SHA."
 fi
 
-if [ ! -s "$CHANGED" ]; then log "nothing reviewable changed, skipped"; exit 0; fi
-if ! grep -Evq "$DOCS_RE" "$CHANGED"; then log "only docs changed, skipped"; exit 0; fi
+# A skip is reported too, but only once the existing summary note is known, so a rerun
+# replaces it instead of adding another.
+SKIP_REASON=""
+if [ ! -s "$CHANGED" ]; then
+  SKIP_REASON="nothing reviewable changed (lockfiles, vendored and generated files are not sent)"
+elif ! grep -Evq "$DOCS_RE" "$CHANGED"; then
+  SKIP_REASON="only docs changed"
+fi
+
+# Files covered, for the notes below: first 20, then a count.
+files_covered() {
+  local n; n=$(wc -l <"$CHANGED" | tr -d ' ')
+  head -n 20 "$CHANGED" | sed 's/.*/- `&`/'
+  [ "$n" -le 20 ] || printf -- '- ... and %s more\n' "$((n - 20))"
+}
 
 # --- Existing threads: round counter, dedupe, dismissals ------------------------------
 
@@ -177,6 +190,12 @@ if [ -n "$prev" ]; then
   ROUND=$prev_round
   # A pipeline retry of the same commit is the same round.
   [ "$prev_sha" = "$HEAD_SHA" ] || ROUND=$((prev_round + 1))
+fi
+
+if [ -n "$SKIP_REASON" ]; then
+  log "$SKIP_REASON, skipped"
+  put_summary "**AI review: skipped.** No model call was made: $SKIP_REASON."$'\n\n'"_On \`${HEAD_SHA:0:8}\`._" "$ROUND" || true
+  exit 0
 fi
 
 if [ "$ROUND" -gt "$MAX_ROUNDS" ] && [[ ",${LABELS// /}," != *",$EXTRA_LABEL,"* ]]; then
@@ -393,7 +412,23 @@ STALE=$(awk -F'\t' 'NF >= 3' <<<"$OPEN_ROWS" | while IFS=$'\t' read -r sfp sfile
   printf -- "- \`%s\`: %s\n" "$sfile" "$stitle"
 done)
 
+CLEAN=0
+[ ! -s "$FINDINGS" ] && [ -z "$STALE" ] && CLEAN=1
+
 counts=$(jq -r '[.findings[].severity] | group_by(.) | map("\(length) \(.[0])") | join(", ")' <<<"$RESULT")
+if [ "$CLEAN" = 1 ]; then
+  # A plain note, not a thread: nothing to resolve.
+  {
+    echo "**AI review: ran, no findings**, round $ROUND of $MAX_ROUNDS (\`$MODE\` mode)"
+    echo
+    jq -r .summary <<<"$RESULT" | neutralize
+    echo
+    echo "Model \`$MODEL\` reviewed commit \`$HEAD_SHA\`. Files covered:"
+    files_covered | neutralize
+    echo
+    echo "_Beside \`code:review\`, not instead of it. This note is updated on each push._"
+  } >"$WORK/summary.md"
+else
 {
   echo "**AI review: $(jq -r .verdict <<<"$RESULT")**, round $ROUND of $MAX_ROUNDS (\`$MODE\` mode)"
   echo
@@ -408,6 +443,7 @@ counts=$(jq -r '[.findings[].severity] | group_by(.) | map("\(length) \(.[0])") 
   echo
   echo "_Model \`$MODEL\` on \`${HEAD_SHA:0:8}\`. Beside \`code:review\`, not instead of it. Resolve a thread with \`Dismissed: <reason>\` to override a finding._"
 } >"$WORK/summary.md"
+fi
 put_summary "$(cat "$WORK/summary.md")" "$ROUND" || failed=$((failed + 1))
 
 if [ "$failed" -gt 0 ]; then

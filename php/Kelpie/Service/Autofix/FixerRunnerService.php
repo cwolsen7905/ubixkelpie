@@ -30,7 +30,8 @@ use Throwable;
  * Off unless `$enabled` (`KELPIE_AUTOFIX_ENABLED=true`). The push goes to the MR's own source branch
  * only, never a fork, never `dev`/`staging`/`main`. It is skipped if the branch head is no longer the
  * sha the thread was triaged at, checked just before the push as well as at the start. Failure paths
- * answer on the thread (design section 5) and push nothing.
+ * answer on the thread (design section 5) and push nothing. After a push it replies with the commit
+ * link (section 4) and leaves the thread open.
  *
  * @see \Kelpie\Tests\Service\Autofix\FixerRunnerServiceTest PHPUnit test case
  */
@@ -135,6 +136,10 @@ final class FixerRunnerService
                 $outcome = FixOutcome::NotAFix;
             } else {
                 [$outcome, $commit] = $this->fix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft);
+
+                if ($outcome === FixOutcome::Pushed && $commit !== null) {
+                    $this->announce($project, $mrIid, $id, $commit, $mr->webUrl, $verdict->reason);
+                }
             }
         } catch (Throwable $e) {
             $this->logger->error('Autofix runner crashed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
@@ -152,6 +157,28 @@ final class FixerRunnerService
         $this->logger->info('Autofix run finished', ['outcome' => $outcome->value, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
 
         return $outcome;
+    }
+
+    /**
+     * Reply on the thread with the commit link. The push stands whether or not the reply lands.
+     *
+     * @param string $project      The project ID
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The discussion ID
+     * @param string $commit       The pushed commit
+     * @param string $mrUrl        The MR's web URL
+     * @param string $summary      The triage reason, used as the summary
+     *
+     * @return void
+     */
+    private function announce(string $project, int $mrIid, string $discussionId, string $commit, string $mrUrl, string $summary): void
+    {
+        $base = (string) preg_replace('#/-/merge_requests/\d+/?$#', '', $mrUrl);
+        $url  = $base === $mrUrl || $base === '' ? '' : $base . '/-/commit/' . $commit;
+
+        if ($this->replyService->fixed($project, $mrIid, $discussionId, $commit, $url, $summary) !== ResponseOutcome::Replied) {
+            $this->logger->warning('Autofix fix reply could not be posted', ['commit' => $commit, 'mr_iid' => $mrIid]);
+        }
     }
 
     /**

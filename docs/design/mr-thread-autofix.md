@@ -149,8 +149,8 @@ Steps 1-5 are safe to ship before any push capability exists.
 **Step 5 as built** (`kelpie:respond <mr>`, run by hand; no worker calls it yet). Per thread: skip if
 Kelpie already replied and nobody has written since; claim it (`kelpie:claim` note, 30 minute TTL,
 oldest claim wins a race) and put `kelpie::working` on the MR; triage; `needs_human` gets a reply and
-the `kelpie::needs-human` label, `not_an_issue` a reply; `fix` and `already_fixed` post nothing until
-steps 6 and 7; release the claim and the working label. The job table is not touched yet: the worker
+the `kelpie::needs-human` label, `not_an_issue` a reply; `already_fixed` a reply and the thread is resolved (step 7); `fix` posts
+nothing here (step 6 owns it); release the claim and the working label. The job table is not touched yet: the worker
 that ties jobs to this arrives with step 6. Writes go through `BotHttpClient` (GET/POST/PUT only,
 `KELPIE_BOT_GITLAB_TOKEN`), and only for projects in `KELPIE_AUTOFIX_PROJECTS`.
 
@@ -179,11 +179,22 @@ unless `KELPIE_AUTOFIX_ENABLED=true` (any other value is off). Per thread:
    `--force`, never a `+` refspec, so a branch that moved is rejected by the server.
 
 What it does not do yet: no container-level isolation (the "sandbox image" of section 7 needs infra),
-no reply or resolve after a push (step 7), no worker or scheduler (step 8). The process runner is local
+no worker or scheduler (step 8). The process runner is local
 (`Kelpie\Sandbox\ProcOpenProcessRunner`); section 6 prefers a generic one in uBixCore, to be upstreamed.
 The caps use the `AutofixCaps` defaults; the per-MR token budget and daily spend cap of decision 6 are
 not enforced here. Database access in the web app is bound in `app/KelpieApi/src/Dependencies.php`; the
 `kelpie` database and a CI migrate stage do not exist yet, so the migration is applied by hand.
+
+**Step 7 as built** (inside `kelpie:fix`, and `kelpie:respond` for `already_fixed`). After a push the
+runner replies on the thread: "Kelpie fixed this in <commit URL>: <summary>", the gate line, and that the
+thread is left open for the reviewer, with a `class=fix` reply marker so step 5's answered check and the
+step 2 skips still hold. The commit URL is the MR's `web_url` with `/-/merge_requests/<iid>` swapped for
+`/-/commit/<sha>`; the short sha stands in if GitLab gave no URL. The summary is the triage reason, cleaned
+(markers and @-mentions stripped as in step 5), one line, at most 200 characters; the diff itself is not
+summarised. A failed reply is logged and does not undo the push; the job stays `done` with its commit.
+`already_fixed` replies with the reason as evidence (the verdict carries no commit) and then resolves the
+thread through `DiscussionWriter::resolve`; if the resolve fails the reply stays and its marker stops a
+second one. Per decisions 2 and 3 nothing resolves a thread after a `fix`.
 
 ## 8. Decisions
 

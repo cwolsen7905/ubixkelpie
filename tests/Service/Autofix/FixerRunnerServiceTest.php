@@ -115,6 +115,41 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame('fix', $this->jobs->triageClass());
         $this->assertSame(1, $this->jobs->attempt());
         $this->assertSame([], $this->gitlab->labels());
+
+        $bodies = implode("\n", array_column($this->gitlab->notes()['d1'], 'body'));
+        $this->assertStringContainsString('Kelpie fixed this in https://gitlab.test/g/p/-/commit/' . $head . ':', $bodies);
+        $this->assertStringContainsString('class=fix -->', $bodies);
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * Nothing pushed, nothing announced
+     *
+     * @return void
+     */
+    public function testNoFixReplyWithoutAPush(): void
+    {
+        $this->edit = static function (): bool {
+            return true;
+        };
+
+        $this->assertSame(FixOutcome::NoChange, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+
+        $this->assertStringNotContainsString('Kelpie fixed this', implode("\n", array_column($this->gitlab->notes()['d1'], 'body')));
+    }
+
+    /**
+     * An already_fixed verdict is answered and the thread resolved, with no checkout
+     *
+     * @return void
+     */
+    public function testAlreadyFixedIsResolved(): void
+    {
+        $this->triageClass = 'already_fixed';
+
+        $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame([], $this->agent->runs());
+        $this->assertSame(['d1'], $this->gitlab->resolved());
     }
 
     /**

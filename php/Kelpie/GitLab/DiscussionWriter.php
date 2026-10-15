@@ -6,6 +6,7 @@ namespace Kelpie\GitLab;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\DiscussionNote;
+use Kelpie\DataTransferObject\MergeRequestInfo;
 use Psr\Http\Client\ClientExceptionInterface as ClientException;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
@@ -84,6 +85,34 @@ final class DiscussionWriter
         $sha = $this->send('GET', $this->mrUrl($project, $mrIid), null)['sha'] ?? null;
 
         return is_string($sha) && $sha !== '' ? $sha : null;
+    }
+
+    /**
+     * Read what decides whether the fixer may push to an MR's source branch
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return ?MergeRequestInfo Null when the MR could not be read or lacks a field
+     */
+    public function mergeRequest(string $project, int $mrIid): ?MergeRequestInfo
+    {
+        $mr = $this->send('GET', $this->mrUrl($project, $mrIid), null);
+        if ($mr === null) {
+            return null;
+        }
+
+        $sha    = $mr['sha'] ?? null;
+        $source = $mr['source_branch'] ?? null;
+        $target = $mr['target_branch'] ?? null;
+        $from   = $mr['source_project_id'] ?? null;
+        $to     = $mr['target_project_id'] ?? null;
+
+        if (!is_string($sha) || $sha === '' || !is_string($source) || $source === '' || !is_string($target) || $target === '' || !is_int($from) || !is_int($to)) {
+            return null;
+        }
+
+        return new MergeRequestInfo($sha, $source, $target, ($mr['draft'] ?? false) === true, ($mr['state'] ?? '') === 'opened', $from, $to);
     }
 
     /**

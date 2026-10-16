@@ -18,6 +18,11 @@ use Psr\Log\LoggerInterface as Logger;
  */
 final class EventFilter
 {
+    /**
+     * Pipeline stages whose failure is fixable (design decision 7: gate failures, not deploy or infra)
+     */
+    public const array GATE_STAGES = ['lint', 'test', 'lint-and-test', 'static-analysis'];
+
     private const string MARKER = '<!-- kelpie:';
 
     private const string TRAILER = 'Kelpie-Autofix:';
@@ -40,7 +45,7 @@ final class EventFilter
         private readonly array $projects = ['ubixsys/ubixkelpie'],
         private readonly array $targetBranches = ['dev', 'staging'],
         private readonly array $skipBranches = [],
-        private readonly array $gateStages = ['lint', 'test', 'lint-and-test', 'static-analysis'],
+        private readonly array $gateStages = self::GATE_STAGES,
     ) {
     }
 

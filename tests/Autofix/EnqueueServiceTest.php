@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Autofix;
 
+use Kelpie\Autofix\DataTransferObject\AutofixJob;
 use Kelpie\Autofix\EnqueueService;
 use Kelpie\Autofix\EventFilter;
 use Psr\Log\LoggerInterface as Logger;
@@ -62,5 +63,27 @@ final class EnqueueServiceTest extends UbixConcreteClassOrEnumTestCase implement
         $logger->expects($this->once())->method('info')->with('GitLab webhook: autofix skipped', ['event' => 'push hook', 'reason' => 'not an autofix event']);
 
         $this->assertSame('skipped: not an autofix event', (new EnqueueService($logger, new EventFilter($logger)))->handle('Push Hook', []));
+    }
+
+    /**
+     * The entry point returns the job itself, for the sweep
+     *
+     * @return void
+     */
+    public function testEnqueueReturnsTheJob(): void
+    {
+        $logger  = $this->createStub(Logger::class);
+        $payload = [
+            'merge_request'     => ['iid' => 5, 'state' => 'opened', 'title' => 't', 'target_branch' => 'dev', 'last_commit' => ['id' => 'abc']],
+            'object_attributes' => ['noteable_type' => 'MergeRequest', 'type' => 'DiffNote', 'discussion_id' => 'd'],
+            'project'           => ['path_with_namespace' => 'ubixsys/ubixkelpie'],
+            'user'              => ['username' => 'alice'],
+        ];
+
+        $job = (new EnqueueService($logger, new EventFilter($logger)))->enqueue('Note Hook', $payload);
+
+        $this->assertInstanceOf(AutofixJob::class, $job);
+        $this->assertSame('d', $job->discussionId);
+        $this->assertSame('not an autofix event', (new EnqueueService($logger, new EventFilter($logger)))->enqueue('Push Hook', []));
     }
 }

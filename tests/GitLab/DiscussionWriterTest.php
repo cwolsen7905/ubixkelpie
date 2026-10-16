@@ -111,6 +111,20 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * A new MR-level discussion is opened and its ID returned
+     *
+     * @return void
+     */
+    public function testOpen(): void
+    {
+        $id = $this->gitlab->writer($this->createStub(Logger::class))->open('1', 3, 'The log.');
+
+        $this->assertNotNull($id);
+        $this->assertSame('The log.', $this->gitlab->notes()[$id][0]['body']);
+        $this->assertNull($this->gitlab->writer($this->createStub(Logger::class))->open('1', 4, 'x'));
+    }
+
+    /**
      * A 404 is null/false and logged
      *
      * @return void

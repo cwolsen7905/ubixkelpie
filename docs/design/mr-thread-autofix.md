@@ -196,6 +196,37 @@ summarised. A failed reply is logged and does not undo the push; the job stays `
 thread through `DiscussionWriter::resolve`; if the resolve fails the reply stays and its marker stops a
 second one. Per decisions 2 and 3 nothing resolves a thread after a `fix`.
 
+**Step 8 as built** (`kelpie:sweep`; the manifest `app/KelpieApi/k8s/dev-cronjob.yaml` is suspended).
+
+- *Entry point.* The sweep adds no path: per open MR of `KELPIE_AUTOFIX_PROJECTS` it builds a synthetic
+  Note Hook payload per unresolved thread and, when the head pipeline failed, a synthetic Pipeline Hook
+  payload, and hands each to `EnqueueService::enqueue` (new; `handle` is a thin wrapper over it, so the
+  webhook is unchanged). `EventFilter` and every loop guard decide, including the bot/Shepherd authors,
+  Kelpie markers and the `Kelpie-Autofix` trailer. The one guard the filter cannot see is enforced by the
+  sweep: on a head that is a Kelpie commit, threads older than that commit are left alone.
+- *Failed pipeline.* Only a failed job that may not fail, in a gate stage (`EventFilter::GATE_STAGES`,
+  decision 7), counts. `JobLogReader` takes the last 8 KB of its log, drops terminal codes, masks
+  credentials (GitLab/OpenRouter tokens, `token=`/`password=`-style pairs, URL userinfo), and defuses
+  Kelpie markers and @-mentions. The tail is opened by the bot as one MR discussion, marked
+  `<!-- kelpie:pipeline job=<id> sha=<sha> -->` so it is opened once per job, and from then on it is an
+  ordinary thread: triage (the prompt says a bot-opened log thread is a pipeline failure), safety policy,
+  caps, claim, fixer, replies. A `fix` there is judged by the same gate as any other.
+- *Dark by default.* With `KELPIE_AUTOFIX_ENABLED` not `true` the sweep only reads and prints what it
+  would do (`would run`, `would open a thread`); it writes nothing to GitLab or the job table. Enabled, it
+  runs at most `KELPIE_SWEEP_MAX_RUNS` (default 5, or `--max-runs`) threads per sweep and defers the rest
+  to the next one.
+- *Scheduling.* A Kubernetes CronJob every 15 minutes, `concurrencyPolicy: Forbid`, `suspend: true`,
+  dev only, reusing the Deployment's namespace, Vault role and KV path. Not live until: the `kelpie`
+  database and migration exist, Vault holds the bot and OpenRouter keys, the image carries the `claude`
+  CLI, and `bin/deploy.sh` applies the file (it applies only deploy/service/ingress; `bin/` is outside
+  this lane). The webhook does not enqueue to the table: the web app has no database yet, so the sweep is
+  the only consumer of jobs.
+- *Known gaps.* A pipeline thread whose run failed is retried by later sweeps only within the caps
+  (2 attempts per thread). Pipelines of a Shepherd-owned branch are skipped by the same branch-prefix
+  filter as threads (`KELPIE_SKIP_BRANCHES`, `KELPIE_SKIP_AUTHORS`). The per-MR token budget and daily
+  spend cap of decision 6 are still not enforced. The sweep's inline AI work is bounded only by the run
+  limit and the CronJob's deadline.
+
 ## 8. Decisions
 
 All eight were put to the person with a recommendation; they took all eight, decided 2026-10-15.

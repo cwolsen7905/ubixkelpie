@@ -16,7 +16,7 @@ use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
 
 /**
- * Writes to a GitLab MR's threads: reply, edit a note, resolve a thread, label the MR; and reads one thread's notes
+ * Writes to a GitLab MR's threads: open a discussion, reply, edit a note, resolve a thread, label the MR; and reads one thread's notes
  *
  * Give it the bot client (`BotHttpClient`). It never touches code.
  * A failed call is logged and reported as null/false, never thrown.
@@ -133,6 +133,23 @@ final class DiscussionWriter
         $id      = $created['id'] ?? null;
 
         return is_int($id) ? $id : null;
+    }
+
+    /**
+     * Open a new MR-level discussion
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     * @param string $body    The first note
+     *
+     * @return ?string The new discussion ID, null on failure
+     */
+    public function open(string $project, int $mrIid, string $body): ?string
+    {
+        $created = $this->send('POST', $this->mrUrl($project, $mrIid) . '/discussions', ['body' => $body]);
+        $id      = $created['id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**

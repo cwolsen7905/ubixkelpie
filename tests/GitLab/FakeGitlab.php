@@ -71,6 +71,25 @@ final class FakeGitlab implements HttpClient
     private array $mrFields = [];
 
     /**
+     * The head pipeline of the MR: id, status, and its failed jobs; null for none
+     *
+     * @var ?array{id: int, status: string, jobs: list<array<string, mixed>>}
+     */
+    private ?array $pipeline = null;
+
+    /**
+     * The log of every job
+     */
+    private string $trace = '';
+
+    /**
+     * Message and date of the head commit
+     *
+     * @var array{message: string, committed_date: string}
+     */
+    private array $commit = ['message' => 'feat: x', 'committed_date' => '2026-01-01T00:00:00.000Z'];
+
+    /**
      * Next note ID to hand out
      */
     private int $nextId = 100;
@@ -85,6 +104,34 @@ final class FakeGitlab implements HttpClient
     public function mergeRequestFields(array $fields): void
     {
         $this->mrFields = $fields;
+    }
+
+    /**
+     * Give the MR a head pipeline
+     *
+     * @param string                     $status The pipeline status
+     * @param list<array<string, mixed>> $jobs   Its failed jobs, as GitLab lists them
+     * @param string                     $trace  The log of any job
+     *
+     * @return void
+     */
+    public function pipeline(string $status, array $jobs, string $trace = ''): void
+    {
+        $this->pipeline = ['id' => 9, 'jobs' => $jobs, 'status' => $status];
+        $this->trace    = $trace;
+    }
+
+    /**
+     * Set the head commit
+     *
+     * @param string $message The message
+     * @param string $date    The committed date
+     *
+     * @return void
+     */
+    public function commit(string $message, string $date): void
+    {
+        $this->commit = ['committed_date' => $date, 'message' => $message];
     }
 
     /**
@@ -200,6 +247,36 @@ final class FakeGitlab implements HttpClient
 
         $this->requests[] = $method . ' ' . $path;
 
+        if (preg_match('#^/projects/[^/]+/merge_requests$#', $path) === 1 && $method === 'GET') {
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode([
+                [
+                    'draft'         => false,
+                    'head_pipeline' => $this->pipeline === null ? null : ['id' => $this->pipeline['id'], 'status' => $this->pipeline['status'], 'user' => ['username' => 'alice']],
+                    'iid'           => 3,
+                    'project_id'    => 1,
+                    'sha'           => str_repeat('a', 40),
+                    'source_branch' => 'feat/x',
+                    'target_branch' => 'dev',
+                    'title'         => 'A change',
+                    ...$this->mrFields,
+                ],
+            ]));
+        }
+        if (preg_match('#^/projects/\d+/repository/commits/\w+$#', $path) === 1 && $method === 'GET') {
+            return $this->fakeJson($this->commit);
+        }
+        if (preg_match('#^/projects/\d+/pipelines/9/jobs$#', $path) === 1 && $method === 'GET') {
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode($this->pipeline['jobs'] ?? []));
+        }
+        if (preg_match('#^/projects/\d+/jobs/\d+/trace$#', $path) === 1 && $method === 'GET') {
+            return new Psr7Response(200, [], $this->trace);
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions$#', $path) === 1 && $method === 'POST') {
+            $id = 'ab' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);
+            $this->note($id, $this->fakeString($body['body'] ?? null), 'now', null, 'kelpie-bot');
+
+            return $this->fakeJson(['id' => $id], 201);
+        }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions/(\w+)/notes/(\d+)$#', $path, $m) === 1 && $method === 'PUT') {
             if (!isset($this->notes[$m[1]])) {
                 return $this->fakeJson(['message' => '404 Not found'], 404);

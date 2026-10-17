@@ -50,6 +50,7 @@ All from the environment (filled from uBixVault in deployment; nothing is commit
 | `GITLAB_API_URL` | GitLab API v4 base, e.g. `https://gitlab.example.com/api/v4` |
 | `GITLAB_PROJECT_TOKENS` | `projectId=token,projectId=token`: Developer role, `api` scope |
 | `GITLAB_API_TOKEN` | Optional fallback for a project with no entry above (e.g. a group token) |
+| `KELPIE_BOT_GITLAB_TOKEN` | Last-resort fallback when neither of the above is set (the bot token the fix/respond/sweep commands use) |
 | `APPROVAL_JOB_NAMES` | Optional, comma-separated sign-off job names |
 
 A project with no token (and no fallback) is ignored. Create tokens as a bot (the project
@@ -65,7 +66,9 @@ Per project, once:
    `api`, masked) to read the sign-off. **Without it the job passes as "UNVERIFIED"**, so the
    gate enforces nothing until the variable is set. `MERGE_APPROVAL_OWNERS` is needed if an
    owner may sign off their own MRs.
-2. **Token.** The Developer/`api` bot token above, in `GITLAB_PROJECT_TOKENS`.
+2. **Token.** The Developer/`api` bot token above, in `GITLAB_PROJECT_TOKENS`. If the
+   project has no entry, the retry falls back to `GITLAB_API_TOKEN`, then to
+   `KELPIE_BOT_GITLAB_TOKEN`, so one Vault key can cover everything.
 3. **Webhook.** Project **Settings → Webhooks → Add new webhook**:
    - URL: `https://kelpie.prod.ubixsys.com/gitlab/webhook` (staging: `kelpie.staging.…`, dev: `kelpie.dev.…`)
    - Secret token: Kelpie's `GITLAB_WEBHOOK_SECRET` for that environment (uBixVault, below)
@@ -84,7 +87,8 @@ been answered 200, remove the old uBixOps hook from every project that now point
 
 A group-level hook would cover every project with one entry, but group webhooks are a
 paid-tier GitLab feature. Confirm the instance's tier; without it, add the hook per project.
-`GITLAB_API_TOKEN` accepts one group-scoped token as the fallback.
+`GITLAB_API_TOKEN` accepts one group-scoped token as the fallback; when it is unset,
+`KELPIE_BOT_GITLAB_TOKEN` is used instead.
 
 ## Where it runs
 

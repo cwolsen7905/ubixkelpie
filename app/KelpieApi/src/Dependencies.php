@@ -101,7 +101,7 @@ return static function (): Container {
             ->constructorParameter('apiUrl', getenv('GITLAB_API_URL') ?: '')
             ->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: '')
             ->constructorParameter('projectTokens', getenv('GITLAB_PROJECT_TOKENS') ?: '')
-            ->constructorParameter('apiToken', getenv('GITLAB_API_TOKEN') ?: '')
+            ->constructorParameter('apiToken', getenv('GITLAB_API_TOKEN') ?: getenv('KELPIE_BOT_GITLAB_TOKEN') ?: '')
             ->constructorParameter('jobNames', $approvalJobNames),
         // Autofix event filter: loop guards and the allow-list. Defaults keep to ubixsys/ubixkelpie (design decision 1).
         EventFilter::class             => autowire()

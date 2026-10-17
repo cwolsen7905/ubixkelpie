@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\DiscussionNote;

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Service\Autofix;
 
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
+use Kelpie\DataTransferObject\AutofixJob;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -12,7 +12,7 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * For now "enqueue" means log the job: there is no job store until step 3.
  *
- * @see \Kelpie\Tests\Autofix\EnqueueServiceTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Autofix\EnqueueServiceTest PHPUnit test case
  */
 final class EnqueueService
 {

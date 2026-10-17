@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\GitLab\DiscussionWriter;
-use Kelpie\Triage\TriageService;
+use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -15,7 +15,7 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * No code changes. The `kelpie::working` label is on the MR while it works and comes off at the end.
  *
- * @see \Kelpie\Tests\Autofix\ThreadResponderTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Autofix\ThreadResponderTest PHPUnit test case
  */
 final class ThreadResponder
 {

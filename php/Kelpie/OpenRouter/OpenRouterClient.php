@@ -15,7 +15,7 @@ use Ubix\Service\JsonService;
  * One chat-completion call to OpenRouter
  *
  * Generic on purpose (system + user message in, the model's text out); the triage nouns live in
- * Kelpie\Triage. uBixCore has no LLM client yet (it ships a Gemini reviewer only), so this is the
+ * Kelpie\Service\Triage. uBixCore has no LLM client yet (it ships a Gemini reviewer only), so this is the
  * piece to move upstream when a second consumer appears.
  *
  * Settings are read from the environment per call, where the uBixVault bootstrap puts them:

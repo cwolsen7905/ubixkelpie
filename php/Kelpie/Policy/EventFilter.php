@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Policy;
 
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
+use Kelpie\DataTransferObject\AutofixJob;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -14,7 +14,7 @@ use Psr\Log\LoggerInterface as Logger;
  * Loop guards (design section 3 and 6): bot and Shepherd authors, Kelpie's own
  * markers, the Kelpie-Autofix trailer, Shepherd-owned branches.
  *
- * @see \Kelpie\Tests\Autofix\EventFilterTest PHPUnit test case
+ * @see \Kelpie\Tests\Policy\EventFilterTest PHPUnit test case
  */
 final class EventFilter
 {

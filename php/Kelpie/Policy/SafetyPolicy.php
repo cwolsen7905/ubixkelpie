@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Triage;
+namespace Kelpie\Policy;
 
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\TriageVerdict;
@@ -15,7 +15,7 @@ use Psr\Log\LoggerInterface as Logger;
  * Any violation (size, files, protected paths, tests, attempts) downgrades a `fix` verdict to
  * `needs_human`. The prompt is never the control. Other classes pass through unchanged.
  *
- * @see \Kelpie\Tests\Triage\SafetyPolicyTest PHPUnit test case
+ * @see \Kelpie\Tests\Policy\SafetyPolicyTest PHPUnit test case
  */
 final class SafetyPolicy
 {

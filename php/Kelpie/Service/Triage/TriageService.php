@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Triage;
+namespace Kelpie\Service\Triage;
 
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
@@ -19,7 +19,7 @@ use Ubix\Service\JsonService;
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
  * The model is `KELPIE_TRIAGE_MODEL`, default `anthropic/claude-haiku-5.5`.
  *
- * @see \Kelpie\Tests\Triage\TriageServiceTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Triage\TriageServiceTest PHPUnit test case
  */
 final class TriageService
 {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Triage;
+namespace Kelpie\Prompt;
 
 use Kelpie\DataTransferObject\Thread;
 use Psr\Log\LoggerInterface as Logger;
@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface as Logger;
  * Thread text is untrusted: it is fenced, any attempt to close the fence is defused, and the
  * system message says it is data. The prompt is advice; SafetyPolicy is the control.
  *
- * @see \Kelpie\Tests\Triage\TriagePromptTest PHPUnit test case
+ * @see \Kelpie\Tests\Prompt\TriagePromptTest PHPUnit test case
  */
 final class TriagePrompt
 {

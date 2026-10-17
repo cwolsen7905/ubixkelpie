@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Agent;
 
-use Kelpie\Autofix\FixerAgentInterface as FixerAgent;
+use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
@@ -16,7 +16,7 @@ use Psr\Log\LoggerInterface as Logger;
  * a throwaway HOME and the model credential (OpenRouter, via Anthropic-compatible variables). No
  * GitLab or Vault values reach it. The thread text is untrusted input and is fenced as data.
  *
- * @see \Kelpie\Tests\Autofix\ClaudeCliFixerAgentTest PHPUnit test case
+ * @see \Kelpie\Tests\Agent\ClaudeCliFixerAgentTest PHPUnit test case
  */
 final class ClaudeCliFixerAgent implements FixerAgent
 {

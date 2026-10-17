@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix;
+namespace Kelpie\Sandbox;
 
 use Kelpie\DataTransferObject\GateResult;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
@@ -14,7 +14,7 @@ use Psr\Log\LoggerInterface as Logger;
  * The same three tools CI runs. The environment is exact and holds no GitLab token. `COMPOSER_AUTH`
  * (the registry credential) is passed through when set, because install needs it.
  *
- * @see \Kelpie\Tests\Autofix\GateRunnerTest PHPUnit test case
+ * @see \Kelpie\Tests\Sandbox\GateRunnerTest PHPUnit test case
  */
 final class GateRunner
 {

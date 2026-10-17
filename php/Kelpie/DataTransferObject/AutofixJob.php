@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Autofix\DataTransferObject;
+namespace Kelpie\DataTransferObject;
 
 use Ubix\DataTransferObject\DtoInterface as Dto;
 
 /**
  * One filtered autofix job: an MR head that has something needing resolution
  *
- * @see \Kelpie\Tests\Autofix\DataTransferObject\AutofixJobTest PHPUnit test case
+ * @see \Kelpie\Tests\DataTransferObject\AutofixJobTest PHPUnit test case
  */
 final readonly class AutofixJob implements Dto
 {

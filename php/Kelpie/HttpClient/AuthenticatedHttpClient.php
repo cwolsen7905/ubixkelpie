@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Triage;
+namespace Kelpie\HttpClient;
 
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestInterface as Request;
@@ -16,7 +16,7 @@ use Ubix\Exception\HttpClientException;
  * DiscussionReader sends bare requests; the dry-run command wraps its client in this so the
  * reader works against a private project. GET only: it refuses any other method.
  *
- * @see \Kelpie\Tests\Triage\AuthenticatedHttpClientTest PHPUnit test case
+ * @see \Kelpie\Tests\HttpClient\AuthenticatedHttpClientTest PHPUnit test case
  */
 final class AuthenticatedHttpClient implements HttpClient
 {

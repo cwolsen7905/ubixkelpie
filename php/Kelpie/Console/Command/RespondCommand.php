@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Kelpie\Console\Command;
 
-use Kelpie\Autofix\ClaimService;
-use Kelpie\Autofix\ReplyService;
-use Kelpie\Autofix\ThreadResponder;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\HttpClient\BotHttpClient;
-use Kelpie\Triage\TriageService;
+use Kelpie\Service\Autofix\ClaimService;
+use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\ThreadResponder;
+use Kelpie\Service\Triage\TriageService;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Http\Message\StreamFactoryInterface as StreamFactory;

@@ -4,10 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
-use Kelpie\Autofix\ClaimService;
-use Kelpie\Autofix\FixerAgentInterface as FixerAgent;
-use Kelpie\Autofix\GateRunner;
-use Kelpie\Autofix\ReplyService;
+use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
@@ -19,8 +16,9 @@ use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Kelpie\Sandbox\Checkout;
-use Kelpie\Triage\SafetyPolicy;
-use Kelpie\Triage\TriageService;
+use Kelpie\Sandbox\GateRunner;
+use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
 use Throwable;
 

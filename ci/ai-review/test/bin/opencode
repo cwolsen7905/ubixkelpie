@@ -7,7 +7,7 @@ shift
 msg=() files=() infile=0
 while [ $# -gt 0 ]; do
   case $1 in
-    --format | --model) shift 2; infile=0; continue ;;
+    --format | --model | --variant) shift 2; infile=0; continue ;;
     --file | -f) infile=1; shift; continue ;;
     -*) infile=0 ;;
     *) if [ "$infile" = 1 ]; then files+=("$1"); else msg+=("$1"); fi ;;

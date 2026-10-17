@@ -14,7 +14,7 @@ servers that monitor code, and does that kind of work. It builds on
 - Modelled on kitg (`~/git/kitg`), the reference for how an app sits on uBixCore. When unsure how
   something should look, read how kitg does it, then leave out what is specific to Sowing.me.
 - **Current state: foundation only.** `app/HelloApi` (health), `app/KelpieApi` (health, version,
-  CORS, JSON errors, the GitLab webhook; no database, no auth yet), the quality gate and the
+  CORS, JSON errors, the GitLab webhook; database `ubixkelpie`, no auth yet), the quality gate and the
   deploy/promote pipeline. No product features yet.
 
 ## Build, test, lint

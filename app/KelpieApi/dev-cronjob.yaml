@@ -3,15 +3,15 @@
 # kelpie-api Deployment; nothing here is new infrastructure.
 #
 # SUSPENDED on purpose. Un-suspend (suspend: false) only once all of this is true:
-#   - the `kelpie` database exists and the autofix_jobs migration is applied (the job table is
-#     needed when KELPIE_AUTOFIX_ENABLED=true; VAULT_DB_STRATEGY below is still "none");
+#   - the `ubixkelpie` database has the autofix_jobs migration (the migrate-apply-dev job applies
+#     it; the job table is needed when KELPIE_AUTOFIX_ENABLED=true);
 #   - uBixVault `kelpie/dev/app` holds KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY and
 #     GITLAB_API_URL (the fail-closed read makes the pod fail otherwise);
 #   - the image has the `claude` CLI the fixer runs (the sweep reports only, without it, while
 #     KELPIE_AUTOFIX_ENABLED is not "true");
 #   - the entrypoint's Vault hydration is confirmed to run for this command override.
-# bin/deploy.sh applies only <env>-{deploy,service,ingress}.yaml, so this file is not rolled out
-# until the script is taught to apply it (bin/ is outside the autofix lane).
+# uBixCore's ci/bin/deploy.sh applies this file on every dev deploy; with suspend: true the
+# CronJob exists but never runs.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -60,8 +60,24 @@ spec:
               value: "https://vault.dev.ubixsys.com"
             - name: VAULT_K8S_ROLE
               value: "kelpie-dev"
+            # Database ubixkelpie. Credentials from uBixVault kelpie/dev/db; the host must equal
+            # secret/kelpie/db-dev.host, which the migrate job checks before it migrates.
             - name: VAULT_DB_STRATEGY
-              value: "none"
+              value: "kv"
+            - name: VAULT_DB_KV_PATH
+              value: "kelpie/dev/db"
+            - name: MYSQL_WRITE_HOST
+              value: "10.50.25.62"
+            - name: MYSQL_WRITE_PORT
+              value: "3306"
+            - name: MYSQL_WRITE_DATABASE
+              value: "ubixkelpie"
+            - name: MYSQL_READ_HOST
+              value: "10.50.25.62"
+            - name: MYSQL_READ_PORT
+              value: "3306"
+            - name: MYSQL_READ_DATABASE
+              value: "ubixkelpie"
             - name: VAULT_APP_KV_PATH
               value: "kelpie/dev/app"
             - name: IS_DEV

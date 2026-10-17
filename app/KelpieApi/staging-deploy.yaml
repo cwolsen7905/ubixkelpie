@@ -1,11 +1,11 @@
-# KelpieApi (dev). Secrets come from uBixVault at pod start (VAULT_APP_KV_PATH),
-# never from this file. Applied by bin/deploy.sh; {{DATE_STAMP}} forces a roll when
+# KelpieApi (staging). Secrets come from uBixVault at pod start (VAULT_APP_KV_PATH),
+# never from this file. Applied by uBixCore ci/bin/deploy.sh; {{DATE_STAMP}} forces a roll when
 # the mutable image tag has not changed.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kelpie-api
-  namespace: kelpie-dev
+  namespace: kelpie-staging
   labels:
     app.kubernetes.io/name: kelpie-api
     app.kubernetes.io/part-of: kelpie
@@ -41,34 +41,50 @@ spec:
                     values: [light]
       containers:
       - name: kelpie-api
-        image: gitlab.brainchurts.com:5050/ubixsys/ubixkelpie:dev
+        image: gitlab.brainchurts.com:5050/ubixsys/ubixkelpie:staging
         imagePullPolicy: Always
         env:
         - name: APP_NAME
           value: "KelpieApi"
         - name: ENV
-          value: "DEV"
+          value: "STAGING"
         - name: VAULT_ADDR
           value: "https://vault.dev.ubixsys.com"
-        # Bound to namespace kelpie-dev; created by ubixvault configure.sh (kubernetes repo).
+        # Staging reads the dev Vault: vault.prod holds production only (decided 2026-10-17).
+        # Bound to namespace kelpie-staging.
         - name: VAULT_K8S_ROLE
-          value: "kelpie-dev"
-        # Kelpie has no database: skip the DB secret read, still hydrate VAULT_APP_KV_PATH.
+          value: "kelpie-staging"
+        # Database ubixkelpie. Credentials from uBixVault kelpie/staging/db; the host must equal
+        # secret/kelpie/db-staging.host, which the migrate job checks before it migrates.
         - name: VAULT_DB_STRATEGY
-          value: "none"
+          value: "kv"
+        - name: VAULT_DB_KV_PATH
+          value: "kelpie/staging/db"
+        - name: MYSQL_WRITE_HOST
+          value: "10.50.25.61"
+        - name: MYSQL_WRITE_PORT
+          value: "3306"
+        - name: MYSQL_WRITE_DATABASE
+          value: "ubixkelpie"
+        - name: MYSQL_READ_HOST
+          value: "10.50.25.61"
+        - name: MYSQL_READ_PORT
+          value: "3306"
+        - name: MYSQL_READ_DATABASE
+          value: "ubixkelpie"
         # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, APPROVAL_JOB_NAMES.
         # uBixVault fails closed on a missing path or key, so the pod never goes
         # ready without them and the deploy's rollout wait fails.
         - name: VAULT_APP_KV_PATH
-          value: "kelpie/dev/app"
+          value: "kelpie/staging/app"
         - name: IS_DEV
-          value: "true"
+          value: "false"
         - name: IS_SANDBOX
           value: "false"
         - name: IS_STAGING
-          value: "false"
+          value: "true"
         - name: LOG_LEVEL
-          value: "debug"
+          value: "info"
         ports:
         - containerPort: 8080
           name: http

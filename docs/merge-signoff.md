@@ -100,16 +100,17 @@ KelpieApi deploys to three environments, one per branch, and promotes automatica
 Each hostname is covered by the `tls-wildcard-ubixsys-{dev,staging,prod}` wildcard certificates.
 
 The four variables in *Configuration* live in uBixVault at `<vault path>` above (read-only for the
-pod's `kelpie-<env>` role through `VAULT_APP_KV_PATH` in `app/KelpieApi/k8s/<env>-deploy.yaml`);
+pod's `kelpie-<env>` role through `VAULT_APP_KV_PATH` in `app/KelpieApi/<env>-deploy.yaml`);
 nothing is committed. uBixVault fails closed on a missing key, so the pod never becomes ready
 without them. **Unverified until the first deploy:** that the pinned uBixCore exports every key
 at that path as an environment variable (what `getenv()` in `Dependencies.php` needs), as it does
 for kitg.
 
-Pipeline (`.gitlab-ci.yml`): `build -> lint-and-test -> deploy -> promote`. A green `deploy-dev`
-runs `promote-to-staging`; a green `deploy-staging` runs `promote-to-main`, which deploys prod.
-`bin/promote.sh` fast-forwards only and never forces; it needs the project CI variable
-`GITLAB_PROMOTE_TOKEN`. `bin/deploy.sh` waits for the rollout, so a pod that cannot read its
+Pipeline (`.gitlab-ci.yml`, uBixCore's template): `build -> test -> migrate -> deploy -> promote`.
+A green `deploy-dev` runs `promote-to-staging`; a green `deploy-staging` runs `promote-to-prod`,
+and `main` then waits for the manual `migrate-apply-prod` before `deploy-prod`. uBixCore's
+`ci/bin/promote.sh` fast-forwards only and never forces; it needs the project CI variable
+`GITLAB_PROMOTE_TOKEN`. `ci/bin/deploy.sh` waits for the rollout, so a pod that cannot read its
 secrets fails the deploy and stops promotion.
 
 ### Outside this repo (kubernetes repo / GitLab) before the first deploy
@@ -117,8 +118,8 @@ secrets fails the deploy and stops promotion.
 - Namespaces `kelpie-{dev,staging,prod}`, with the `regcred` pull secret and the
   `tls-wildcard-ubixsys-{dev,staging,prod}` secrets replicated into them.
 - uBixVault roles `kelpie-{dev,staging,prod}` bound to those namespaces (`configure.sh` with
-  `APP_NAMESPACES`) and the KV secrets at the paths above (Vault: dev uses `vault.dev`,
-  staging and prod use `vault.prod`, as kitg does).
+  `APP_NAMESPACES`) and the KV secrets at the paths above (Vault: dev and staging use
+  `vault.dev`, prod uses `vault.prod`; prod holds production only).
 - DNS for the three hostnames, if the wildcard record does not already cover them.
 - GitLab: branches `staging` and `main` (they do not exist yet), protected, push allowed for
   the promote token's user; CI variable `GITLAB_PROMOTE_TOKEN`; `ubixsys/ubixkelpie` readable
@@ -128,10 +129,9 @@ secrets fails the deploy and stops promotion.
 
 ## Requires
 
-uBixCore v0.46.1 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback
-`apiToken` and skip-if-passed, and `VAULT_DB_STRATEGY=none` lets Kelpie start without a
-database (set in `app/KelpieApi/k8s/<env>-deploy.yaml`; the app's own secrets are still read
-from `VAULT_APP_KV_PATH`).
+uBixCore v0.47.0 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback
+`apiToken` and skip-if-passed, and it ships the CI template and `ci/bin` scripts this pipeline
+uses.
 
 ## Limits
 

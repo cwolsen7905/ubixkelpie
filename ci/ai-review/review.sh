@@ -69,11 +69,11 @@ kfmt() {
 # call ran, or "no model call" when none did (skipped, too large, early failure).
 stamp_line() {
   if [ "$MODEL_CALLED" = 1 ]; then
-    printf '_Model `%s`, effort %s, %s in / %s out, $%d.%04d (OpenCode estimate), on `%s`._' \
+    printf "_Model \`%s\`, effort %s, %s in / %s out, \$%d.%04d (OpenCode estimate), on \`%s\`._" \
       "$MODEL" "${EFFORT:-default}" "$(kfmt "$USAGE_IN")" "$(kfmt "$USAGE_OUT")" \
       $((USAGE_COST / 1000000)) $(((USAGE_COST % 1000000) / 100)) "${HEAD_SHA:0:8}"
   else
-    printf '_No model call on `%s`: no model, effort, tokens or cost to report._' "${HEAD_SHA:0:8}"
+    printf "_No model call on \`%s\`: no model, effort, tokens or cost to report._" "${HEAD_SHA:0:8}"
   fi
 }
 

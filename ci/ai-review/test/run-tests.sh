@@ -94,7 +94,7 @@ has 'Already open: 2'; expect "open threads are all counted as already open" $?
 # default effort label when AI_REVIEW_EFFORT is empty.
 run --diff "$sample" --canned "$here/canned-stream.jsonl"
 expect "stamp: stream review exits 0" "$rc"
-has 'Model `openrouter/anthropic/claude-haiku-5.5`, effort default, 12.5k in / 1.4k out, $0.0022 (OpenCode estimate)'; expect "stamp: model, effort, tokens and cost are stamped" $?
+has "Model \`openrouter/anthropic/claude-haiku-5.5\`, effort default, 12.5k in / 1.4k out, \$0.0022 (OpenCode estimate)"; expect "stamp: model, effort, tokens and cost are stamped" $?
 AI_REVIEW_EFFORT=high run --diff "$sample" --canned "$here/canned-stream.jsonl"
 has 'effort high, 12.5k in / 1.4k out'; expect "stamp: AI_REVIEW_EFFORT is the effort label" $?
 # The effort reaches opencode as --variant and survives the stub's CLI parsing.
@@ -116,7 +116,7 @@ printf '{"type":"text","part":{"text":"not a review"}}\n{"type":"step-finish","p
 run --diff "$sample" --canned "$w/bad-stream.jsonl"
 expect_that "unparseable stream exits 75" [ "$rc" = 75 ]
 has 'UNREVIEWED'; expect "unparseable stream posts UNREVIEWED" $?
-has 'Model `openrouter/anthropic/claude-haiku-5.5`, effort default, 2.0k in / 400 out, $0.0006 (OpenCode estimate)'; expect "UNREVIEWED summary still carries the stamp" $?
+has "Model \`openrouter/anthropic/claude-haiku-5.5\`, effort default, 2.0k in / 400 out, \$0.0006 (OpenCode estimate)"; expect "UNREVIEWED summary still carries the stamp" $?
 rm -rf "$w"
 
 # Summaries with no model call say so: docs-only skip and oversize diff.

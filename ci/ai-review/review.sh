@@ -34,6 +34,7 @@ while [ $# -gt 0 ]; do
 done
 
 MODEL=${AI_REVIEW_MODEL:-openrouter/anthropic/claude-haiku-5.5}
+EFFORT=${AI_REVIEW_EFFORT:-}
 MODE=${AI_REVIEW_MODE:-advisory}
 MAX_LINES=${AI_REVIEW_MAX_LINES:-3000}
 MAX_BYTES=${AI_REVIEW_MAX_BYTES:-153600}
@@ -50,6 +51,31 @@ TOKEN=${AI_REVIEW_GITLAB_TOKEN:-}
 
 mkdir -p "$WORK"
 log() { echo "ai-review: $*" >&2; }
+
+MODEL_CALLED=0 # set once the model section is reached; summaries before that report no model call
+USAGE_IN=0 USAGE_OUT=0 USAGE_COST=0 # input/output tokens and micro-dollars, summed over the run's step-finish events
+
+# Formats a token count for the stamp: 999 stays, 12300 becomes 12.3k.
+kfmt() {
+  local n=$1
+  if [[ $n =~ ^[0-9]+$ ]] && [ "$n" -ge 1000 ]; then
+    printf '%d.%dk' $((n / 1000)) $(((n % 1000) / 100))
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# One line appended to every summary: model, effort and summed tokens/cost when a model
+# call ran, or "no model call" when none did (skipped, too large, early failure).
+stamp_line() {
+  if [ "$MODEL_CALLED" = 1 ]; then
+    printf "_Model \`%s\`, effort %s, %s in / %s out, \$%d.%04d (OpenCode estimate), on \`%s\`._" \
+      "$MODEL" "${EFFORT:-default}" "$(kfmt "$USAGE_IN")" "$(kfmt "$USAGE_OUT")" \
+      $((USAGE_COST / 1000000)) $(((USAGE_COST % 1000000) / 100)) "${HEAD_SHA:0:8}"
+  else
+    printf "_No model call on \`%s\`: no model, effort, tokens or cost to report._" "${HEAD_SHA:0:8}"
+  fi
+}
 
 case $MODE in advisory | blocking) ;; *) log "AI_REVIEW_MODE must be advisory or blocking, got '$MODE'"; exit 2 ;; esac
 
@@ -89,11 +115,13 @@ discussions() {
 
 SUMMARY_ID="" # id of our summary note, when one exists
 
-# Posts or replaces the one summary note. $1 body, $2 round.
+# Posts or replaces the one summary note. $1 body, $2 round. The usage stamp is
+# appended to every summary: model/effort/tokens/cost after a model call, or a
+# "no model call" line when none ran (skipped, too large, early failure).
 put_summary() {
   local body=$1 round=$2 marker
   marker="<!-- ai-review:summary round=$round sha=$HEAD_SHA -->"
-  body="$marker"$'\n'"$body"
+  body="$marker"$'\n'"$body"$'\n\n'"$(stamp_line)"
   if [ "$DRY" = 1 ]; then
     printf '\n--- would %s the summary note ---\n%s\n' "$([ -n "$SUMMARY_ID" ] && echo replace || echo post)" "$body"
     return 0
@@ -337,31 +365,123 @@ validate() {
       and (.fingerprint | type == "string" and length > 0))' >/dev/null
 }
 
-# Pulls the JSON object out of whatever the model wrote (a fence, a stray sentence).
-extract_json() {
-  jq -Rs '. as $t | (try ($t | fromjson) catch null) // (
-    [$t | scan("(?s)\\{.*\\}")] | .[0] // "" | (try fromjson catch null))' | jq -c 'select(. != null)'
+# Emits each top-level balanced {...} span of the input that parses as JSON, as one
+# line of compact JSON, outermost (earliest-starting) first. A reply wrapped in a
+# ```json fence or surrounded by prose still yields its object; unbalanced braces and
+# braces inside strings are ignored.
+extract_candidates() {
+  jq -Rsr '
+    (explode) as $c
+    | (reduce range(0; $c | length) as $i
+        ({depth: 0, instr: false, esc: false, start: -1, spans: []};
+          if .instr then
+            if .esc then .esc = false
+            elif $c[$i] == 92 then .esc = true
+            elif $c[$i] == 34 then .instr = false
+            else . end
+          elif $c[$i] == 34 then .instr = true
+          elif $c[$i] == 123 then (if .depth == 0 then .start = $i else . end) | .depth += 1
+          elif $c[$i] == 125 and .depth > 0 then
+            .depth -= 1 | (if .depth == 0 then .spans += [{s: .start, e: $i}] else . end)
+          else . end))
+    | [.spans | sort_by(.s)[] | . as $sp | $c[$sp.s:$sp.e + 1] | implode
+       | try (fromjson | tojson) catch empty] | .[]' 2>/dev/null
 }
 
-run_model() { # $1 = extra instruction, appended on a retry
-  local prompt out
-  prompt=$(cat "$SELF_DIR/prompt.md")$'\n\n'"$1"
-  if [ -n "$CANNED" ]; then cat "$CANNED"; return 0; fi
-  # The GitLab token is deliberately not in the environment OpenCode runs in. --file is an
-  # array option and swallows any positional after it, so the prompt goes first.
-  out=$(cd "$REPO" && env -u AI_REVIEW_GITLAB_TOKEN timeout "$TIMEOUT" \
-    opencode run --format json --model "$MODEL" "$prompt" --file "$CONTEXT") || return 1
-  jq -rs '[.[] | select(.type == "text") | (.part.text // .text // "")] | join("")' <<<"$out" 2>/dev/null || echo "$out"
+# Names the first schema problem in a parsed reply, so the retry can say what was wrong.
+validation_problem() {
+  jq -r '
+    def sev: . as $s | ["blocker","major","minor","nit"] | index($s) != null;
+    def conf: . as $s | ["high","medium","low"] | index($s) != null;
+    if type != "object" then "the top level must be a JSON object"
+    elif (.verdict | IN("pass","concerns","block") | not) then "verdict must be one of pass, concerns, block"
+    elif (.summary | type) != "string" then "summary must be a string"
+    elif (.findings | type) != "array" then "findings must be an array"
+    else ([.findings | to_entries[] | .value as $f | .key as $k |
+      (if ($f | type) != "object" then "findings[\($k)] must be an object"
+       elif ($f.severity | sev | not) then "findings[\($k)].severity must be one of blocker, major, minor, nit"
+       elif ($f.confidence | conf | not) then "findings[\($k)].confidence must be one of high, medium, low"
+       elif ($f.file | type) != "string" or ($f.file | length) == 0 then "findings[\($k)].file must be a non-empty string"
+       elif $f.line != null and (($f.line | type) != "number") then "findings[\($k)].line must be a number or null"
+       elif ($f.title | type) != "string" or ($f.title | length) == 0 then "findings[\($k)].title must be a non-empty string"
+       elif ($f.why | type) != "string" then "findings[\($k)].why must be a string"
+       elif ($f.fingerprint | type) != "string" or ($f.fingerprint | length) == 0 then "findings[\($k)].fingerprint must be a non-empty string"
+       else empty end)] | first // "valid") end'
 }
 
+# Sums input/output tokens and cost from an opencode --format json event stream into
+# USAGE_IN/USAGE_OUT/USAGE_COST. A step-finish part carries numeric tokens and cost;
+# anything unparsable is ignored and contributes nothing.
+accumulate_usage() { # $1 = stream file
+  local u
+  u=$(jq -n -c '
+    def num: if type == "number" then . elif type == "object" then (.total // .value // 0) else 0 end;
+    reduce inputs as $e ({i: 0, o: 0, c: 0};
+      if ($e.type == "step-finish" or $e.type == "step_finish") then
+        ($e.part // $e) as $p
+        | .i += (($p.tokens.input // 0) | num)
+        | .o += (($p.tokens.output // 0) | num)
+        | .c += (($p.cost // 0) | num)
+      else . end)' "$1" 2>/dev/null) || return 0
+  USAGE_IN=$((USAGE_IN + $(jq -r '.i | floor' <<<"$u")))
+  USAGE_OUT=$((USAGE_OUT + $(jq -r '.o | floor' <<<"$u")))
+  # Cost is kept as integer micro-dollars to avoid float drift.
+  USAGE_COST=$((USAGE_COST + $(jq -r '(.c * 1000000) | round' <<<"$u")))
+}
+
+# The reply text of an opencode --format json event stream: all text parts joined.
+reply_text() { # $1 = stream file
+  jq -rs '[.[] | select(.type == "text") | (.part.text // .text // "")] | join("")' "$1" 2>/dev/null
+}
+
+MODEL_CALLED=1 # summaries from here on follow a model call and carry the usage stamp
 RESULT=""
 retry=""
 for attempt in 1 2; do
-  raw=$(run_model "$retry") || { log "model run failed (attempt $attempt)"; retry="Your previous run failed. Try again."; continue; }
-  json=$(extract_json <<<"$raw")
-  if [ -n "$json" ] && validate <<<"$json"; then RESULT=$json; break; fi
-  log "model output was not valid review JSON (attempt $attempt)"
-  retry="Your previous reply was not valid JSON for the schema. Reply with ONLY the JSON object, no prose and no fence."
+  STREAM="$WORK/stream-$attempt.jsonl"
+  prompt=$(cat "$SELF_DIR/prompt.md")$'\n\n'"$retry"
+  if [ -n "$CANNED" ]; then
+    # A canned file is the model's reply text, unless it is an opencode event stream
+    # (JSON lines with text/step-finish events), which is parsed like a live run so a
+    # canned stream with step costs gives the same stamp.
+    cp "$CANNED" "$STREAM"
+    if jq -e 'select(type == "object")
+        | select(.type == "text" or .type == "step-finish" or .type == "step_finish")' \
+        "$STREAM" >/dev/null 2>&1; then
+      accumulate_usage "$STREAM"
+      raw=$(reply_text "$STREAM") || raw=$(cat "$STREAM")
+    else
+      raw=$(cat "$CANNED")
+    fi
+  else
+    # The GitLab token is deliberately not in the environment OpenCode runs in. --file is
+    # an array option and swallows any positional after it, so the prompt goes first.
+    # --variant is opencode's effort setting (provider-specific reasoning effort); empty
+    # means the provider default and the stamp then says "default".
+    if ! (cd "$REPO" && env -u AI_REVIEW_GITLAB_TOKEN timeout "$TIMEOUT" \
+      opencode run --format json --model "$MODEL" ${EFFORT:+--variant "$EFFORT"} \
+      "$prompt" --file "$CONTEXT" >"$STREAM"); then
+      log "model run failed (attempt $attempt)"
+      retry="Your previous run failed before producing a reply. Try again."
+      continue
+    fi
+    accumulate_usage "$STREAM"
+    raw=$(reply_text "$STREAM") || raw=$(cat "$STREAM")
+  fi
+  cands=$(extract_candidates <<<"$raw")
+  if [ -z "$cands" ]; then
+    log "model output contained no JSON object (attempt $attempt)"
+    retry="Your previous reply contained no JSON object I could parse. Reply with ONLY the JSON object described in the schema: no prose, no Markdown fence, no commentary before or after."
+    continue
+  fi
+  json=""
+  while IFS= read -r cand; do
+    [ -n "$cand" ] && validate <<<"$cand" && { json=$cand; break; }
+  done <<<"$cands"
+  if [ -n "$json" ]; then RESULT=$json; break; fi
+  problem=$(validation_problem <<<"$(head -n1 <<<"$cands")")
+  log "model output was not valid review JSON (attempt $attempt): $problem"
+  retry="Your previous reply was JSON but did not match the schema: $problem. Reply with ONLY the corrected JSON object, no prose and no fence."
 done
 [ -n "$RESULT" ] || unreviewed "the model did not return a valid review after a retry."
 

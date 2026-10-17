@@ -90,7 +90,42 @@ expect_that "slug drift: the already-open finding is not posted again" [ "$(grep
 has 'Already open: 2'; expect "open threads are all counted as already open" $?
 ! has 'no longer reports'; expect "thread of unknown age is not called possibly fixed" $?
 
-# A repo with two commits: the thread at src/Fee.php:3 was posted on the first.
+# Stamp: a canned opencode stream with step costs gives the summed stamp, with the
+# default effort label when AI_REVIEW_EFFORT is empty.
+run --diff "$sample" --canned "$here/canned-stream.jsonl"
+expect "stamp: stream review exits 0" "$rc"
+has "Model \`openrouter/anthropic/claude-haiku-5.5\`, effort default, 12.5k in / 1.4k out, \$0.0022 (OpenCode estimate)"; expect "stamp: model, effort, tokens and cost are stamped" $?
+AI_REVIEW_EFFORT=high run --diff "$sample" --canned "$here/canned-stream.jsonl"
+has 'effort high, 12.5k in / 1.4k out'; expect "stamp: AI_REVIEW_EFFORT is the effort label" $?
+# The effort reaches opencode as --variant and survives the stub's CLI parsing.
+AI_REVIEW_EFFORT=high PATH="$here/bin:$PATH" STUB_REPLY="$ok" run --diff "$sample"
+[ "$rc" = 0 ] && has 'effort high, 0 in / 0 out'; expect "effort is passed to opencode as --variant" $?
+
+# Strict JSON: a fenced reply and a prose-wrapped reply both parse, no UNREVIEWED.
+run --diff "$sample" --canned "$here/canned-fenced.txt"
+[ "$rc" = 0 ] && has 'would open a thread'; expect "fenced JSON reply parses" $?
+! has 'UNREVIEWED'; expect "fenced JSON reply is not UNREVIEWED" $?
+run --diff "$sample" --canned "$here/canned-prose.txt"
+[ "$rc" = 0 ] && has 'would open a thread'; expect "prose plus JSON parses" $?
+
+# UNREVIEWED still carries the stamp: the stream's usage is summed over both attempts
+# before the retry loop gives up (here the review text is garbage, so validation fails
+# twice and the attempt costs count twice).
+w=$(mktemp -d)
+printf '{"type":"text","part":{"text":"not a review"}}\n{"type":"step-finish","part":{"tokens":{"input":1000,"output":200},"cost":0.0003}}\n' >"$w/bad-stream.jsonl"
+run --diff "$sample" --canned "$w/bad-stream.jsonl"
+expect_that "unparseable stream exits 75" [ "$rc" = 75 ]
+has 'UNREVIEWED'; expect "unparseable stream posts UNREVIEWED" $?
+has "Model \`openrouter/anthropic/claude-haiku-5.5\`, effort default, 2.0k in / 400 out, \$0.0006 (OpenCode estimate)"; expect "UNREVIEWED summary still carries the stamp" $?
+rm -rf "$w"
+
+# Summaries with no model call say so: docs-only skip and oversize diff.
+printf 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-a\n+b\n' >"$here/.docs.diff"
+run --diff "$here/.docs.diff" --canned "$ok"
+rm -f "$here/.docs.diff"
+has 'No model call'; expect "skipped summary says no model call" $?
+AI_REVIEW_MAX_LINES=5 run --diff "$sample" --canned "$ok"
+has 'No model call'; expect "too-large summary says no model call" $?
 g=$(mktemp -d)
 git -C "$g" init -q && git -C "$g" config user.email t@t && git -C "$g" config user.name t
 mkdir -p "$g/src" && seq 1 12 >"$g/src/Fee.php" && git -C "$g" add -A && git -C "$g" commit -qm one

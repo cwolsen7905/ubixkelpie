@@ -60,7 +60,9 @@ diff breaks it in a way no tool can detect. Do not praise. Do not summarise the 
 
 ## Output
 
-Reply with ONE JSON object and nothing else: no prose, no Markdown fence.
+Reply with ONE JSON object and nothing else: no prose, no Markdown fence, no commentary
+before or after. Your reply is parsed mechanically: the first `{` through its matching
+`}` must be the whole review, so emit exactly the object below.
 
 ```
 {

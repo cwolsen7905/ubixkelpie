@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Kelpie\Console\Command;
 
 use Kelpie\GitLab\DiscussionReader;
-use Kelpie\Triage\AuthenticatedHttpClient;
-use Kelpie\Triage\TriageService;
+use Kelpie\HttpClient\AuthenticatedHttpClient;
+use Kelpie\Service\Triage\TriageService;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Log\LoggerInterface as Logger;

@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
-use Kelpie\Autofix\EnqueueService;
-use Kelpie\Autofix\EventFilter;
+use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\GitLab\JobLogReader;
 use Kelpie\GitLab\MergeRequestLister;
+use Kelpie\Policy\EventFilter;
 use Psr\Log\LoggerInterface as Logger;
 
 /**

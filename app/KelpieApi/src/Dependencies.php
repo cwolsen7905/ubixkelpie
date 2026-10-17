@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 use DI\Container;
 use DI\ContainerBuilder;
-use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\HttpClient\BotHttpClient;
+use Kelpie\Policy\EventFilter;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;

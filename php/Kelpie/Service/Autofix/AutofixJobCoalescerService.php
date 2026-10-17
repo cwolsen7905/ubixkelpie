@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\AutofixCaps;
+use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\Enum\EnqueueOutcome;
 use Kelpie\Model\AutofixJobRecord;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;

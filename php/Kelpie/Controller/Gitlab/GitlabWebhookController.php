@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Controller\Gitlab;
 
-use Kelpie\Autofix\EnqueueService;
+use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
 use Psr\Http\Message\ResponseInterface as Response;

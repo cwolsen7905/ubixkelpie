@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Kelpie\Console\Command;
 
-use Kelpie\Autofix\ClaimService;
-use Kelpie\Autofix\ReplyService;
-use Kelpie\Autofix\ThreadResponder;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\HttpClient\BotHttpClient;
-use Kelpie\Triage\TriageService;
+use Kelpie\Service\Autofix\ClaimService;
+use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\ThreadResponderService;
+use Kelpie\Service\Triage\TriageService;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Http\Message\StreamFactoryInterface as StreamFactory;
@@ -109,7 +109,7 @@ final class RespondCommand extends SymfonyCommand
         }
 
         $threads   = (new DiscussionReader($this->logger, $client, $this->requestFactory, $apiUrl, $this->jsonService))->read((int) $project, (int) $mr);
-        $responder = new ThreadResponder(
+        $responder = new ThreadResponderService(
             $this->logger,
             $writer,
             new ClaimService($this->logger, $writer, (int) (getenv('KELPIE_CLAIM_TTL_SECONDS') ?: 1800)),

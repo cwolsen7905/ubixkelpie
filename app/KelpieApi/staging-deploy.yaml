@@ -72,7 +72,8 @@ spec:
           value: "3306"
         - name: MYSQL_READ_DATABASE
           value: "ubixkelpie"
-        # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, APPROVAL_JOB_NAMES.
+        # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, GITLAB_API_TOKEN,
+        # KELPIE_BOT_GITLAB_TOKEN (fallback), APPROVAL_JOB_NAMES.
         # uBixVault fails closed on a missing path or key, so the pod never goes
         # ready without them and the deploy's rollout wait fails.
         - name: VAULT_APP_KV_PATH

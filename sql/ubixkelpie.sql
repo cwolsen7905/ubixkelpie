@@ -1,0 +1,8 @@
+-- Kelpie database schema baseline
+-- Database: ubixkelpie
+--
+-- The schema before the first migration: empty. Every table comes from sql/migrations,
+-- applied in order by `bin/ubix migrate:up`. uBixCore's `database:resetSchema test` needs one
+-- baseline per database (this file's name is the database's), creates the schema from it,
+-- and the CI phpunit jobs then run every migration on top, so a broken migration fails there.
+-- Do not add tables here; write a migration.

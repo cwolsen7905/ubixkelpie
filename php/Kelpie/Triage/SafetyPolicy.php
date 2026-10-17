@@ -12,8 +12,8 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * The hard limits on a "safe" fix, enforced in code after the model has answered
  *
- * Any violation downgrades a `fix` verdict to `needs_human`. The prompt is never the control
- * (docs/design/mr-thread-autofix.md, section 2). Other classes pass through unchanged.
+ * Any violation (size, files, protected paths, tests, attempts) downgrades a `fix` verdict to
+ * `needs_human`. The prompt is never the control. Other classes pass through unchanged.
  *
  * @see \Kelpie\Tests\Triage\SafetyPolicyTest PHPUnit test case
  */

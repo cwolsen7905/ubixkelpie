@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Enum;
 
 /**
- * What Kelpie did about one triaged thread (docs/design/mr-thread-autofix.md, section 5)
+ * What Kelpie did about one triaged thread (replied, labelled, resolved or skipped)
  *
  * @see \Kelpie\Tests\Enum\ResponseOutcomeTest PHPUnit test case
  */

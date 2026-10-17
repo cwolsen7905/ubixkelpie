@@ -6,9 +6,8 @@ namespace Kelpie\Tests\Service\Gitlab;
 
 use ArrayObject;
 use Kelpie\Enum\IssueIntake;
-use Kelpie\GitLab\MemberAccessReader;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
-use Kelpie\Tests\GitLab\StubHttpClient;
+use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Psr\Log\NullLogger;
@@ -296,7 +295,7 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     {
         $logger ??= new NullLogger();
         $client ??= StubHttpClient::member($level);
-        $reader   = new MemberAccessReader($logger, $client, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
+        $reader   = new MemberAccessReaderService($logger, $client, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
 
         return new IssueOpenWebhookService($logger, $reader, $enabled, 'kelpie-bot', $skipAuthors, ['org/proj'], 'kelpie::fix');
     }

@@ -6,7 +6,6 @@ namespace Kelpie\Service\Gitlab;
 
 use Kelpie\DataTransferObject\IssueIntakeResult;
 use Kelpie\Enum\IssueIntake;
-use Kelpie\GitLab\MemberAccessReader;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -32,17 +31,17 @@ final class IssueOpenWebhookService
     /**
      * Constructor
      *
-     * @param Logger             $logger       Logger
-     * @param MemberAccessReader $memberAccess Reads the actor's project access level
-     * @param bool               $enabled      KELPIE_AUTOFIX_ENABLED: when false every event is ignored
-     * @param string             $botUsername  The Kelpie bot user
-     * @param string[]           $skipAuthors  Other usernames to ignore (Shepherd agents)
-     * @param string[]           $projects     Enrolled project paths
-     * @param string             $gateLabel    The label a Developer applies to let fixing continue
+     * @param Logger                    $logger       Logger
+     * @param MemberAccessReaderService $memberAccess Reads the actor's project access level
+     * @param bool                      $enabled      KELPIE_AUTOFIX_ENABLED: when false every event is ignored
+     * @param string                    $botUsername  The Kelpie bot user
+     * @param string[]                  $skipAuthors  Other usernames to ignore (Shepherd agents)
+     * @param string[]                  $projects     Enrolled project paths
+     * @param string                    $gateLabel    The label a Developer applies to let fixing continue
      */
     public function __construct(
         private readonly Logger $logger,
-        private readonly MemberAccessReader $memberAccess,
+        private readonly MemberAccessReaderService $memberAccess,
         private readonly bool $enabled = false,
         private readonly string $botUsername = 'kelpie-bot',
         private readonly array $skipAuthors = [],

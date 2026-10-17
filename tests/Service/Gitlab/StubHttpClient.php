@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\GitLab;
+namespace Kelpie\Tests\Service\Gitlab;
 
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientExceptionInterface as ClientException;

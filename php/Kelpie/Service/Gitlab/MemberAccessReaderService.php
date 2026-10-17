@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\GitLab;
+namespace Kelpie\Service\Gitlab;
 
 use Psr\Http\Client\ClientExceptionInterface as ClientException;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -17,9 +17,9 @@ use Ubix\Service\JsonService;
  * The level is looked up through the API by user ID, never taken from an event. Any failure
  * (network, status, shape) is logged and reported as null, so a caller can fail closed.
  *
- * @see \Kelpie\Tests\GitLab\MemberAccessReaderTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Gitlab\MemberAccessReaderServiceTest PHPUnit test case
  */
-final class MemberAccessReader
+final class MemberAccessReaderService
 {
     /**
      * Constructor

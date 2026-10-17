@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\GitLab;
+namespace Kelpie\Tests\Service\Gitlab;
 
-use Kelpie\GitLab\MemberAccessReader;
+use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Log\NullLogger;
@@ -13,11 +13,11 @@ use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnu
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\GitLab\MemberAccessReader
+ * PHPUnit test case for \Kelpie\Service\Gitlab\MemberAccessReaderService
  *
- * @coversDefaultClass \Kelpie\GitLab\MemberAccessReader
+ * @coversDefaultClass \Kelpie\Service\Gitlab\MemberAccessReaderService
  */
-final class MemberAccessReaderTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
+final class MemberAccessReaderServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
     /**
      * Test that the class is following uBix standards
@@ -26,7 +26,7 @@ final class MemberAccessReaderTest extends UbixConcreteClassOrEnumTestCase imple
      */
     public function testFollowingUbixStandards(): void
     {
-        $this->testClassFollowingUbixStandards(MemberAccessReader::class);
+        $this->testClassFollowingUbixStandards(MemberAccessReaderService::class);
     }
 
     /**
@@ -67,10 +67,10 @@ final class MemberAccessReaderTest extends UbixConcreteClassOrEnumTestCase imple
     /**
      * @param StubHttpClient $client The client
      *
-     * @return MemberAccessReader
+     * @return MemberAccessReaderService
      */
-    private function reader(StubHttpClient $client): MemberAccessReader
+    private function reader(StubHttpClient $client): MemberAccessReaderService
     {
-        return new MemberAccessReader(new NullLogger(), $client, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService(new NullLogger()));
+        return new MemberAccessReaderService(new NullLogger(), $client, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService(new NullLogger()));
     }
 }

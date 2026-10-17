@@ -22,10 +22,10 @@ public/index.php  bin/ubix      thin entry points from the uBixCore skeleton; AP
 php/Kelpie/                     PSR-4 root Kelpie\  (Controller/HealthController today)
 app/<App>/src/                  per-app Dependencies.php, Middleware.php, Routes.php; HelloApi is the smoke app
 tests/                          mirrors php/Kelpie/; PhpunitTestCasesTest enforces a test per class
-templates/default  sql/migrations   framework-required, empty for now
+sql/migrations/  sql/grants/      migrations for the ubixkelpie database; app grants outside it
+templates/default               framework-required, empty for now
 config/devops/nginx.conf        nginx site for the runtime image
-bin/deploy.sh promote.sh        deploy a branch to its namespace; fast-forward the next branch
-app/KelpieApi/k8s/              <env>-{deploy,service,ingress}.yaml per environment (dev, staging, main)
+app/KelpieApi/                  <env>-{deploy,service,ingress}.yaml per environment (dev, staging, main)
 Dockerfile  Dockerfile_Test     runtime image, and the test image the CI gate runs in
 ```
 
@@ -56,10 +56,10 @@ Individual tools: `vendor/bin/phpunit`, `vendor/bin/phpstan`, `vendor/bin/phpcs`
 
 ## CI
 
-`.gitlab-ci.yml` builds the runtime and test images and runs phpcs, phpstan and phpunit on merge
-requests and on `dev`, `staging` and `main`. A green deploy of `dev` fast-forwards `staging`, a
-green deploy of `staging` fast-forwards `main` (`bin/promote.sh`, ff-only), and each branch deploys
-with `bin/deploy.sh`:
+`.gitlab-ci.yml` includes uBixCore's shared pipeline template. It builds the runtime and test
+images, runs phpcs, phpstan and phpunit, applies `sql/migrations` to the tier's database, deploys,
+and fast-forwards the next branch after a green deploy (`dev` → `staging` → `main`). Production
+waits for one manual job, `migrate-apply-prod`. Each branch deploys to its own namespace:
 
 | Branch | Namespace | URL |
 | --- | --- | --- |
@@ -67,10 +67,10 @@ with `bin/deploy.sh`:
 | `staging` | `kelpie-staging` | https://kelpie.staging.ubixsys.com |
 | `main` | `kelpie-prod` | https://kelpie.prod.ubixsys.com |
 
-Manifests are in `app/KelpieApi/k8s/`; secrets come from uBixVault (`kelpie/<env>/app`) and are
-never committed. What must exist outside this repo first is listed in
-[`docs/merge-signoff.md`](docs/merge-signoff.md#outside-this-repo-kubernetes-repo--gitlab-before-the-first-deploy).
-No migrate or notify stage: Kelpie has no database or chat channel yet.
+Manifests are in `app/KelpieApi/`; secrets come from uBixVault (`kelpie/<env>/app` and
+`kelpie/<env>/db`) and are never committed. What must exist outside this repo first is listed in
+[`docs/merge-signoff.md`](docs/merge-signoff.md#outside-this-repo-kubernetes-repo--gitlab-before-the-first-deploy)
+and, for the database, [`docs/operations/database.md`](docs/operations/database.md).
 
 CI pulls uBixCore with the job token, so `ubixsys/ubixkelpie` must be on ubixcore's CI job-token
 allowlist.

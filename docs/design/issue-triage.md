@@ -19,8 +19,8 @@ Verified against a fresh `origin/dev` (79db7d2) of this repo and `origin/main` o
 
 ### Kelpie (this repo)
 
-Foundation only. There is no issue, triage or fixing feature, no database
-(`sql/migrations/.gitkeep`; `VAULT_DB_STRATEGY=none` in `app/KelpieApi/k8s/<env>-deploy.yaml`), no
+Foundation only when this was written. There was no issue, triage or fixing feature and no
+database (since 2026-10-17 there is one, `ubixkelpie`; see `docs/operations/database.md`), no
 LLM client and no forge client of its own.
 
 | What | Path | State |

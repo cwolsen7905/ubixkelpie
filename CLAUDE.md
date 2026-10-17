@@ -49,13 +49,16 @@ bin/ubix               CLI entry; commands from Ubix\Console\Command and Kelpie\
 tests/                 mirrors php/Kelpie/; PhpunitTestCasesTest enforces a test per concrete class
 ```
 
-CI (`.gitlab-ci.yml`): `build → lint-and-test → deploy → promote`, on MRs and on `dev|staging|main`.
-Branch = environment: `dev`→`kelpie-dev`, `staging`→`kelpie-staging`, `main`→`kelpie-prod`, hosts
-`kelpie.{dev,staging,prod}.ubixsys.com`, manifests in `app/KelpieApi/k8s/`, secrets in uBixVault
-`kelpie/<env>/app`. A green deploy fast-forwards the next branch (`bin/promote.sh`, never forced).
-Do not run deploys by hand. Migrate/notify are not wired (no database, no chat channel); do not
-guess other hostnames, namespaces or Vault paths, ask. `docs/merge-signoff.md` lists what must
-exist in the kubernetes repo first.
+CI (`.gitlab-ci.yml`) is uBixCore's shared template (`ci/ubixcore-pipeline.yml`), included at the
+same release as `composer.lock`; bump both together. `build → test → migrate → deploy → promote`.
+The deploy, promote and notify scripts are uBixCore's (`ci/bin`); Kelpie keeps no copies, and a
+missing capability goes upstream. Branch = environment: `dev`→`kelpie-dev`, `staging`→`kelpie-staging`,
+`main`→`kelpie-prod`, hosts `kelpie.{dev,staging,prod}.ubixsys.com`, manifests in `app/KelpieApi/`,
+secrets in uBixVault `kelpie/<env>/{app,db}`. Vault: dev and staging use vault.dev, prod uses
+vault.prod (prod holds production only). A green deploy fast-forwards the next branch; production
+waits for the manual `migrate-apply-prod`. Database `ubixkelpie`, migrations in `sql/migrations/`,
+setup in `docs/operations/database.md`. Do not run deploys by hand; do not guess other hostnames,
+namespaces or Vault paths, ask.
 
 ## Conventions (inherited from uBixCore)
 

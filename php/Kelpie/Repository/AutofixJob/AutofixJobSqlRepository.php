@@ -56,7 +56,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function countFixCommitsForMr(string $projectPath, int $mrIid): int
     {
-        $sql = 'SELECT COUNT(*) FROM kelpie.autofix_jobs
+        $sql = 'SELECT COUNT(*) FROM ubixkelpie.autofix_jobs
                 WHERE project_path = :project_path AND mr_iid = :mr_iid AND commit_sha IS NOT NULL';
 
         return (int) $this->sqlService->getColumn($sql, ['mr_iid' => $mrIid, 'project_path' => $projectPath]);
@@ -67,7 +67,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function countAttemptsForThread(string $projectPath, int $mrIid, string $threadKey): int
     {
-        $sql = "SELECT COUNT(*) FROM kelpie.autofix_jobs
+        $sql = "SELECT COUNT(*) FROM ubixkelpie.autofix_jobs
                 WHERE project_path = :project_path AND mr_iid = :mr_iid AND thread_key = :thread_key
                 AND status IN ('done', 'failed')";
 
@@ -79,7 +79,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function countJobsSince(string $projectPath, DateTimeImmutable $since): int
     {
-        $sql = 'SELECT COUNT(*) FROM kelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since';
+        $sql = 'SELECT COUNT(*) FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since';
 
         return (int) $this->sqlService->getColumn($sql, ['project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]);
     }
@@ -89,7 +89,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function createJob(AutofixJobRecord $job): void
     {
-        $sql = "INSERT INTO kelpie.autofix_jobs (project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix, status)
+        $sql = "INSERT INTO ubixkelpie.autofix_jobs (project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix, status)
                 VALUES (:project_path, :mr_iid, :head_sha, :discussion_id, :thread_key, :source, :after_autofix, 'pending')";
 
         $this->sqlService->query($sql, [
@@ -110,7 +110,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function supersedeJob(int $id): void
     {
-        $sql = "UPDATE kelpie.autofix_jobs SET status = 'superseded' WHERE id = :id AND status = 'pending'";
+        $sql = "UPDATE ubixkelpie.autofix_jobs SET status = 'superseded' WHERE id = :id AND status = 'pending'";
 
         $this->sqlService->query($sql, ['id' => $id]);
     }
@@ -120,7 +120,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function markRunning(int $id): void
     {
-        $sql = "UPDATE kelpie.autofix_jobs SET status = 'running', attempt = attempt + 1 WHERE id = :id AND status = 'pending'";
+        $sql = "UPDATE ubixkelpie.autofix_jobs SET status = 'running', attempt = attempt + 1 WHERE id = :id AND status = 'pending'";
 
         $this->sqlService->query($sql, ['id' => $id]);
     }
@@ -130,7 +130,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function markFinished(int $id, string $status, ?string $triageClass = null, ?string $commitSha = null): void
     {
-        $sql = "UPDATE kelpie.autofix_jobs SET status = :status, triage_class = :triage_class, commit_sha = :commit_sha
+        $sql = "UPDATE ubixkelpie.autofix_jobs SET status = :status, triage_class = :triage_class, commit_sha = :commit_sha
                 WHERE id = :id AND status = 'running'";
 
         $this->sqlService->query($sql, ['commit_sha' => $commitSha, 'id' => $id, 'status' => $status, 'triage_class' => $triageClass]);
@@ -145,7 +145,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     private function query(AutofixJobOptions $options): array
     {
-        $sql        = 'SELECT ' . self::COLUMNS . ' FROM kelpie.autofix_jobs';
+        $sql        = 'SELECT ' . self::COLUMNS . ' FROM ubixkelpie.autofix_jobs';
         $where      = [];
         $parameters = [];
 

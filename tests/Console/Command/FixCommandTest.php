@@ -149,7 +149,7 @@ final class FixCommandTest extends UbixConcreteClassOrEnumTestCase implements IU
 
         $this->assertStringContainsString('d1abc123  failed', $tester->getDisplay());
         $sql = implode("\n", $this->queries->getArrayCopy());
-        $this->assertStringContainsString('INSERT INTO kelpie.autofix_jobs', $sql);
+        $this->assertStringContainsString('INSERT INTO ubixkelpie.autofix_jobs', $sql);
         $this->assertStringContainsString("SET status = 'running'", $sql);
         $this->assertStringContainsString('SET status = :status', $sql);
         $this->assertSame([], $this->gitlab->labels());

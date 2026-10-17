@@ -174,7 +174,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->assertStringNotContainsString('glpat-', $body);
         $this->assertStringContainsString('[masked]', $body);
         $this->assertStringNotContainsString('@alice', $body);
-        $this->assertStringContainsString('INSERT INTO kelpie.autofix_jobs', implode("\n", $this->queries->getArrayCopy()));
+        $this->assertStringContainsString('INSERT INTO ubixkelpie.autofix_jobs', implode("\n", $this->queries->getArrayCopy()));
     }
 
     /**

@@ -38,7 +38,7 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     public function testCreateJobSetsId(): void
     {
         $sql = $this->createMock(SqlService::class);
-        $sql->expects($this->once())->method('query')->with($this->stringContains('INSERT INTO kelpie.autofix_jobs'), $this->callback(
+        $sql->expects($this->once())->method('query')->with($this->stringContains('INSERT INTO ubixkelpie.autofix_jobs'), $this->callback(
             static function (array $p): bool {
                 return $p['thread_key'] === 'd1' && $p['after_autofix'] === 0;
             },

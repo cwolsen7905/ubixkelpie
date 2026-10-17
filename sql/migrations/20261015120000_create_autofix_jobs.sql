@@ -1,6 +1,6 @@
 -- Migration: 20261015120000_create_autofix_jobs
--- Database: kelpie
--- Description: kelpie.autofix_jobs, the MR-thread autofix job state
+-- Database: ubixkelpie
+-- Description: ubixkelpie.autofix_jobs, the MR-thread autofix job state
 --              (docs/design/mr-thread-autofix.md section 6): coalescing
 --              (one open job per MR and thread) and the caps.
 --
@@ -10,7 +10,7 @@
 --              ignores NULLs, so only open jobs collide.
 -- Author: Christopher W. Olsen
 
-CREATE TABLE kelpie.autofix_jobs (
+CREATE TABLE ubixkelpie.autofix_jobs (
     id                BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     project_path      VARCHAR(255)     NOT NULL,
     mr_iid            INT UNSIGNED     NOT NULL,

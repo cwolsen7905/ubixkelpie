@@ -1,117 +1,42 @@
-# uBixKelpie pipeline: build -> lint-and-test, the same gate kitg runs (phpcs,
-# phpstan, phpunit), on merge requests and on dev.
+# uBixKelpie pipeline: uBixCore's shared template, pinned to the same uBixCore release as
+# composer.lock (bump both together). The template is the whole pipeline:
 #
-# Then deploy -> promote, as kitg does: a green deploy on dev fast-forwards staging, a
-# green deploy on staging fast-forwards main (bin/promote.sh, ff-only, never forced;
-# needs GITLAB_PROMOTE_TOKEN). The `main` branch deploys to kelpie-prod.
-# Deliberately NOT here: migrate (no database yet), notify (no Discord channel yet),
-# and the uBixVault-held Composer deploy token (build uses CI_JOB_TOKEN, see build).
-
-workflow:
-  rules:
-    # A feature branch with an open MR runs only its MR pipeline; dev/staging/main keep
-    # their branch pipelines (promotion, deploys) even when an MR from them is open.
-    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_COMMIT_BRANCH !~ /^(dev|staging|main|master)$/'
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH =~ /^(dev|staging|main|master)$/
-
-default:
-  # Cancelled the moment the branch or MR moves on.
-  interruptible: true
-  retry:
-    max: 2
-    when:
-      - runner_system_failure
-      - stuck_or_timeout_failure
-      - api_failure
-      - scheduler_failure
-      - unknown_failure
-
-stages:
-  - build
-  - lint-and-test
-  - deploy
-  - promote
-  - approval
-
-.registry_login:
-  before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
-
-.mr_only:
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-
-# Merge requests and deploy branches both run the gate; feature-branch pushes
-# produce no pipeline of their own (their checks belong to the MR).
-.gate_rules:
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH =~ /^(dev|staging|main|master)$/
-
-# Runtime image, and a `-test` image layered on it that adds the dev Composer
-# dependencies (the runtime image installs --no-dev). Only the test image is used
-# by the gate (amd64 alone). On dev/staging/main the runtime image is also pushed as the
-# mutable `:<branch>` tag the k8s manifests pull, multi-arch like kitg's; MR builds are
-# amd64 only and push no mutable tag (nothing deploys from an MR).
+#   build -> test -> migrate -> deploy -> promote -> notify (+ approval)
 #
-# uBixCore comes from the private ubixsys group Composer registry. Auth is a
-# BuildKit secret (never a layer) built from this job's CI_JOB_TOKEN, which needs
-# ubixsys/ubixkelpie on ubixcore's job-token allowlist.
-# TODO: switch to a read_package_registry deploy token from uBixVault, as kitg does.
-build:
-  extends: [.registry_login, .gate_rules]
-  stage: build
-  tags: [shell]
-  retry:
-    max: 2
-    when:
-      - script_failure
-      - runner_system_failure
-      - stuck_or_timeout_failure
-      - api_failure
-      - scheduler_failure
-      - unknown_failure
-  script:
-    - |
-      set -euo pipefail
-      RUNTIME_SHA_REF="${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHA}"
-      TEST_REF="${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}-test"
-      AUTH_FILE="$(mktemp)"; trap 'rm -f "$AUTH_FILE"' EXIT
-      printf '{"gitlab-token":{"%s":{"username":"gitlab-ci-token","token":"%s"}}}' "$CI_SERVER_HOST" "$CI_JOB_TOKEN" > "$AUTH_FILE"
-      PLATFORMS="linux/amd64"; TAGS=(-t "$RUNTIME_SHA_REF")
-      if [ "$CI_PIPELINE_SOURCE" != "merge_request_event" ]; then
-        PLATFORMS="linux/amd64,linux/arm64"
-        TAGS+=(-t "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}")
-      fi
-      docker buildx build --pull --provenance=false --sbom=false --platform "$PLATFORMS" --push \
-        --secret id=composer_auth,src="$AUTH_FILE" \
-        --build-arg APP_VERSION="$CI_COMMIT_SHA" \
-        "${TAGS[@]}" -f Dockerfile .
-      docker buildx build --provenance=false --sbom=false --platform linux/amd64 --push \
-        --build-arg RUNTIME_IMAGE="$RUNTIME_SHA_REF" \
-        -t "$TEST_REF" -f Dockerfile_Test .
+# What it does, the UBIX_* settings and how to override a job:
+# vendor/ubixsys/ubixcore/ci/README.md and docs/design/ci-pipeline-template.md in uBixCore.
+# The deploy, promote and notify scripts are uBixCore's (ci/bin), fetched at the locked
+# version; Kelpie keeps no copies. Kelpie adds only its own settings and ai-review-tests.
+#
+# Tiers: dev -> kelpie-dev, staging -> kelpie-staging, main -> kelpie-prod. A green deploy
+# fast-forwards the next branch. Production waits for one click: migrate-apply-prod.
+#
+# Vault: dev and staging read vault.dev, prod reads vault.prod (prod holds production only).
+# CI reads secret/kelpie/{db-<tier>,test-db} with UBIXVAULT_CI_TOKEN_DEV / _PROD (policy
+# kelpie-ci-ro). Database setup and accounts: docs/operations/database.md.
+include:
+  - project: ubixsys/ubixcore
+    ref: v0.47.0
+    file: ci/ubixcore-pipeline.yml
 
-static-checks:
-  extends: [.registry_login, .gate_rules]
-  stage: lint-and-test
-  tags: [shell]
-  timeout: 15 minutes
-  script:
-    - |
-      docker run --rm --workdir /web \
-        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
-        sh -c "set -e && vendor/bin/phpcs --no-cache && vendor/bin/phpstan analyse --no-progress --memory-limit=2G app bin php public tests"
+variables:
+  UBIX_VAULT_PREFIX: kelpie            # secret/kelpie/... (not the project name, ubixkelpie)
+  UBIX_STAGING_VAULT: dev
+  UBIX_RUNTIME_DOCKERFILE_STAGING: Dockerfile   # one runtime Dockerfile for every tier
+  UBIX_RUNTIME_DOCKERFILE_PROD: Dockerfile
+  UBIX_APP_DB_HOST: "%"                # host part of the ubixkelpie app account on all three servers
+  UBIX_PROD_DEPLOY_WHEN: on_success    # migrate-apply-prod (manual) is the release click
+  UBIX_APPROVAL_OWNERS: cwolsen
 
 # ci/ai-review dry-run tests (no network, no model) and shellcheck. Cheap and independent
 # of the build, so it starts at once. Packages are fetched at run time into a throwaway container.
 ai-review-tests:
-  extends: .mr_only
-  stage: lint-and-test
+  stage: test
   tags: [shell]
   needs: []
   timeout: 10 minutes
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
     - |
       docker run --rm -v "$PWD:/src" --workdir /src alpine:3.22 sh -c \
@@ -119,97 +44,3 @@ ai-review-tests:
          && git config --global --add safe.directory /src \
          && shellcheck ci/ai-review/review.sh ci/ai-review/test/run-tests.sh \
          && bash ci/ai-review/test/run-tests.sh"
-
-# No database yet, so the suite runs alone (no schema reset, no migrate:up).
-phpunit:
-  extends: [.registry_login, .gate_rules]
-  stage: lint-and-test
-  tags: [shell]
-  timeout: 30 minutes
-  script:
-    - |
-      docker run --rm --workdir /web \
-        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
-        sh -c "set -e && vendor/bin/phpunit"
-
-# ---------------------------------------------------------------------------
-# deploy: bin/deploy.sh applies app/KelpieApi/k8s/<env>-*.yaml and waits for the
-# rollout. The branch is the environment: dev -> kelpie-dev, staging ->
-# kelpie-staging, main -> kelpie-prod. Secrets come from uBixVault at pod start.
-# ---------------------------------------------------------------------------
-.deploy:
-  # Never cancelled mid-flight: a half-applied deploy is worse than a superseded one.
-  interruptible: false
-  stage: deploy
-  tags: [shell]
-  script:
-    - bash bin/deploy.sh "$CI_COMMIT_REF_SLUG"
-
-deploy-dev:
-  extends: .deploy
-  needs: [static-checks, phpunit]
-  environment: { name: dev, url: "https://kelpie.dev.ubixsys.com" }
-  rules: [{ if: '$CI_COMMIT_BRANCH == "dev"' }]
-
-deploy-staging:
-  extends: .deploy
-  needs: [static-checks, phpunit]
-  environment: { name: staging, url: "https://kelpie.staging.ubixsys.com" }
-  rules: [{ if: '$CI_COMMIT_BRANCH == "staging"' }]
-
-# `master` is accepted by the workflow rules, but CI_COMMIT_REF_SLUG would be
-# "master" and bin/deploy.sh only knows `main`: Kelpie's production branch is main.
-deploy-main:
-  extends: .deploy
-  needs: [static-checks, phpunit]
-  environment: { name: prod, url: "https://kelpie.prod.ubixsys.com" }
-  rules: [{ if: '$CI_COMMIT_BRANCH == "main"' }]
-
-# ---------------------------------------------------------------------------
-# promote: dev -> staging -> main, automatically, after a green deploy of the source
-# branch. bin/promote.sh is fast-forward only and never forces. Needs the project CI
-# variable GITLAB_PROMOTE_TOKEN (Maintainer, write_repository) and protected
-# staging/main branches that token may push to. allow_failure: a failed promotion
-# does not turn the deploy red; the next push to dev retries it.
-# ---------------------------------------------------------------------------
-.promote:
-  interruptible: false
-  stage: promote
-  tags: [shell]
-  variables: { GIT_DEPTH: "0" }
-
-promote-to-staging:
-  extends: .promote
-  needs: [{ job: deploy-dev, artifacts: false }]
-  rules: [{ if: '$CI_COMMIT_BRANCH == "dev"', when: on_success, allow_failure: true }]
-  script: [bash bin/promote.sh staging]
-
-promote-to-main:
-  extends: .promote
-  needs: [{ job: deploy-staging, artifacts: false }]
-  rules: [{ if: '$CI_COMMIT_BRANCH == "staging"', when: on_success, allow_failure: true }]
-  script: [bash bin/promote.sh main]
-
-# Every merge needs a human sign-off (uBixCore `bin/ubix ci:requireApproval`, standard:
-# uBixCore docs/standards/branching-and-git-workflow.md, Merge sign-off). Fails until the MR
-# has an Approve or a thumbs-up; with "Pipelines must succeed" on, that blocks the merge.
-# GitLab does not re-run a pipeline on approval: Kelpie's webhook receiver (POST
-# /gitlab/webhook, docs/merge-signoff.md) retries this job when someone signs off.
-# Last stage, so a red verdict never hides behind, or holds up, the real checks.
-# Agents never approve (CLAUDE.md). Needs the project CI variable APPROVAL_GITLAB_TOKEN (or
-# AI_REVIEW_GITLAB_TOKEN; Reporter role, `api` scope, masked). WITHOUT IT THE JOB PASSES
-# ("UNVERIFIED -- no APPROVAL_GITLAB_TOKEN"): it fails open, so the gate enforces nothing.
-# MERGE_APPROVAL_OWNERS is not set: nobody may sign off their own MR until the owner decides.
-require-approval-mr:
-  extends: [.registry_login, .mr_only]
-  stage: approval
-  tags: [shell]
-  needs: [build]
-  timeout: 5 minutes
-  script:
-    - |
-      docker run --rm --workdir /web \
-        -e APPROVAL_GITLAB_TOKEN -e AI_REVIEW_GITLAB_TOKEN -e MERGE_APPROVAL_OWNERS \
-        -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_COMMIT_BRANCH \
-        "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-test" \
-        php bin/ubix ci:requireApproval

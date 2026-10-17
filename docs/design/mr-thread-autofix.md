@@ -183,7 +183,7 @@ no worker or scheduler (step 8). The process runner is local
 (`Kelpie\Sandbox\ProcOpenProcessRunner`); section 6 prefers a generic one in uBixCore, to be upstreamed.
 The caps use the `AutofixCaps` defaults; the per-MR token budget and daily spend cap of decision 6 are
 not enforced here. Database access in the web app is bound in `app/KelpieApi/src/Dependencies.php`; the
-`kelpie` database and a CI migrate stage do not exist yet, so the migration is applied by hand.
+migration targets the `ubixkelpie` database and is applied by the CI migrate jobs.
 
 **Step 7 as built** (inside `kelpie:fix`, and `kelpie:respond` for `already_fixed`). After a push the
 runner replies on the thread: "Kelpie fixed this in <commit URL>: <summary>", the gate line, and that the
@@ -196,7 +196,7 @@ summarised. A failed reply is logged and does not undo the push; the job stays `
 thread through `DiscussionWriter::resolve`; if the resolve fails the reply stays and its marker stops a
 second one. Per decisions 2 and 3 nothing resolves a thread after a `fix`.
 
-**Step 8 as built** (`kelpie:sweep`; the manifest `app/KelpieApi/k8s/dev-cronjob.yaml` is suspended).
+**Step 8 as built** (`kelpie:sweep`; the manifest `app/KelpieApi/dev-cronjob.yaml` is suspended).
 
 - *Entry point.* The sweep adds no path: per open MR of `KELPIE_AUTOFIX_PROJECTS` it builds a synthetic
   Note Hook payload per unresolved thread and, when the head pipeline failed, a synthetic Pipeline Hook
@@ -216,10 +216,9 @@ second one. Per decisions 2 and 3 nothing resolves a thread after a `fix`.
   runs at most `KELPIE_SWEEP_MAX_RUNS` (default 5, or `--max-runs`) threads per sweep and defers the rest
   to the next one.
 - *Scheduling.* A Kubernetes CronJob every 15 minutes, `concurrencyPolicy: Forbid`, `suspend: true`,
-  dev only, reusing the Deployment's namespace, Vault role and KV path. Not live until: the `kelpie`
-  database and migration exist, Vault holds the bot and OpenRouter keys, the image carries the `claude`
-  CLI, and `bin/deploy.sh` applies the file (it applies only deploy/service/ingress; `bin/` is outside
-  this lane). The webhook does not enqueue to the table: the web app has no database yet, so the sweep is
+  dev only, reusing the Deployment's namespace, Vault role and KV path. uBixCore's deploy script
+  applies it (suspended) on every dev deploy, and the migrate job applies the migration to `ubixkelpie`.
+  Not live until Vault holds the bot and OpenRouter keys and the image carries the `claude` CLI. The webhook does not enqueue to the table: the web app has no database yet, so the sweep is
   the only consumer of jobs.
 - *Known gaps.* A pipeline thread whose run failed is retried by later sweeps only within the caps
   (2 attempts per thread). Pipelines of a Shepherd-owned branch are skipped by the same branch-prefix

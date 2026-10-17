@@ -6,10 +6,13 @@ use DI\Container;
 use DI\ContainerBuilder;
 use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
+use Kelpie\GitLab\MemberAccessReader;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
+use Kelpie\HttpClient\BotHttpClient;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
+use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Latte\Engine;
 use Latte\Loaders\FileLoader;
 use Monolog\Handler\StreamHandler;
@@ -109,6 +112,20 @@ return static function (): Container {
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
             ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
             ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES')),
+        // Issue intake (design sections 2 and 6): classify only, nothing posted. The gate label's actor is
+        // verified through the API with the bot token, GET only; off unless KELPIE_AUTOFIX_ENABLED is set.
+        BotHttpClient::class           => autowire()
+            ->constructorParameter('httpClient', get(HttpClient::class))
+            ->constructorParameter('token', getenv('KELPIE_BOT_GITLAB_TOKEN') ?: ''),
+        MemberAccessReader::class      => autowire()
+            ->constructorParameter('httpClient', get(BotHttpClient::class))
+            ->constructorParameter('apiUrl', rtrim(getenv('GITLAB_API_URL') ?: '', '/')),
+        IssueOpenWebhookService::class => autowire()
+            ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true))
+            ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
+            ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
+            ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
+            ->constructorParameter('gateLabel', getenv('KELPIE_AUTOFIX_GATE_LABEL') ?: 'kelpie::fix'),
         // Job state (design section 6): MariaDB, credentials from uBixVault (VAULT_DB_KV_PATH). The
         // connection opens on first query, so an app that never touches a job needs no database.
         SqlService::class              => autowire(MysqlPdoSqlService::class),

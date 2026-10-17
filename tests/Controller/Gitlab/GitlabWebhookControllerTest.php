@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Controller\Gitlab;
 use Kelpie\Autofix\EnqueueService;
 use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
+use Kelpie\GitLab\MemberAccessReader;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
@@ -251,7 +252,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
         $result = $this->logged[1]['context']['result'] ?? '';
         $this->assertIsString($result);
-        $this->assertStringContainsString('opened: issue #5', $result);
+        $this->assertStringContainsString('triage: new issue', $result);
     }
 
     /**
@@ -585,7 +586,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $templateRender = new TemplateRenderer($logger, new Engine());
         $jsonService    = new JsonService($logger);
         $noteService    = new NoteOnMrWebhookService($logger);
-        $issueService   = new IssueOpenWebhookService($logger);
+        $issueService   = new IssueOpenWebhookService($logger, new MemberAccessReader($logger, $this->guardedClient(), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService), true, 'kelpie-bot', [], ['org/proj']);
 
         $approvalService = new ApprovalWebhookService(
             $logger,

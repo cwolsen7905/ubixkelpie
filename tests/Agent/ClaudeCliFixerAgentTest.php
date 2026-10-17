@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Agent;
 
 use DateTimeImmutable;
-use Kelpie\Autofix\ClaudeCliFixerAgent;
+use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
@@ -13,7 +13,7 @@ use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnu
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\ClaudeCliFixerAgent
+ * PHPUnit test case for \Kelpie\Agent\ClaudeCliFixerAgent
  *
  * What must hold:
  * - The agent gets file tools only, in the checkout, with an exact environment
@@ -21,7 +21,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - The thread text is fenced as data and cannot close the fence
  * - A failed run is reported, a retry carries the gate output
  *
- * @coversDefaultClass \Kelpie\Autofix\ClaudeCliFixerAgent
+ * @coversDefaultClass \Kelpie\Agent\ClaudeCliFixerAgent
  */
 final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

@@ -6,9 +6,9 @@ namespace Kelpie\Tests\Console\Command;
 
 use Kelpie\Console\Command\TriageCommand;
 use Kelpie\OpenRouter\OpenRouterClient;
-use Kelpie\Triage\SafetyPolicy;
-use Kelpie\Triage\TriagePrompt;
-use Kelpie\Triage\TriageService;
+use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;

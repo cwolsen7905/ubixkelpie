@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Triage;
+namespace Kelpie\Tests\Service\Triage;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\TriageClass;
 use Kelpie\OpenRouter\OpenRouterClient;
-use Kelpie\Triage\SafetyPolicy;
-use Kelpie\Triage\TriagePrompt;
-use Kelpie\Triage\TriageService;
+use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -21,14 +21,14 @@ use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnu
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Triage\TriageService
+ * PHPUnit test case for \Kelpie\Service\Triage\TriageService
  *
  * What must hold:
  * - Each of the four classes is read from the model's JSON, also inside a code fence
  * - No answer, non-JSON or an unknown class is needs_human, never a guess
  * - A fix that breaks the safety policy is downgraded
  *
- * @coversDefaultClass \Kelpie\Triage\TriageService
+ * @coversDefaultClass \Kelpie\Service\Triage\TriageService
  */
 final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

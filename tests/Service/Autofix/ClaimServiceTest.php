@@ -2,24 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Service\Autofix;
 
-use Kelpie\Autofix\ClaimService;
 use Kelpie\Enum\ResponseOutcome;
+use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\ClaimService
+ * PHPUnit test case for \Kelpie\Service\Autofix\ClaimService
  *
  * What must hold:
  * - A free thread is claimed with the marker note
  * - A fresh claim from anyone blocks; an expired or released one does not
  * - When two workers race, the oldest claim wins and the loser releases its own
  *
- * @coversDefaultClass \Kelpie\Autofix\ClaimService
+ * @coversDefaultClass \Kelpie\Service\Autofix\ClaimService
  */
 final class ClaimServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

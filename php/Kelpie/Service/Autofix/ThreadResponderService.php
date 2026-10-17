@@ -15,9 +15,9 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * No code changes. The `kelpie::working` label is on the MR while it works and comes off at the end.
  *
- * @see \Kelpie\Tests\Service\Autofix\ThreadResponderTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Autofix\ThreadResponderServiceTest PHPUnit test case
  */
-final class ThreadResponder
+final class ThreadResponderService
 {
     /**
      * Constructor

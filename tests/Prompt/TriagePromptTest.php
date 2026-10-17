@@ -2,23 +2,23 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Triage;
+namespace Kelpie\Tests\Prompt;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\Thread;
-use Kelpie\Triage\TriagePrompt;
+use Kelpie\Prompt\TriagePrompt;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Triage\TriagePrompt
+ * PHPUnit test case for \Kelpie\Prompt\TriagePrompt
  *
  * What must hold:
  * - The system message names all four classes and calls thread text untrusted
  * - The thread is fenced with its location, and its text cannot close the fence
  *
- * @coversDefaultClass \Kelpie\Triage\TriagePrompt
+ * @coversDefaultClass \Kelpie\Prompt\TriagePrompt
  */
 final class TriagePromptTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

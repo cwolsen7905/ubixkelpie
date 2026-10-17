@@ -2,21 +2,21 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
-use Kelpie\Autofix\ReplyService;
 use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
+use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\ReplyService
+ * PHPUnit test case for \Kelpie\Service\Autofix\ReplyService
  *
  * What must hold:
  * - needs_human replies and labels the MR; not_an_issue replies without a label
@@ -25,7 +25,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Model text cannot plant a Kelpie marker or a mention
  * - A thread is answered once, until someone writes in it again
  *
- * @coversDefaultClass \Kelpie\Autofix\ReplyService
+ * @coversDefaultClass \Kelpie\Service\Autofix\ReplyService
  */
 final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

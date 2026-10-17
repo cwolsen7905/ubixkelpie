@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Triage;
+namespace Kelpie\Tests\HttpClient;
 
-use Kelpie\Triage\AuthenticatedHttpClient;
+use Kelpie\HttpClient\AuthenticatedHttpClient;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -15,9 +15,9 @@ use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnu
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Triage\AuthenticatedHttpClient
+ * PHPUnit test case for \Kelpie\HttpClient\AuthenticatedHttpClient
  *
- * @coversDefaultClass \Kelpie\Triage\AuthenticatedHttpClient
+ * @coversDefaultClass \Kelpie\HttpClient\AuthenticatedHttpClient
  */
 final class AuthenticatedHttpClientTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

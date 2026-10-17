@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Policy;
 
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
-use Kelpie\Autofix\EventFilter;
+use Kelpie\DataTransferObject\AutofixJob;
+use Kelpie\Policy\EventFilter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\EventFilter
+ * PHPUnit test case for \Kelpie\Policy\EventFilter
  *
- * @coversDefaultClass \Kelpie\Autofix\EventFilter
+ * @coversDefaultClass \Kelpie\Policy\EventFilter
  */
 final class EventFilterTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

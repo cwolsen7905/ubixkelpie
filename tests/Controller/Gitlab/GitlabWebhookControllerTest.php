@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Controller\Gitlab;
 
-use Kelpie\Autofix\EnqueueService;
-use Kelpie\Autofix\EventFilter;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
+use Kelpie\Policy\EventFilter;
+use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;

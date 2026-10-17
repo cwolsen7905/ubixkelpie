@@ -6,8 +6,8 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
 use Generator;
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\AutofixCaps;
+use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\Enum\EnqueueOutcome;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;

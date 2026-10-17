@@ -19,7 +19,7 @@ use Psr\Log\LoggerInterface as Logger;
  * the fixer runner calls `fixed()` once the commit is pushed, and that reply never resolves the thread
  * (the reviewer confirms). Never pushes.
  *
- * @see \Kelpie\Tests\Autofix\ReplyServiceTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Autofix\ReplyServiceTest PHPUnit test case
  */
 final class ReplyService
 {

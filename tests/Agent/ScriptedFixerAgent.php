@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Agent;
 
 use Closure;
-use Kelpie\Autofix\FixerAgentInterface as FixerAgent;
+use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\Thread;
 
 /**

@@ -18,7 +18,7 @@ use Psr\Log\LoggerInterface as Logger;
  * the claim the thread is read again and the oldest fresh claim wins; the loser releases its own.
  * A released claim is its note rewritten to a `kelpie:release` marker, so it no longer counts.
  *
- * @see \Kelpie\Tests\Autofix\ClaimServiceTest PHPUnit test case
+ * @see \Kelpie\Tests\Service\Autofix\ClaimServiceTest PHPUnit test case
  */
 final class ClaimService
 {

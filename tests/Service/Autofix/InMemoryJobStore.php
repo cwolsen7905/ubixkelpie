@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\Model\AutofixJobRecord;

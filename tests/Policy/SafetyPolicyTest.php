@@ -2,25 +2,25 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Triage;
+namespace Kelpie\Tests\Policy;
 
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\TriageClass;
-use Kelpie\Triage\SafetyPolicy;
+use Kelpie\Policy\SafetyPolicy;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Triage\SafetyPolicy
+ * PHPUnit test case for \Kelpie\Policy\SafetyPolicy
  *
  * What must hold:
  * - A fix inside every limit stands; any one violation downgrades it to needs_human
  * - Other classes, and a fix with no proposal yet, pass through unchanged
  *
- * @coversDefaultClass \Kelpie\Triage\SafetyPolicy
+ * @coversDefaultClass \Kelpie\Policy\SafetyPolicy
  */
 final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

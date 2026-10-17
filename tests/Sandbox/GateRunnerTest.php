@@ -2,23 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Sandbox;
 
-use Kelpie\Autofix\GateRunner;
-use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Sandbox\GateRunner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\GateRunner
+ * PHPUnit test case for \Kelpie\Sandbox\GateRunner
  *
  * What must hold:
  * - It runs composer install, phpcs, phpstan and phpunit in that order, and nothing after a red step
  * - The failed step and its output come back
  * - The environment is exact and has no GitLab token; COMPOSER_AUTH only when given
  *
- * @coversDefaultClass \Kelpie\Autofix\GateRunner
+ * @coversDefaultClass \Kelpie\Sandbox\GateRunner
  */
 final class GateRunnerTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

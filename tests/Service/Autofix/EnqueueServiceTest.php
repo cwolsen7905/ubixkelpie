@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Service\Autofix;
 
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
-use Kelpie\Autofix\EnqueueService;
-use Kelpie\Autofix\EventFilter;
+use Kelpie\DataTransferObject\AutofixJob;
+use Kelpie\Policy\EventFilter;
+use Kelpie\Service\Autofix\EnqueueService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\EnqueueService
+ * PHPUnit test case for \Kelpie\Service\Autofix\EnqueueService
  *
- * @coversDefaultClass \Kelpie\Autofix\EnqueueService
+ * @coversDefaultClass \Kelpie\Service\Autofix\EnqueueService
  */
 final class EnqueueServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

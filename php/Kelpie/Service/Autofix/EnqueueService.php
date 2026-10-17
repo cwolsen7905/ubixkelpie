@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\AutofixJob;
+use Kelpie\Policy\EventFilter;
 use Psr\Log\LoggerInterface as Logger;
 
 /**

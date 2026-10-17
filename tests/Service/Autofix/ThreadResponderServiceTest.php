@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix;
+namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
-use Kelpie\Autofix\ClaimService;
-use Kelpie\Autofix\ReplyService;
-use Kelpie\Autofix\ThreadResponder;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\OpenRouter\OpenRouterClient;
+use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Service\Autofix\ClaimService;
+use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\ThreadResponderService;
+use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
-use Kelpie\Triage\SafetyPolicy;
-use Kelpie\Triage\TriagePrompt;
-use Kelpie\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -24,16 +24,16 @@ use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnu
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\ThreadResponder
+ * PHPUnit test case for \Kelpie\Service\Autofix\ThreadResponderService
  *
  * What must hold:
  * - A needs_human thread is claimed, answered, labelled, and the claim and working label are released
  * - A fix thread is claimed and released with no reply
  * - An answered thread and a claimed thread are skipped without triage
  *
- * @coversDefaultClass \Kelpie\Autofix\ThreadResponder
+ * @coversDefaultClass \Kelpie\Service\Autofix\ThreadResponderService
  */
-final class ThreadResponderTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
+final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
     /**
      * The fake GitLab
@@ -52,7 +52,7 @@ final class ThreadResponderTest extends UbixConcreteClassOrEnumTestCase implemen
      */
     public function testFollowingUbixStandards(): void
     {
-        $this->testClassFollowingUbixStandards(ThreadResponder::class);
+        $this->testClassFollowingUbixStandards(ThreadResponderService::class);
     }
 
     /**
@@ -164,9 +164,9 @@ final class ThreadResponderTest extends UbixConcreteClassOrEnumTestCase implemen
      *
      * @param string $class The triage class the model returns
      *
-     * @return ThreadResponder
+     * @return ThreadResponderService
      */
-    private function responder(string $class): ThreadResponder
+    private function responder(string $class): ThreadResponderService
     {
         putenv('OPENROUTER_API_KEY=test-key-not-real');
         putenv('OPENROUTER_API_URL=https://openrouter.test/api/v1');
@@ -183,7 +183,7 @@ final class ThreadResponderTest extends UbixConcreteClassOrEnumTestCase implemen
 
         $writer = $this->gitlab->writer($logger);
 
-        return new ThreadResponder(
+        return new ThreadResponderService(
             $logger,
             $writer,
             new ClaimService($logger, $writer),

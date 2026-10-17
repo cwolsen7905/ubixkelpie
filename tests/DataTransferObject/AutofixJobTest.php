@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Kelpie\Tests\Autofix\DataTransferObject;
+namespace Kelpie\Tests\DataTransferObject;
 
-use Kelpie\Autofix\DataTransferObject\AutofixJob;
+use Kelpie\DataTransferObject\AutofixJob;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
 /**
- * PHPUnit test case for \Kelpie\Autofix\DataTransferObject\AutofixJob
+ * PHPUnit test case for \Kelpie\DataTransferObject\AutofixJob
  *
- * @coversDefaultClass \Kelpie\Autofix\DataTransferObject\AutofixJob
+ * @coversDefaultClass \Kelpie\DataTransferObject\AutofixJob
  */
 final class AutofixJobTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {

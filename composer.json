@@ -7,7 +7,7 @@
     "prefer-stable": true,
     "require": {
         "php": "^8.5",
-        "ubixsys/ubixcore": "^0.46.1"
+        "ubixsys/ubixcore": "^0.47.0"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.1",

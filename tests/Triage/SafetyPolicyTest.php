@@ -93,7 +93,7 @@ final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements 
      */
     public function testOrdinaryPathsAreAllowed(): void
     {
-        $proposal = self::build(paths: ['php/Kelpie/Triage/TriageService.php', 'tests/Triage/TriageServiceTest.php', 'docs/ai-review.md']);
+        $proposal = self::build(paths: ['php/Kelpie/Triage/TriageService.php', 'tests/Triage/TriageServiceTest.php', 'docs/ai-review.md', 'app/KelpieApi/src/Routes.php', 'app/KelpieApi/src/Dependencies.php']);
 
         $this->assertSame(TriageClass::Fix, $this->policy()->apply($this->fix(), $proposal)->class);
     }
@@ -121,6 +121,8 @@ final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements 
             [
                 '.gitlab-ci.yml', 'ci/build.sh', '.env', '.env.example', 'app/KelpieApi/.env.local', 'sql/migrations/001.sql',
                 'composer.lock', 'web/package-lock.json', 'app/KelpieApi/k8s/dev-deploy.yaml', 'bin/promote.sh',
+                'app/KelpieApi/dev-deploy.yaml', 'app/KelpieApi/main-ingress.yaml', 'app/KelpieApi/staging-service.yaml',
+                'app/KelpieApi/dev-cronjob.yaml', 'sql/ubixkelpie.sql', 'sql/grants/app.sql',
                 'phpcs.xml', 'phpstan.neon', 'phpstan-baseline.neon', 'phpunit.xml.dist', 'config/secrets.php', 'deploy/server.pem',
             ] as $path
         ) {

@@ -42,9 +42,13 @@ final class SafetyPolicy
         '#(^|/)(secrets?|credentials?)([./_-]|$)#i',
         '#\.(pem|key|p12|pfx|jks)$#i',
         '#(^|/)id_(rsa|dsa|ecdsa|ed25519)#',
-        '#^sql/migrations/#',
+        // All of sql/: migrations, the schema baselines and the grants the migrate job applies.
+        '#^sql/#',
         '#(^|/)(composer\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock)$#',
+        // Kubernetes manifests: app/<App>/<env>-{deploy,service,ingress,cronjob...}.yaml (the
+        // uBixCore template's layout), and the older app/<App>/k8s/ folder.
         '#^app/[^/]+/k8s/#',
+        '#^app/[^/]+/[^/]+-(deploy|service|ingress|cronjob)[^/]*\.ya?ml$#',
         '#(^|/)(deploy|promote)[^/]*\.sh$#',
         '#(^|/)phpcs[^/]*\.xml(\.dist)?$#',
         '#(^|/)phpstan[^/]*\.(neon|dist|baseline)#',

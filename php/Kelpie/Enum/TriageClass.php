@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Enum;
 
 /**
- * What triage decided about one review thread (docs/design/mr-thread-autofix.md, section 2)
+ * What triage decided about one review thread
  *
  * @see \Kelpie\Tests\Enum\TriageClassTest PHPUnit test case
  */

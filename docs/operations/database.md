@@ -14,8 +14,7 @@ Passwords never go in this repo, an MR or a chat; they live in uBixVault only.
 **The Vault rule:** vault.prod holds production only; dev and staging both use vault.dev. A leaked
 dev token or a policy mistake on the dev Vault must never reach a production secret. Staging may
 sit with dev because it has its own server and accounts; it must never get a production
-credential. (Known gap: `KELPIE_BOT_GITLAB_TOKEN` and `GITLAB_WEBHOOK_SECRET` in
-`kelpie/<env>/app` are the same value in all three tiers; prod needs its own.)
+credential.
 
 ## 2. Accounts
 
@@ -46,9 +45,7 @@ The DDL password exists only in CI's secret; pods never hold it.
 
 CI reads with `UBIXVAULT_CI_TOKEN_DEV` / `UBIXVAULT_CI_TOKEN_PROD` (GitLab variables, protected,
 masked; policy `kelpie-ci-ro`: read `secret/kelpie/*`). Pods log in with the k8s role
-`kelpie-<tier>`, whose policy `kelpie-<tier>-ro` reads `kelpie/<tier>/*`. `kelpie-staging`
-exists on vault.dev since 2026-10-17; its old copy on vault.prod goes once staging runs from
-vault.dev.
+`kelpie-<tier>`, whose policy `kelpie-<tier>-ro` reads `kelpie/<tier>/*`, on that tier's Vault.
 
 To change one key, use uBixCore's `vendor/ubixsys/ubixcore/ci/bin/vault-set-key.sh` (value at a
 prompt or piped from a file, never in argv; lower-case keys need `--any-case`).
@@ -96,13 +93,3 @@ create them); a table-level `GRANT` on a missing table fails.
 3. `SHOW GRANTS FOR 'ubixkelpie'@'%';` lists exactly the app row of section 2, nothing wider.
 4. The pod is ready after the deploy (the rollout wait fails the deploy if Vault or the database
    credentials are wrong). `/health` does not touch the database yet.
-
-## 7. Open
-
-1. Prod's own GitLab bot token and webhook secret (section 1).
-2. Delete the `kelpie-staging` role, policy and `kelpie/staging/app` from vault.prod once staging
-   runs from vault.dev.
-3. `/health` cannot see a dead database; a separate readiness check would.
-4. Backups and retention of the production database are not covered here.
-5. `/version` reports `unknown`: the template does not pass `APP_VERSION` to the build yet
-   (uBixCore follow-up).

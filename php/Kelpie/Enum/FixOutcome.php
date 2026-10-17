@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Enum;
 
 /**
- * What the fixer runner did about one thread (docs/design/mr-thread-autofix.md, section 7, step 6)
+ * What the fixer runner did about one thread
  *
  * @see \Kelpie\Tests\Enum\FixOutcomeTest PHPUnit test case
  */

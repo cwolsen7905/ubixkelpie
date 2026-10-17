@@ -7,7 +7,7 @@ namespace Kelpie\DataTransferObject;
 use Ubix\DataTransferObject\DtoInterface as Dto;
 
 /**
- * The autofix caps (docs/design/mr-thread-autofix.md section 2), pure rules over counts
+ * The autofix caps (attempts per thread, fix commits per MR, jobs per day), pure rules over counts
  *
  * @see \Kelpie\Tests\DataTransferObject\AutofixCapsTest PHPUnit test case
  */

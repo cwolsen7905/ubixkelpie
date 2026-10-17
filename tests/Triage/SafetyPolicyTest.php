@@ -93,7 +93,7 @@ final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements 
      */
     public function testOrdinaryPathsAreAllowed(): void
     {
-        $proposal = self::build(paths: ['php/Kelpie/Triage/TriageService.php', 'tests/Triage/TriageServiceTest.php', 'docs/design/mr-thread-autofix.md']);
+        $proposal = self::build(paths: ['php/Kelpie/Triage/TriageService.php', 'tests/Triage/TriageServiceTest.php', 'docs/ai-review.md']);
 
         $this->assertSame(TriageClass::Fix, $this->policy()->apply($this->fix(), $proposal)->class);
     }

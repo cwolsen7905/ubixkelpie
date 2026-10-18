@@ -23,6 +23,18 @@ final class StubHttpClient implements HttpClient
     private array $requests = [];
 
     /**
+     * "METHOD query" of every request
+     *
+     * @var list<string>
+     */
+    private array $queries = [];
+
+    /**
+     * The answer to a POST when it differs from the one for everything else
+     */
+    private ?Psr7Response $create = null;
+
+    /**
      * Constructor
      *
      * @param ?Psr7Response $answer The response; null makes the client throw
@@ -45,6 +57,32 @@ final class StubHttpClient implements HttpClient
     }
 
     /**
+     * A client that lists the given award_emoji JSON on GET and answers any POST with the given status (201 by default)
+     *
+     * @param string $json       The JSON list of awards already on the issue
+     * @param int    $postStatus The status a POST is answered with
+     *
+     * @return self
+     */
+    public static function awards(string $json, int $postStatus = 201): self
+    {
+        $client         = new self(new Psr7Response(200, [], $json));
+        $client->create = new Psr7Response($postStatus, [], '{}');
+
+        return $client;
+    }
+
+    /**
+     * The "METHOD query" of every request so far
+     *
+     * @return list<string>
+     */
+    public function queries(): array
+    {
+        return $this->queries;
+    }
+
+    /**
      * The "METHOD path" of every request so far
      *
      * @return list<string>
@@ -62,6 +100,11 @@ final class StubHttpClient implements HttpClient
     public function sendRequest(Request $request): Psr7Response
     {
         $this->requests[] = $request->getMethod() . ' ' . $request->getUri()->getPath();
+        $this->queries[]  = $request->getMethod() . ' ' . $request->getUri()->getQuery();
+
+        if ($this->create !== null && $request->getMethod() === 'POST') {
+            return $this->create;
+        }
 
         if ($this->answer === null) {
             throw new class ('down') extends RuntimeException implements ClientException {

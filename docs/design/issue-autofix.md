@@ -102,7 +102,7 @@ except issues authored by the bot. Fixing is not. It waits for the gate label (w
   label cancels a pending job.
 - Labels, not issue text, are the control. Issue text is untrusted: intake reads only the project,
   issue number and acting user, and never logs the title or description.
-- The whole path sits behind `KELPIE_AUTOFIX_ENABLED`; with it off every event is ignored.
+- The whole path sits behind `KELPIE_AUTOFIX_ENABLED`; with it off every event is ignored. An issue accepted for triage gets a 👀 from the bot, once (a replay adds none), and a failure to post it never fails the webhook. See `docs/operations/autofix-flags.md`.
 
 ## 7. Guard rails
 
@@ -134,7 +134,7 @@ the fixer.
 
 | # | MR | Content | Test |
 | --- | --- | --- | --- |
-| 1 | Intake | `IssueOpenWebhookService` classifies each Issue event as `triage` (enrolled, not the bot), `gate` (gate label added; actor's Developer-or-higher access verified through the API) or `ignored`, logs only, behind `KELPIE_AUTOFIX_ENABLED` | Unit tests; send a test event from the hook's Test button, see the class in the log |
+| 1 | Intake | `IssueOpenWebhookService` classifies each Issue event as `triage` (enrolled, not the bot), `gate` (gate label added; actor's Developer-or-higher access verified through the API) or `ignored`, logs the class and puts a 👀 on a triaged issue, behind `KELPIE_AUTOFIX_ENABLED` | Unit tests; send a test event from the hook's Test button, see the class in the log |
 | 2 | Triage and comment | Issue prompt, verdict, one comment and labels on every new issue; no fixing. Needs `issue_iid` migration | Throwaway issue: comment and label appear once; replay adds nothing |
 | 3 | Fix and MR | Starts on the gate label from a Developer or higher. Branch, fixer, policy, gate, push, MR with `Closes #N`, reviewer, one-attempt hand-off, spend cap | Throwaway issue "fix a typo in a doc comment": MR opens, gate green, reviewer set, nothing merged |
 | 4 | Failure paths | Too big, protected path, red gate: comment and label, no branch | Throwaway issues for each; check no branch is left |

@@ -15,7 +15,7 @@ use Psr\Log\LoggerInterface as Logger;
  * - gate: the gate label was added by a user whose project access, read through the API, is Developer or higher
  * - ignored: everything else, with the reason
  *
- * Nothing is posted to GitLab. The issue's title and description are never read: the issue is
+ * The only thing posted is a 👀 on a triaged issue, once and best-effort (IssueAwardEmojiService). The issue's title and description are never read: the issue is
  * untrusted, and only the project, the issue number and the acting user (data) are logged.
  * The class depends on the event alone, so a replayed event gets the same class and nothing is stored.
  *
@@ -33,6 +33,7 @@ final class IssueOpenWebhookService
      *
      * @param Logger                    $logger       Logger
      * @param MemberAccessReaderService $memberAccess Reads the actor's project access level
+     * @param IssueAwardEmojiService    $awardEmoji   Acknowledges a triaged issue with a 👀
      * @param bool                      $enabled      KELPIE_AUTOFIX_ENABLED: when false every event is ignored
      * @param string                    $botUsername  The Kelpie bot user
      * @param string[]                  $skipAuthors  Other usernames to ignore (Shepherd agents)
@@ -42,6 +43,7 @@ final class IssueOpenWebhookService
     public function __construct(
         private readonly Logger $logger,
         private readonly MemberAccessReaderService $memberAccess,
+        private readonly IssueAwardEmojiService $awardEmoji,
         private readonly bool $enabled = false,
         private readonly string $botUsername = 'kelpie-bot',
         private readonly array $skipAuthors = [],
@@ -69,6 +71,8 @@ final class IssueOpenWebhookService
             'project_path' => $result->projectPath,
             'reason'       => $result->reason,
         ]);
+
+        $this->acknowledge($result, $payload);
 
         return $result->class->value . ': ' . $result->reason;
     }
@@ -110,6 +114,28 @@ final class IssueOpenWebhookService
         }
 
         return $this->ignored('not an open or gate-label event', $path, $iid, $actor);
+    }
+
+    /**
+     * Put the 👀 on an issue that was accepted for triage; anything else gets none
+     *
+     * @param IssueIntakeResult        $result  The classification
+     * @param array<int|string, mixed> $payload The decoded webhook payload
+     *
+     * @return void
+     */
+    private function acknowledge(IssueIntakeResult $result, array $payload): void
+    {
+        if ($result->class !== IssueIntake::Triage) {
+            return;
+        }
+
+        $projectId = $this->arr($payload, 'project')['id'] ?? null;
+        if (!is_int($projectId) || $projectId === 0) {
+            return;
+        }
+
+        $this->awardEmoji->acknowledge($projectId, $result->issueIid);
     }
 
     /**

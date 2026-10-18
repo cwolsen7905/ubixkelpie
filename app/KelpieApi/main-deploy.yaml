@@ -83,6 +83,11 @@ spec:
           value: "false"
         - name: IS_STAGING
           value: "false"
+        # Feature flags, not secrets (docs/operations/autofix-flags.md): the manifest is reviewed in git.
+        - name: KELPIE_AUTOFIX_ENABLED
+          value: "true"
+        - name: KELPIE_AUTOFIX_PROJECTS
+          value: "ubixsys/ubixkelpie,ubixsys/ubixshepherd"
         - name: LOG_LEVEL
           value: "info"
         ports:

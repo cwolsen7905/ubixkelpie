@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Gitlab;
 
 use ArrayObject;
 use Kelpie\Enum\IssueIntake;
+use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -237,6 +238,66 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * An accepted issue gets the 👀 on the right issue
+     *
+     * @return void
+     */
+    public function testATriagedIssueGetsTheEyes(): void
+    {
+        $awards = StubHttpClient::awards('[]');
+
+        $this->service(awards: $awards)->handle($this->open('alice'));
+
+        $this->assertSame(['GET /api/v4/projects/42/issues/7/award_emoji', 'POST /api/v4/projects/42/issues/7/award_emoji'], $awards->requests());
+    }
+
+    /**
+     * A redelivery adds no second 👀
+     *
+     * @return void
+     */
+    public function testARedeliveryAddsNoSecondEyes(): void
+    {
+        $awards = StubHttpClient::awards('[{"name":"eyes","user":{"username":"kelpie-bot"}}]');
+
+        $this->service(awards: $awards)->handle($this->open('alice'));
+
+        $this->assertSame(['GET /api/v4/projects/42/issues/7/award_emoji'], $awards->requests());
+    }
+
+    /**
+     * Ignored and gate events get no emoji, not even a read
+     *
+     * @return void
+     */
+    public function testIgnoredAndGateEventsGetNoEmoji(): void
+    {
+        $awards           = StubHttpClient::awards('[]');
+        $other            = $this->open('alice');
+        $other['project'] = ['id' => 42, 'path_with_namespace' => 'org/other'];
+
+        $service = $this->service(awards: $awards);
+        $service->handle($other);
+        $service->handle($this->open('kelpie-bot'));
+        $service->handle($this->label('alice', [], ['kelpie::fix']));
+        $this->service(enabled: false, awards: $awards)->handle($this->open('alice'));
+
+        $this->assertSame([], $awards->requests());
+    }
+
+    /**
+     * A GitLab failure on the emoji still returns the outcome
+     *
+     * @return void
+     */
+    public function testAnEmojiFailureStillReturnsTheOutcome(): void
+    {
+        $outcome = $this->service(awards: new StubHttpClient(null))->handle($this->open('alice'));
+
+        $this->assertSame('triage: new issue on an enrolled project', $outcome);
+    }
+
+    /**
      * @param string $actor The user who opened the issue
      *
      * @return array<string, mixed>
@@ -288,15 +349,19 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
      * @param ?int            $level       What the API answers as the actor's access level; null for a failure
      * @param ?Logger         $logger      A logger, or a null one
      * @param ?StubHttpClient $client      A client to use instead of one answering with $level
+     * @param ?StubHttpClient $awards      The client for the award emoji calls; the default has no awards and accepts a new one
      *
      * @return IssueOpenWebhookService
      */
-    private function service(bool $enabled = true, array $skipAuthors = [], ?int $level = 30, ?Logger $logger = null, ?StubHttpClient $client = null): IssueOpenWebhookService
+    private function service(bool $enabled = true, array $skipAuthors = [], ?int $level = 30, ?Logger $logger = null, ?StubHttpClient $client = null, ?StubHttpClient $awards = null): IssueOpenWebhookService
     {
         $logger ??= new NullLogger();
         $client ??= StubHttpClient::member($level);
         $reader   = new MemberAccessReaderService($logger, $client, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
 
-        return new IssueOpenWebhookService($logger, $reader, $enabled, 'kelpie-bot', $skipAuthors, ['org/proj'], 'kelpie::fix');
+        $awards ??= StubHttpClient::awards('[]');
+        $emoji    = new IssueAwardEmojiService($logger, $awards, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
+
+        return new IssueOpenWebhookService($logger, $reader, $emoji, $enabled, 'kelpie-bot', $skipAuthors, ['org/proj'], 'kelpie::fix');
     }
 }

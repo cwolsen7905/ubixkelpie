@@ -11,6 +11,7 @@ use Kelpie\Policy\EventFilter;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
+use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Latte\Engine;
@@ -112,7 +113,7 @@ return static function (): Container {
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
             ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
             ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES')),
-        // Issue intake (design sections 2 and 6): classify only, nothing posted. The gate label's actor is
+        // Issue intake (design sections 2 and 6): classify, and put a 👀 on an accepted issue. The gate label's actor is
         // verified through the API with the bot token, GET only; off unless KELPIE_AUTOFIX_ENABLED is set.
         BotHttpClient::class             => autowire()
             ->constructorParameter('httpClient', get(HttpClient::class))
@@ -120,6 +121,11 @@ return static function (): Container {
         MemberAccessReaderService::class => autowire()
             ->constructorParameter('httpClient', get(BotHttpClient::class))
             ->constructorParameter('apiUrl', rtrim(getenv('GITLAB_API_URL') ?: '', '/')),
+        // The 👀 on an accepted issue: POST is the one write, and BotHttpClient allows no DELETE.
+        IssueAwardEmojiService::class    => autowire()
+            ->constructorParameter('httpClient', get(BotHttpClient::class))
+            ->constructorParameter('apiUrl', rtrim(getenv('GITLAB_API_URL') ?: '', '/'))
+            ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot'),
         IssueOpenWebhookService::class   => autowire()
             ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true))
             ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')

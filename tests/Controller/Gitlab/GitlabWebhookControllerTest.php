@@ -8,6 +8,7 @@ use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Policy\EventFilter;
 use Kelpie\Service\Autofix\EnqueueService;
+use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
@@ -586,7 +587,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $templateRender = new TemplateRenderer($logger, new Engine());
         $jsonService    = new JsonService($logger);
         $noteService    = new NoteOnMrWebhookService($logger);
-        $issueService   = new IssueOpenWebhookService($logger, new MemberAccessReaderService($logger, $this->guardedClient(), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService), true, 'kelpie-bot', [], ['org/proj']);
+        $issueService   = new IssueOpenWebhookService($logger, new MemberAccessReaderService($logger, $this->guardedClient(), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService), new IssueAwardEmojiService($logger, $this->guardedClient(), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService), true, 'kelpie-bot', [], ['org/proj']);
 
         $approvalService = new ApprovalWebhookService(
             $logger,

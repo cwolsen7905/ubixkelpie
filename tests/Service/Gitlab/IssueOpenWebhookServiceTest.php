@@ -9,6 +9,7 @@ use Kelpie\Enum\IssueIntake;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
+use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Psr\Log\NullLogger;
@@ -298,6 +299,51 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * A triaged issue is queued once, however often GitLab delivers the event
+     *
+     * @return void
+     */
+    public function testATriagedIssueIsQueuedOnce(): void
+    {
+        $queue   = new InMemoryIssueQueue();
+        $service = $this->service(queue: $queue);
+
+        $service->handle($this->open('alice'));
+        $service->handle($this->open('alice'));
+
+        $this->assertSame(['org/proj#7'], $queue->enqueued());
+    }
+
+    /**
+     * Ignored events and gate events are not queued for triage
+     *
+     * @return void
+     */
+    public function testIgnoredAndGateEventsAreNotQueued(): void
+    {
+        $queue = new InMemoryIssueQueue();
+
+        $this->service(queue: $queue)->handle($this->open('kelpie-bot'));
+        $this->service(queue: $queue)->handle($this->label('alice', [], ['kelpie::fix']));
+        $this->service(false, queue: $queue)->handle($this->open('alice'));
+
+        $this->assertSame([], $queue->enqueued());
+    }
+
+    /**
+     * A queue failure is swallowed: the webhook still answers
+     *
+     * @return void
+     */
+    public function testAQueueFailureDoesNotFailTheWebhook(): void
+    {
+        $queue = new InMemoryIssueQueue();
+        $queue->enqueueThrows();
+
+        $this->assertStringStartsWith('triage', $this->service(queue: $queue)->handle($this->open('alice')));
+    }
+
+    /**
      * @param string $actor The user who opened the issue
      *
      * @return array<string, mixed>
@@ -344,16 +390,17 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * @param bool            $enabled     The feature flag
-     * @param string[]        $skipAuthors Other ignored users
-     * @param ?int            $level       What the API answers as the actor's access level; null for a failure
-     * @param ?Logger         $logger      A logger, or a null one
-     * @param ?StubHttpClient $client      A client to use instead of one answering with $level
-     * @param ?StubHttpClient $awards      The client for the award emoji calls; the default has no awards and accepts a new one
+     * @param bool                $enabled     The feature flag
+     * @param string[]            $skipAuthors Other ignored users
+     * @param ?int                $level       What the API answers as the actor's access level; null for a failure
+     * @param ?Logger             $logger      A logger, or a null one
+     * @param ?StubHttpClient     $client      A client to use instead of one answering with $level
+     * @param ?StubHttpClient     $awards      The client for the award emoji calls; the default has no awards and accepts a new one
+     * @param ?InMemoryIssueQueue $queue       The triage queue; an empty in-memory one by default
      *
      * @return IssueOpenWebhookService
      */
-    private function service(bool $enabled = true, array $skipAuthors = [], ?int $level = 30, ?Logger $logger = null, ?StubHttpClient $client = null, ?StubHttpClient $awards = null): IssueOpenWebhookService
+    private function service(bool $enabled = true, array $skipAuthors = [], ?int $level = 30, ?Logger $logger = null, ?StubHttpClient $client = null, ?StubHttpClient $awards = null, ?InMemoryIssueQueue $queue = null): IssueOpenWebhookService
     {
         $logger ??= new NullLogger();
         $client ??= StubHttpClient::member($level);
@@ -362,6 +409,6 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
         $awards ??= StubHttpClient::awards('[]');
         $emoji    = new IssueAwardEmojiService($logger, $awards, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
 
-        return new IssueOpenWebhookService($logger, $reader, $emoji, $enabled, 'kelpie-bot', $skipAuthors, ['org/proj'], 'kelpie::fix');
+        return new IssueOpenWebhookService($logger, $reader, $emoji, $queue ?? new InMemoryIssueQueue(), $enabled, 'kelpie-bot', $skipAuthors, ['org/proj'], 'kelpie::fix');
     }
 }

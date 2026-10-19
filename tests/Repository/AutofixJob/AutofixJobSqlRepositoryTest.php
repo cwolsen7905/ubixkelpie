@@ -85,14 +85,14 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * Counting jobs since a moment formats the window start
+     * Counting jobs since a moment formats the window start and leaves issue triage jobs out of the MR caps
      *
      * @return void
      */
     public function testCountJobsSince(): void
     {
         $sql = $this->createMock(SqlService::class);
-        $sql->expects($this->once())->method('getColumn')->with($this->anything(), ['project_path' => 'g/p', 'since' => '2026-10-14 12:00:00'])->willReturn('4');
+        $sql->expects($this->once())->method('getColumn')->with($this->stringContains('source <> :issue_source'), ['issue_source' => 'issue_triage', 'project_path' => 'g/p', 'since' => '2026-10-14 12:00:00'])->willReturn('4');
 
         $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
 

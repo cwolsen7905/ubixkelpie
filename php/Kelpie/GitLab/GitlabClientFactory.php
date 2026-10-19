@@ -91,4 +91,14 @@ final class GitlabClientFactory
     {
         return new JobLogReader($this->logger, $this->client(), $this->requestFactory, $this->settings->apiUrl, $this->jsonService);
     }
+
+    /**
+     * An issue client: reads an issue, posts one comment, adds one label
+     *
+     * @return IssueClient
+     */
+    public function issueClient(): IssueClient
+    {
+        return new IssueClient($this->logger, $this->client(), $this->requestFactory, $this->streamFactory, $this->settings->apiUrl, $this->jsonService);
+    }
 }

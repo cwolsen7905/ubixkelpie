@@ -44,7 +44,7 @@ final class GitlabClientFactoryTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
-     * The reader, writer, lister and log reader use the API URL and the bot token
+     * The reader, writer, lister, log reader and issue client use the API URL and the bot token
      *
      * @return void
      */
@@ -56,8 +56,9 @@ final class GitlabClientFactoryTest extends UbixConcreteClassOrEnumTestCase impl
         $factory->writer()->headSha('1', 2);
         $factory->lister()->open('ubixsys/ubixkelpie');
         $factory->jobLogReader()->failedJobs(1, 2);
+        $factory->issueClient()->issue('ubixsys/ubixkelpie', 1);
 
-        $this->assertCount(4, $this->requests);
+        $this->assertCount(5, $this->requests);
         foreach ($this->requests as $request) {
             $this->assertSame('gitlab.test', $request->getUri()->getHost());
             $this->assertSame('tok-bot', $request->getHeaderLine('PRIVATE-TOKEN'));

@@ -6,7 +6,9 @@ namespace Kelpie\Service\Gitlab;
 
 use Kelpie\DataTransferObject\IssueIntakeResult;
 use Kelpie\Enum\IssueIntake;
+use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 
 /**
  * Intake for an Issue Hook: classify the event and log the class (design sections 2 and 6)
@@ -15,7 +17,9 @@ use Psr\Log\LoggerInterface as Logger;
  * - gate: the gate label was added by a user whose project access, read through the API, is Developer or higher
  * - ignored: everything else, with the reason
  *
- * The only thing posted is a 👀 on a triaged issue, once and best-effort (IssueAwardEmojiService). The issue's title and description are never read: the issue is
+ * The only thing posted is a 👀 on a triaged issue, once and best-effort (IssueAwardEmojiService), and a triaged
+ * issue is queued for the triage worker (one job per issue, so a replay queues nothing; a queue failure is logged
+ * and never fails the webhook). The issue's title and description are never read: the issue is
  * untrusted, and only the project, the issue number and the acting user (data) are logged.
  * The class depends on the event alone, so a replayed event gets the same class and nothing is stored.
  *
@@ -34,6 +38,7 @@ final class IssueOpenWebhookService
      * @param Logger                    $logger       Logger
      * @param MemberAccessReaderService $memberAccess Reads the actor's project access level
      * @param IssueAwardEmojiService    $awardEmoji   Acknowledges a triaged issue with a 👀
+     * @param IssueTriageJobWriter      $queue        The issue triage queue
      * @param bool                      $enabled      KELPIE_AUTOFIX_ENABLED: when false every event is ignored
      * @param string                    $botUsername  The Kelpie bot user
      * @param string[]                  $skipAuthors  Other usernames to ignore (Shepherd agents)
@@ -44,6 +49,7 @@ final class IssueOpenWebhookService
         private readonly Logger $logger,
         private readonly MemberAccessReaderService $memberAccess,
         private readonly IssueAwardEmojiService $awardEmoji,
+        private readonly IssueTriageJobWriter $queue,
         private readonly bool $enabled = false,
         private readonly string $botUsername = 'kelpie-bot',
         private readonly array $skipAuthors = [],
@@ -73,6 +79,7 @@ final class IssueOpenWebhookService
         ]);
 
         $this->acknowledge($result, $payload);
+        $this->enqueue($result);
 
         return $result->class->value . ': ' . $result->reason;
     }
@@ -114,6 +121,30 @@ final class IssueOpenWebhookService
         }
 
         return $this->ignored('not an open or gate-label event', $path, $iid, $actor);
+    }
+
+    /**
+     * Queue an issue accepted for triage; a failure is logged, never thrown
+     *
+     * @param IssueIntakeResult $result The classification
+     *
+     * @return void
+     */
+    private function enqueue(IssueIntakeResult $result): void
+    {
+        if ($result->class !== IssueIntake::Triage) {
+            return;
+        }
+
+        try {
+            $this->queue->enqueue($result->projectPath, $result->issueIid);
+        } catch (Throwable $e) {
+            $this->logger->error('GitLab webhook: issue could not be queued for triage', ['error' => $e->getMessage(), 'issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
+
+            return;
+        }
+
+        $this->logger->debug('GitLab webhook: issue queued for triage', ['issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
     }
 
     /**

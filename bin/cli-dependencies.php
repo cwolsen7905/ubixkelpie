@@ -6,6 +6,9 @@ use DI\Container;
 use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriageJobReader;
+use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
+use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\AutofixSettingsService;
@@ -27,6 +30,8 @@ return static function (): Container {
     assert($container instanceof Container);
 
     $container->set(AutofixSettings::class, factory([AutofixSettingsService::class, 'fromEnvironment']));
+    $container->set(IssueTriageJobReader::class, autowire(IssueTriageJobSqlRepository::class));
+    $container->set(IssueTriageJobWriter::class, autowire(IssueTriageJobSqlRepository::class));
     $container->set(ProcessRunner::class, autowire(ProcOpenProcessRunner::class));
     $container->set(
         FixerAgent::class,

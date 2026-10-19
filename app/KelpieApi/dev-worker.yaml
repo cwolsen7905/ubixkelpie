@@ -1,0 +1,106 @@
+# Issue triage worker (dev): `kelpie:work` takes queued issues off the autofix_jobs table and posts one
+# comment and one kelpie::* label each. Same image, namespace, Vault role, KV path and database as the
+# kelpie-api Deployment; no Service, no Ingress, no port.
+#
+# The dev webhook is not wired (GitLab hooks point at prod), so on dev the queue stays empty: this proves the
+# command override gets its Vault secrets and database, and that the loop starts and idles. The worker exits
+# with an error line when KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY or GITLAB_API_URL is missing, which shows
+# as a restarting pod. Applied by uBixCore ci/bin/deploy.sh; {{DATE_STAMP}} forces a roll.
+# Kill switch: KELPIE_AUTOFIX_ENABLED not "true" makes the worker idle and claim nothing; replicas: 0 stops it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kelpie-worker
+  namespace: kelpie-dev
+  labels:
+    app.kubernetes.io/name: kelpie-worker
+    app.kubernetes.io/part-of: kelpie
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kelpie-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        date: "{{DATE_STAMP}}"
+      labels:
+        app.kubernetes.io/name: kelpie-worker
+        app.kubernetes.io/part-of: kelpie
+    spec:
+      # Express constraints negatively (kitg docs/standards/scheduling.md): keep
+      # off the light tier (SD-card nodes).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node.brainchurts.com/tier
+                    operator: NotIn
+                    values: [light]
+      containers:
+      - name: kelpie-worker
+        command: ["php", "/web/bin/ubix", "kelpie:work"]
+        image: gitlab.brainchurts.com:5050/ubixsys/ubixkelpie:dev
+        imagePullPolicy: Always
+        env:
+        - name: APP_NAME
+          value: "KelpieApi"
+        - name: ENV
+          value: "DEV"
+        - name: VAULT_ADDR
+          value: "https://vault.dev.ubixsys.com"
+        # Bound to namespace kelpie-dev; created by ubixvault configure.sh (kubernetes repo).
+        - name: VAULT_K8S_ROLE
+          value: "kelpie-dev"
+        # Database ubixkelpie. Credentials from uBixVault kelpie/dev/db; the host must equal
+        # secret/kelpie/db-dev.host, which the migrate job checks before it migrates.
+        - name: VAULT_DB_STRATEGY
+          value: "kv"
+        - name: VAULT_DB_KV_PATH
+          value: "kelpie/dev/db"
+        - name: MYSQL_WRITE_HOST
+          value: "10.50.25.62"
+        - name: MYSQL_WRITE_PORT
+          value: "3306"
+        - name: MYSQL_WRITE_DATABASE
+          value: "ubixkelpie"
+        - name: MYSQL_READ_HOST
+          value: "10.50.25.62"
+        - name: MYSQL_READ_PORT
+          value: "3306"
+        - name: MYSQL_READ_DATABASE
+          value: "ubixkelpie"
+        # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, GITLAB_API_TOKEN,
+        # KELPIE_BOT_GITLAB_TOKEN (fallback), APPROVAL_JOB_NAMES.
+        # uBixVault fails closed on a missing path or key, so the pod never goes
+        # ready without them and the deploy's rollout wait fails.
+        - name: VAULT_APP_KV_PATH
+          value: "kelpie/dev/app"
+        - name: IS_DEV
+          value: "true"
+        - name: IS_SANDBOX
+          value: "false"
+        - name: IS_STAGING
+          value: "false"
+        # Feature flags, not secrets (docs/operations/autofix-flags.md): the manifest is reviewed in git.
+        - name: KELPIE_AUTOFIX_ENABLED
+          value: "true"
+        - name: KELPIE_AUTOFIX_PROJECTS
+          value: "ubixsys/ubixkelpie"
+        - name: LOG_LEVEL
+          value: "debug"
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 256Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+      imagePullSecrets:
+      - name: regcred
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

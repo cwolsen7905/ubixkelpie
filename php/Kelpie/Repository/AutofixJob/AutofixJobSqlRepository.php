@@ -10,6 +10,7 @@ use Kelpie\DataTransferObject\SqlRepository\AutofixJobOptions;
 use Kelpie\Model\AutofixJobRecord;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
+use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 
@@ -79,9 +80,9 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function countJobsSince(string $projectPath, DateTimeImmutable $since): int
     {
-        $sql = 'SELECT COUNT(*) FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since';
+        $sql = 'SELECT COUNT(*) FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since AND source <> :issue_source';
 
-        return (int) $this->sqlService->getColumn($sql, ['project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]);
+        return (int) $this->sqlService->getColumn($sql, ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]);
     }
 
     /**

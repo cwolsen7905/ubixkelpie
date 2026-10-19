@@ -19,6 +19,9 @@ classified and logged, and gets a 👀 award emoji from the bot user, once: a re
 adds no second one, and a GitLab failure is logged and still answers the webhook with 200. Ignored
 events get no emoji.
 
+A triaged issue is also queued for the triage worker, which posts one comment and one label; see
+`issue-triage-worker.md`. The worker reads the same two flags: off, it idles and claims nothing.
+
 The flags are also read by the `kelpie:fix`, `kelpie:sweep` and `kelpie:respond` commands when they
 run in an environment that sets them. The API pod runs none of those commands, and no CronJob
-runs them in production.
+runs them in production. The `kelpie-worker` Deployment runs `kelpie:work` only.

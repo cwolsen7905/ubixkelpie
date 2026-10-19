@@ -1,0 +1,108 @@
+# Issue triage worker (prod): `kelpie:work` takes queued issues off the autofix_jobs table and posts one
+# comment and one kelpie::* label each. Same image, namespace, Vault role, KV path and database as the
+# kelpie-api Deployment; no Service, no Ingress, no port.
+#
+# Ships at replicas: 0 on purpose. Scale it to 1 (here, in git, through an MR) only once all of this is true:
+#   - the issue_iid / next_attempt_at / locked_until / locked_by / last_error migration is applied to the
+#     production `ubixkelpie` database (the worker and the webhook enqueue both need the columns);
+#   - uBixVault `kelpie/prod/app` holds KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY and GITLAB_API_URL (the
+#     worker exits with an error line when one is missing);
+#   - the worker has run on dev and the entrypoint's Vault hydration is confirmed to run for this command override.
+# Kill switch: KELPIE_AUTOFIX_ENABLED not "true" makes the worker idle and claim nothing; replicas: 0 stops it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kelpie-worker
+  namespace: kelpie-prod
+  labels:
+    app.kubernetes.io/name: kelpie-worker
+    app.kubernetes.io/part-of: kelpie
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 0
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kelpie-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        date: "{{DATE_STAMP}}"
+      labels:
+        app.kubernetes.io/name: kelpie-worker
+        app.kubernetes.io/part-of: kelpie
+    spec:
+      # Express constraints negatively (kitg docs/standards/scheduling.md): keep
+      # off the light tier (SD-card nodes).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node.brainchurts.com/tier
+                    operator: NotIn
+                    values: [light]
+      containers:
+      - name: kelpie-worker
+        command: ["php", "/web/bin/ubix", "kelpie:work"]
+        image: gitlab.brainchurts.com:5050/ubixsys/ubixkelpie:main
+        imagePullPolicy: Always
+        env:
+        - name: APP_NAME
+          value: "KelpieApi"
+        - name: ENV
+          value: "PROD"
+        - name: VAULT_ADDR
+          value: "https://vault.prod.ubixsys.com"
+        # Bound to namespace kelpie-prod; created by ubixvault configure.sh (kubernetes repo).
+        - name: VAULT_K8S_ROLE
+          value: "kelpie-prod"
+        # Database ubixkelpie. Credentials from uBixVault kelpie/prod/db; the host must equal
+        # secret/kelpie/db-prod.host, which the migrate job checks before it migrates.
+        - name: VAULT_DB_STRATEGY
+          value: "kv"
+        - name: VAULT_DB_KV_PATH
+          value: "kelpie/prod/db"
+        - name: MYSQL_WRITE_HOST
+          value: "10.50.25.45"
+        - name: MYSQL_WRITE_PORT
+          value: "3306"
+        - name: MYSQL_WRITE_DATABASE
+          value: "ubixkelpie"
+        - name: MYSQL_READ_HOST
+          value: "10.50.25.45"
+        - name: MYSQL_READ_PORT
+          value: "3306"
+        - name: MYSQL_READ_DATABASE
+          value: "ubixkelpie"
+        # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, GITLAB_API_TOKEN,
+        # KELPIE_BOT_GITLAB_TOKEN (fallback), APPROVAL_JOB_NAMES.
+        # uBixVault fails closed on a missing path or key, so the pod never goes
+        # ready without them and the deploy's rollout wait fails.
+        - name: VAULT_APP_KV_PATH
+          value: "kelpie/prod/app"
+        - name: IS_DEV
+          value: "false"
+        - name: IS_SANDBOX
+          value: "false"
+        - name: IS_STAGING
+          value: "false"
+        # Feature flags, not secrets (docs/operations/autofix-flags.md): the manifest is reviewed in git.
+        - name: KELPIE_AUTOFIX_ENABLED
+          value: "true"
+        - name: KELPIE_AUTOFIX_PROJECTS
+          value: "ubixsys/ubixkelpie,ubixsys/ubixshepherd"
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {cpu: 500m, memory: 256Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+      imagePullSecrets:
+      - name: regcred
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

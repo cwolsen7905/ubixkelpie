@@ -128,7 +128,8 @@ No new table. `autofix_jobs` keys on `(project_path, mr_iid, thread_key)`; an is
 `source = 'issue'` and an issue iid. Recommend adding one nullable column `issue_iid` and
 reusing `mr_iid` as 0 until the MR exists, with a unique key on the open job per issue; the
 caps and coalescing then work unchanged. A migration touches `sql/`, so a person writes it, not
-the fixer.
+the fixer. As built for triage (`docs/operations/issue-triage-worker.md`): the job row carries `issue_iid`, a retry time,
+a lock and a last error, with a unique key per (project, issue, source), and the issue's thread key is `issue-<iid>`.
 
 ## 9. Steps, each one MR
 

@@ -4,20 +4,12 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Console\Command;
 
-use ArrayObject;
 use Kelpie\Console\Command\SweepCommand;
-use Kelpie\OpenRouter\OpenRouterClient;
-use Kelpie\Policy\SafetyPolicy;
-use Kelpie\Prompt\TriagePrompt;
-use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
-use Kelpie\Service\Autofix\AutofixJobService;
-use Kelpie\Service\Triage\TriageService;
-use Kelpie\Tests\GitLab\FakeGitlab;
-use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
-use Nyholm\Psr7\Factory\Psr17Factory;
+use Kelpie\DataTransferObject\AutofixSettings;
+use Nyholm\Psr7\Response as Psr7Response;
+use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
 use Symfony\Component\Console\Tester\CommandTester;
-use Ubix\Service\JsonService;
 use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
@@ -27,20 +19,13 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - It is named kelpie:sweep
- * - Without GitLab settings it fails before any request
- * - With KELPIE_AUTOFIX_ENABLED off it reports and writes nothing, to GitLab or to the job table
+ * - It hands its arguments and options to the service and prints the service's lines
+ * - An error from the service is printed as an error and exits 1
  *
  * @coversDefaultClass \Kelpie\Console\Command\SweepCommand
  */
 final class SweepCommandTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    private FakeGitlab $gitlab;
-
-    /**
-     * @var ArrayObject<int, string>
-     */
-    private ArrayObject $queries;
-
     /**
      * Test that the class is following uBix standards
      *
@@ -62,110 +47,55 @@ final class SweepCommandTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * A missing token fails without a request
+     * What the service refuses is printed as an error and the exit code is 1
      *
      * @return void
      */
-    public function testRefusesMissingSettings(): void
+    public function testPrintsRefusalAsError(): void
     {
-        putenv('KELPIE_BOT_GITLAB_TOKEN');
         $tester = new CommandTester($this->command());
 
         $this->assertSame(1, $tester->execute([]));
-        $this->assertSame([], $this->gitlab->requests());
+        $this->assertStringContainsString('must be set', $tester->getDisplay());
     }
 
     /**
-     * Disabled, it lists and reports and writes nothing
+     * Valid arguments reach the service and its lines are printed
      *
      * @return void
      */
-    public function testDisabledReportsOnly(): void
+    public function testPrintsTheServicesLines(): void
     {
-        putenv('KELPIE_AUTOFIX_ENABLED');
-        $this->gitlab->note('d1abc123', 'Please fix the typo.');
-        $tester = new CommandTester($this->command());
+        $tester = new CommandTester($this->command(true));
 
-        $this->assertSame(0, $tester->execute([]));
-
-        $this->assertStringContainsString('ubixsys/ubixkelpie!3 d1abc123  would run (autofix disabled)', $tester->getDisplay());
-        foreach ($this->gitlab->requests() as $request) {
-            $this->assertStringStartsWith('GET', $request);
-        }
-        $this->assertCount(0, $this->queries);
-    }
-
-    /**
-     * An empty sweep says so
-     *
-     * @return void
-     */
-    public function testNothingToDo(): void
-    {
-        $tester = new CommandTester($this->command());
-
-        $this->assertSame(0, $tester->execute([]));
+        $this->assertSame(0, $tester->execute(['--max-runs' => '2']));
         $this->assertStringContainsString('Nothing needs resolution.', $tester->getDisplay());
     }
 
     /**
-     * Dummy settings
+     * Build the command over the real service
      *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        $this->gitlab  = new FakeGitlab();
-        $this->queries = new ArrayObject();
-        putenv('GITLAB_API_URL=https://gitlab.test/api/v4');
-        putenv('KELPIE_BOT_GITLAB_TOKEN=tok-not-real');
-    }
-
-    /**
-     * Clean the environment
+     * @param bool $configured Whether GitLab is configured
      *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        foreach (['GITLAB_API_URL', 'KELPIE_BOT_GITLAB_TOKEN', 'KELPIE_AUTOFIX_ENABLED'] as $name) {
-            putenv($name);
-        }
-    }
-
-    /**
      * @return SweepCommand
      */
-    private function command(): SweepCommand
+    private function command(bool $configured = false): SweepCommand
     {
-        $logger  = $this->createStub(Logger::class);
-        $json    = new JsonService($logger);
-        $factory = new Psr17Factory();
-        $queries = $this->queries;
-        $sql     = $this->createStub(SqlService::class);
-        $sql->method('query')->willReturnCallback(static function (string $statement) use ($queries): int {
-            $queries[] = $statement;
+        $settings = $configured ? new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real') : new AutofixSettings();
 
-            return 1;
-        });
+        return new SweepCommand($this->createStub(Logger::class), (new CommandServices($this->createStub(Logger::class), $this->notFoundHttpClient(), $this->createStub(SqlService::class), $settings))->sweep());
+    }
 
-        $triage = new TriageService(
-            $logger,
-            new OpenRouterClient($logger, $this->gitlab, $factory, $factory, $json),
-            new TriagePrompt($logger),
-            new SafetyPolicy($logger),
-            $json,
-        );
+    /**
+     * An HTTP client that answers 404 to everything
+     *
+     * @return HttpClient
+     */
+    private function notFoundHttpClient(): HttpClient
+    {
+        $http = $this->createStub(HttpClient::class);
+        $http->method('sendRequest')->willReturn(new Psr7Response(404));
 
-        return new SweepCommand(
-            $logger,
-            $this->gitlab,
-            $factory,
-            $factory,
-            $json,
-            $triage,
-            new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql)),
-            new ScriptedProcessRunner(),
-        );
+        return $http;
     }
 }

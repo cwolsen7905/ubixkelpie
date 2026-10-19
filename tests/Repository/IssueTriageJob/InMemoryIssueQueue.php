@@ -163,6 +163,14 @@ final class InMemoryIssueQueue implements IssueTriageJobReader, IssueTriageJobWr
 
     /**
      * {@inheritDoc}
+     */
+    public function getJobForIssue(string $projectPath, int $issueIid): ?IssueTriageJob
+    {
+        return in_array($projectPath . '#' . $issueIid, $this->enqueued, true) ? new IssueTriageJob(0, $projectPath, $issueIid, 0) : null;
+    }
+
+    /**
+     * {@inheritDoc}
      *
      * @throws RuntimeException When told to
      */

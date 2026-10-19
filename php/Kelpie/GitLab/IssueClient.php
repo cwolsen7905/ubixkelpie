@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\GitLab;
 
 use Kelpie\DataTransferObject\IssueDetails;
+use Kelpie\DataTransferObject\OpenIssue;
 use Psr\Http\Client\ClientExceptionInterface as ClientException;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
@@ -23,6 +24,10 @@ use Ubix\Service\JsonService;
  */
 final class IssueClient
 {
+    public const int MAX_PAGES = 20;
+
+    private const int PAGE_SIZE = 100;
+
     /**
      * Constructor
      *
@@ -73,6 +78,38 @@ final class IssueClient
             confidential: ($data['confidential'] ?? false) === true,
             labels:       $labels,
         );
+    }
+
+    /**
+     * List the project's open issues, oldest first
+     *
+     * @param string $project  The project path with namespace
+     * @param int    $maxPages Most pages of 100 to read; a longer list is cut here
+     *
+     * @return ?OpenIssue[] Null when a page could not be read
+     */
+    public function openIssues(string $project, int $maxPages = self::MAX_PAGES): ?array
+    {
+        $issues = [];
+        for ($page = 1; $page <= $maxPages; ++$page) {
+            $data = $this->send('GET', sprintf('%s/projects/%s/issues?state=opened&order_by=created_at&sort=asc&per_page=%d&page=%d', $this->apiUrl, rawurlencode($project), self::PAGE_SIZE, $page), null);
+            if ($data === null) {
+                return null;
+            }
+
+            foreach ($data as $raw) {
+                $issue = is_array($raw) ? $this->toOpenIssue($raw) : null;
+                if ($issue !== null) {
+                    $issues[] = $issue;
+                }
+            }
+
+            if (count($data) < self::PAGE_SIZE) {
+                break;
+            }
+        }
+
+        return $issues;
     }
 
     /**
@@ -128,6 +165,28 @@ final class IssueClient
     public function addLabel(string $project, int $iid, string $label): bool
     {
         return $this->send('PUT', $this->issueUrl($project, $iid), ['add_labels' => $label]) !== null;
+    }
+
+    /**
+     * @param array<mixed> $raw One issue of the list
+     *
+     * @return ?OpenIssue Null when it has no issue number
+     */
+    private function toOpenIssue(array $raw): ?OpenIssue
+    {
+        if (!is_int($raw['iid'] ?? null)) {
+            return null;
+        }
+
+        $author = is_array($raw['author'] ?? null) ? ($raw['author']['username'] ?? '') : '';
+        $labels = [];
+        foreach (is_array($raw['labels'] ?? null) ? $raw['labels'] : [] as $label) {
+            if (is_string($label)) {
+                $labels[] = $label;
+            }
+        }
+
+        return new OpenIssue($raw['iid'], is_string($author) ? $author : '', ($raw['confidential'] ?? false) === true, $labels);
     }
 
     /**

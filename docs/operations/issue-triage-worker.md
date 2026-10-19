@@ -76,6 +76,37 @@ keeps queueing, and the backlog is triaged when it is scaled up.
   scale it in git once the migration and the secrets are in place and dev has run).
 - **Not confirmed:** that the image's Vault hydration runs for a command override. Dev is where to see it.
 
+## Backfilling issues that are already open
+
+`php bin/ubix kelpie:triage-backfill` queues the open issues that predate triage, so the worker
+triages them like any new one. It lists each enrolled project's open issues (oldest first) and queues
+one job for every issue that has no `kelpie::*` label and is not confidential, not by the bot or a
+skipped author, and not labelled `kelpie:skip`. It never calls the model and never posts to GitLab; its
+only writes are the same job inserts the webhook makes.
+
+| Option | Meaning |
+|---|---|
+| `--dry-run` (the default) / `--no-dry-run` | Print what would be queued, or queue it. Queueing needs `KELPIE_AUTOFIX_ENABLED=true`; a dry run does not. |
+| `--project <path>` | Only this project, which must be in `KELPIE_AUTOFIX_PROJECTS`. |
+| `--limit N` | Most issues to queue in one run (default 20), so the model spend per run is bounded. The run says when it stopped at the limit. |
+
+Safe to re-run: an issue that already has a job (pending, done or failed) is skipped and does not
+use up the limit, so each run moves on to the next issues; `INSERT IGNORE` on the issue's unique key
+and the hidden comment marker make a duplicate harmless either way. A failed job is not re-queued
+by this command; look at its `last_error` first.
+
+Run it on dev first, then prod (the pod needs `GITLAB_API_URL`, `KELPIE_BOT_GITLAB_TOKEN` and the
+database like the worker; for example from a shell in a `kelpie-worker` pod, which has all three):
+
+1. **Dev:** `php bin/ubix kelpie:triage-backfill` (dry run). Check the list is what you expect.
+   Then `php bin/ubix kelpie:triage-backfill --no-dry-run --limit 1` and watch the dev worker take it.
+   Dev's flag list is only `ubixsys/ubixkelpie`.
+2. **Prod, only after the migration is applied and the prod worker is scaled up:**
+   `php bin/ubix kelpie:triage-backfill --project ubixsys/ubixshepherd` (dry run), then
+   `--no-dry-run --limit 5`, check the first comments and labels on GitLab, then raise the limit.
+   Repeat for `ubixsys/ubixkelpie`.
+3. To stop mid-way, scale the worker to 0: queued rows stay pending and nothing is posted.
+
 ## Proving it on a throwaway issue
 
 On `ubixsys/ubixshepherd`, a person opens an issue, then:

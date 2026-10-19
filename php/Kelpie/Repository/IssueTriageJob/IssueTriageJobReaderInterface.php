@@ -35,4 +35,14 @@ interface IssueTriageJobReaderInterface
      * @return ?IssueTriageJob The job with the attempt this lock made; null when another worker holds it
      */
     public function getJobLockedBy(int $id, string $workerId): ?IssueTriageJob;
+
+    /**
+     * The job of one issue, in whatever state it is in
+     *
+     * @param string $projectPath The project path with namespace
+     * @param int    $issueIid    The issue number in the project
+     *
+     * @return ?IssueTriageJob Null when the issue was never queued
+     */
+    public function getJobForIssue(string $projectPath, int $issueIid): ?IssueTriageJob;
 }

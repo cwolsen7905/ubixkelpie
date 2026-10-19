@@ -18,6 +18,8 @@ final readonly class IssueTriageJobOptions implements Dto
      * Constructor
      *
      * @param ?int               $id          Job id; with a worker id, the job that worker holds
+     * @param ?string            $projectPath The project of the issue to look up (with $issueIid)
+     * @param ?int               $issueIid    The issue whose job is wanted, in any state
      * @param ?string            $workerId    The worker whose lock the job must hold
      * @param string[]           $projects    For a due job, the project paths that may be taken
      * @param ?DateTimeImmutable $dueAt       For a due job, the time to be due at
@@ -25,6 +27,8 @@ final readonly class IssueTriageJobOptions implements Dto
      */
     public function __construct(
         public ?int $id = null,
+        public ?string $projectPath = null,
+        public ?int $issueIid = null,
         public ?string $workerId = null,
         public array $projects = [],
         public ?DateTimeImmutable $dueAt = null,

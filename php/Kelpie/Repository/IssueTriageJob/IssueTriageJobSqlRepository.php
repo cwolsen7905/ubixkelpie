@@ -61,6 +61,14 @@ final class IssueTriageJobSqlRepository implements IssueTriageJobReader, IssueTr
     /**
      * {@inheritDoc}
      */
+    public function getJobForIssue(string $projectPath, int $issueIid): ?IssueTriageJob
+    {
+        return $this->query(new IssueTriageJobOptions(projectPath: $projectPath, issueIid: $issueIid));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function enqueue(string $projectPath, int $issueIid): void
     {
         $sql = "INSERT IGNORE INTO ubixkelpie.autofix_jobs (project_path, mr_iid, issue_iid, head_sha, thread_key, source, status)
@@ -138,7 +146,11 @@ final class IssueTriageJobSqlRepository implements IssueTriageJobReader, IssueTr
         $sql        = 'SELECT id, project_path, issue_iid, attempt FROM ubixkelpie.autofix_jobs WHERE source = :source';
         $parameters = ['source' => self::SOURCE];
 
-        if ($options->workerId !== null) {
+        if ($options->issueIid !== null) {
+            $sql                       .= ' AND project_path = :project_path AND issue_iid = :issue_iid';
+            $parameters['project_path'] = $options->projectPath;
+            $parameters['issue_iid']    = $options->issueIid;
+        } elseif ($options->workerId !== null) {
             $sql                    .= " AND id = :id AND status = 'running' AND locked_by = :locked_by";
             $parameters['id']        = $options->id;
             $parameters['locked_by'] = $options->workerId;

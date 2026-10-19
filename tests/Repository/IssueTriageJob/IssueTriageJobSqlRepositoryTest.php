@@ -69,6 +69,29 @@ final class IssueTriageJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestC
     }
 
     /**
+     * The job of one issue is found by project and issue, in any state
+     *
+     * @return void
+     */
+    public function testGetJobForIssue(): void
+    {
+        $found = $this->createMock(SqlService::class);
+        $found->expects($this->once())->method('getRow')->with(
+            $this->logicalAnd($this->stringContains('project_path = :project_path AND issue_iid = :issue_iid'), $this->logicalNot($this->stringContains('status'))),
+            ['source' => 'issue_triage', 'project_path' => 'g/p', 'issue_iid' => 7],
+        )->willReturn(['attempt' => '3', 'id' => '9', 'issue_iid' => '7', 'project_path' => 'g/p']);
+        $none = $this->createStub(SqlService::class);
+        $none->method('getRow')->willReturn(false);
+
+        $logger = $this->createStub(Logger::class);
+        $job    = (new IssueTriageJobSqlRepository($logger, $found))->getJobForIssue('g/p', 7);
+
+        $this->assertNotNull($job);
+        $this->assertSame(9, $job->id);
+        $this->assertNull((new IssueTriageJobSqlRepository($logger, $none))->getJobForIssue('g/p', 8));
+    }
+
+    /**
      * An empty queue is null, and an empty project list is not even queried
      *
      * @return void

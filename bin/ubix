@@ -19,7 +19,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 environment(dirname(__DIR__));
 
 console(
-    dependenciesFile:  dirname(__DIR__) . '/config/cli-dependencies.php', // The framework's container plus Kelpie's bindings
+    dependenciesFile:  dirname(__DIR__) . '/bin/cli-dependencies.php', // The framework's container plus Kelpie's bindings
     commandNamespaces: ['Ubix\\Console\\Command', 'Kelpie\\Console\\Command'],
     argv:              $argv ?? [],
 )->run();

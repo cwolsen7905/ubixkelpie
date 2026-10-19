@@ -5,18 +5,12 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Console\Command;
 
 use Kelpie\Console\Command\RespondCommand;
-use Kelpie\OpenRouter\OpenRouterClient;
-use Kelpie\Policy\SafetyPolicy;
-use Kelpie\Prompt\TriagePrompt;
-use Kelpie\Service\Triage\TriageService;
-use Kelpie\Tests\GitLab\FakeGitlab;
-use Nyholm\Psr7\Factory\Psr17Factory;
+use Kelpie\DataTransferObject\AutofixSettings;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
-use Psr\Http\Message\RequestInterface as Request;
 use Psr\Log\LoggerInterface as Logger;
 use Symfony\Component\Console\Tester\CommandTester;
-use Ubix\Service\JsonService;
+use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
@@ -24,19 +18,14 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Console\Command\RespondCommand
  *
  * What must hold:
- * - It is named kelpie:respond and refuses bad ids, missing settings and projects off the allow-list
- * - It answers an unresolved thread and reports the outcome per thread
- * - It never sends a DELETE
+ * - It is named kelpie:respond
+ * - It hands its arguments and options to the service and prints the service's lines
+ * - An error from the service is printed as an error and exits 1
  *
  * @coversDefaultClass \Kelpie\Console\Command\RespondCommand
  */
 final class RespondCommandTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    /**
-     * The fake GitLab
-     */
-    private FakeGitlab $gitlab;
-
     /**
      * Test that the class is following uBix standards
      *
@@ -58,97 +47,53 @@ final class RespondCommandTest extends UbixConcreteClassOrEnumTestCase implement
     }
 
     /**
-     * Bad input, no token and an unlisted project fail without a request
+     * What the service refuses is printed as an error and the exit code is 1
      *
      * @return void
      */
-    public function testRefusesBadInput(): void
+    public function testPrintsRefusalAsError(): void
     {
         $tester = new CommandTester($this->command());
+
         $this->assertSame(1, $tester->execute(['mr' => 'x', '--project' => '1', '--path' => 'ubixsys/ubixkelpie']));
-        $this->assertSame(1, $tester->execute(['mr' => '3', '--project' => '1', '--path' => 'other/project']));
-
-        putenv('KELPIE_BOT_GITLAB_TOKEN');
-        $this->assertSame(1, $tester->execute(['mr' => '3', '--project' => '1', '--path' => 'ubixsys/ubixkelpie']));
-        $this->assertSame([], $this->gitlab->requests());
+        $this->assertStringContainsString('must be numbers', $tester->getDisplay());
     }
 
     /**
-     * A needs_human thread is answered and the outcome printed
+     * Valid arguments reach GitLab: the 404 is the service's own error, not a parsing one
      *
      * @return void
      */
-    public function testAnswersAThread(): void
+    public function testForwardsTheArguments(): void
     {
-        $this->gitlab->note('d1', 'Should this be redesigned?');
         $tester = new CommandTester($this->command());
 
-        $this->assertSame(0, $tester->execute(['mr' => '3', '--project' => '1', '--path' => 'ubixsys/ubixkelpie']));
-
-        $this->assertStringContainsString('d1  replied', $tester->getDisplay());
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
-        foreach ($this->gitlab->requests() as $request) {
-            $this->assertStringStartsNotWith('DELETE', $request);
-        }
+        $this->assertSame(1, $tester->execute(['mr' => '3', '--project' => '1', '--path' => 'ubixsys/ubixkelpie']));
+        $this->assertStringContainsString('Could not read the merge request.', $tester->getDisplay());
     }
 
     /**
-     * Dummy settings
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        $this->gitlab = new FakeGitlab();
-        putenv('GITLAB_API_URL=https://gitlab.test/api/v4');
-        putenv('KELPIE_BOT_GITLAB_TOKEN=tok-not-real');
-        putenv('OPENROUTER_API_KEY=test-key-not-real');
-        putenv('OPENROUTER_API_URL=https://openrouter.test/api/v1');
-    }
-
-    /**
-     * Clean the environment
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        foreach (['GITLAB_API_URL', 'KELPIE_BOT_GITLAB_TOKEN', 'OPENROUTER_API_KEY', 'OPENROUTER_API_URL'] as $name) {
-            putenv($name);
-        }
-    }
-
-    /**
-     * Build the command over the fake GitLab and a model that always says needs_human
+     * Build the command over the real service
      *
      * @return RespondCommand
      */
     private function command(): RespondCommand
     {
-        $logger = $this->createStub(Logger::class);
-        $json   = new JsonService($logger);
-        $gitlab = $this->gitlab;
-        $http   = $this->createStub(HttpClient::class);
-        $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($gitlab, $json): Psr7Response {
-            if (str_contains((string) $request->getUri(), 'openrouter.test')) {
-                $content = $json->encode(['class' => 'needs_human', 'reason' => 'Design call.']);
+        $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: true);
 
-                return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
-            }
+        return new RespondCommand($this->createStub(Logger::class), (new CommandServices($this->createStub(Logger::class), $this->notFoundHttpClient(), $this->createStub(SqlService::class), $settings))->respond());
+    }
 
-            $response = $gitlab->sendRequest($request);
+    /**
+     * An HTTP client that answers 404 to everything
+     *
+     * @return HttpClient
+     */
+    private function notFoundHttpClient(): HttpClient
+    {
+        $http = $this->createStub(HttpClient::class);
+        $http->method('sendRequest')->willReturn(new Psr7Response(404));
 
-            return new Psr7Response($response->getStatusCode(), [], (string) $response->getBody());
-        });
-
-        $service = new TriageService(
-            $logger,
-            new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json),
-            new TriagePrompt($logger),
-            new SafetyPolicy($logger),
-            $json,
-        );
-
-        return new RespondCommand($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $service);
+        return $http;
     }
 }

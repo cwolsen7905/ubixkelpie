@@ -1,0 +1,63 @@
+# Kelpie AI review for merge requests, run from Kelpie's image. Include from a ubixsys repo with:
+#
+#   include:
+#     - project: ubixsys/ubixkelpie
+#       ref: dev                 # a release tag, once there is one
+#       file: ci/kelpie.yml
+#
+# The job runs `kelpie:review` (php/Kelpie/Service/Review) in the image. It needs no Kelpie
+# server or database, only two group variables (masked, not protected): OPENROUTER_API_KEY and
+# AI_REVIEW_GITLAB_TOKEN (Reporter, `api` scope). Without them the job exits 75 ("could not
+# run"), says UNREVIEWED in the merge request when it can, and is allowed to fail: never red.
+#
+# Docs: docs/ai-review.md. Variables (all optional):
+#   KELPIE_REVIEW_IMAGE    the image to run (default: Kelpie's `dev` image in the registry)
+#   KELPIE_REGISTRY_USER / KELPIE_REGISTRY_TOKEN   registry login when the image is in another
+#                          project (default: this job's token, which reaches only this project)
+#   AI_REVIEW_MODE         advisory (default) | blocking
+#   AI_REVIEW_SHADOW       "true": post only a labelled summary note, never a thread, never fail
+#   AI_REVIEW_MODEL / AI_REVIEW_EFFORT / AI_REVIEW_BASE_BRANCH (default dev)
+#   AI_REVIEW_MAX_LINES / AI_REVIEW_MAX_BYTES / AI_REVIEW_MAX_ROUNDS / AI_REVIEW_EXTRA_LABEL
+#   AI_REVIEW_MAX_TURNS    model calls per review, the last without tools (default 12)
+
+variables:
+  KELPIE_REVIEW_IMAGE: $CI_REGISTRY/ubixsys/ubixkelpie:dev
+
+kelpie-review:
+  # `test` always exists; a repo with its own stage list overrides this in its own file:
+  #   kelpie-review: {stage: lint-and-test}
+  stage: test
+  tags: [shell] # the runner with docker; override the same way
+  interruptible: true
+  timeout: 15 minutes
+  resource_group: kelpie-review-$CI_MERGE_REQUEST_IID
+  allow_failure:
+    exit_codes: [75] # could not run: UNREVIEWED, never a red pipeline
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TITLE =~ /^(draft|wip)[: ]/i'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $AI_REVIEW_BASE_BRANCH && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $AI_REVIEW_BASE_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $AI_REVIEW_BASE_BRANCH == null && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev"'
+  script:
+    - |
+      set -u
+      docker login -u "${KELPIE_REGISTRY_USER:-$CI_REGISTRY_USER}" -p "${KELPIE_REGISTRY_TOKEN:-$CI_REGISTRY_PASSWORD}" "$CI_REGISTRY" >/dev/null 2>&1 \
+        || echo "kelpie-review: registry login failed, trying the pull anyway" >&2
+      docker pull -q "$KELPIE_REVIEW_IMAGE" >/dev/null \
+        || { echo "kelpie-review: UNREVIEWED, could not pull $KELPIE_REVIEW_IMAGE" >&2; exit 75; }
+      # The base commit may be outside a shallow checkout; the container's mount is read-only.
+      git fetch -q --depth=100 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || true
+      # The review runs as the runner's own uid/gid, so nothing it writes is root-owned. Only the
+      # variables listed are passed in; the model reads the checkout through its read-only tools.
+      docker run --rm --name "kelpie-review-$CI_JOB_ID" --user "$(id -u):$(id -g)" \
+        -v "$CI_PROJECT_DIR:/repo:ro" \
+        -e HOME=/tmp -e LOGGER_PATH=/tmp -e LOG_LEVEL=warning -e IS_DEV=false -e AI_REVIEW_REPO=/repo \
+        -e OPENROUTER_API_KEY -e AI_REVIEW_GITLAB_TOKEN \
+        -e AI_REVIEW_MODE -e AI_REVIEW_SHADOW -e AI_REVIEW_MODEL -e AI_REVIEW_EFFORT -e AI_REVIEW_MAX_LINES \
+        -e AI_REVIEW_MAX_BYTES -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL -e AI_REVIEW_MAX_TURNS \
+        -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
+        -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
+        --entrypoint php "$KELPIE_REVIEW_IMAGE" /web/bin/ubix kelpie:review
+  after_script:
+    # Nothing here may fail the job: every command is guarded and quiet.
+    - docker rm -f "kelpie-review-$CI_JOB_ID" >/dev/null 2>&1 || true

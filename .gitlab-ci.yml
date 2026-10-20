@@ -6,7 +6,7 @@
 # What it does, the UBIX_* settings and how to override a job:
 # vendor/ubixsys/ubixcore/ci/README.md and docs/design/ci-pipeline-template.md in uBixCore.
 # The deploy, promote and notify scripts are uBixCore's (ci/bin), fetched at the locked
-# version; Kelpie keeps no copies. Kelpie adds only its own settings and ai-review-tests.
+# version; Kelpie keeps no copies. Kelpie adds only its own settings, ai-review-tests and kelpie-review (ci/kelpie.yml).
 #
 # Tiers: dev -> kelpie-dev, staging -> kelpie-staging, main -> kelpie-prod. A green deploy
 # fast-forwards the next branch. Production waits for one click: migrate-apply-prod.
@@ -18,6 +18,7 @@ include:
   - project: ubixsys/ubixcore
     ref: v0.47.0
     file: ci/ubixcore-pipeline.yml
+  - local: ci/kelpie.yml
 
 variables:
   UBIX_VAULT_PREFIX: kelpie            # secret/kelpie/... (not the project name, ubixkelpie)
@@ -27,6 +28,14 @@ variables:
   UBIX_APP_DB_HOST: "%"                # host part of the ubixkelpie app account on all three servers
   UBIX_PROD_DEPLOY_WHEN: on_success    # migrate-apply-prod (manual) is the release click
   UBIX_APPROVAL_OWNERS: cwolsen
+  # Kelpie reviews its own merge requests with the image this pipeline just built. Shadow: it posts one
+  # labelled summary note and no threads, beside the template's ai-review-mr (uBixCore's Gemini review),
+  # until the person decides to drop that job and turn the shadow off.
+  KELPIE_REVIEW_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHA
+  AI_REVIEW_SHADOW: "true"
+
+kelpie-review:
+  needs: [build-mr]
 
 # ci/ai-review dry-run tests (no network, no model) and shellcheck. Cheap and independent
 # of the build, so it starts at once. Packages are fetched at run time into a throwaway container.

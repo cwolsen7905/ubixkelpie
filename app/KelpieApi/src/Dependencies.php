@@ -14,6 +14,8 @@ use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriageJobReader;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
+use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
+use Kelpie\Repository\Project\ProjectSqlRepository;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
@@ -143,6 +145,8 @@ return static function (): Container {
         // The triage queue the webhook adds new issues to; the worker (`kelpie:work`) takes them off it.
         IssueTriageJobReader::class      => autowire(IssueTriageJobSqlRepository::class),
         IssueTriageJobWriter::class      => autowire(IssueTriageJobSqlRepository::class),
+        // Per-project modes and settings (K-30); read by the services that move to it in the cutover.
+        ProjectReader::class             => autowire(ProjectSqlRepository::class),
         GitlabWebhookController::class   => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 

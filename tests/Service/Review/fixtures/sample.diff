@@ -1,0 +1,15 @@
+diff --git a/src/Transfer.php b/src/Transfer.php
+index 1111111..2222222 100644
+--- a/src/Transfer.php
++++ b/src/Transfer.php
+@@ -10,6 +10,14 @@ final class Transfer
+     public function move(int $from, int $to, int $cents): void
+     {
++        $source = $this->accounts->find($from);
++        $target = $this->accounts->find($to);
++        $source->withdraw($cents);
++        $target->deposit($cents);
++        $this->accounts->save($source);
++        $this->accounts->save($target);
+     }
+ }

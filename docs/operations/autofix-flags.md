@@ -9,8 +9,8 @@ is reviewed in git, and not in uBixVault.
 | `KELPIE_AUTOFIX_ENABLED` | The global kill switch. Anything but `true` (or `1`, `yes`, `on` for the webhook) makes Kelpie ignore every issue event. Set it to `false` and redeploy to stop everything at once. |
 | `KELPIE_AUTOFIX_PROJECTS` | The per-project rollout list: comma-separated project paths Kelpie may act on. An event for any other project is ignored. Defaults to `ubixsys/ubixkelpie`. |
 
-They are temporary. Once K-30's projects table exists, per-project enrolment lives there and
-these two variables go away.
+They are temporary. K-30 moves per-project enrolment to the `projects` table (see `projects.md`);
+until the cutover lands these two variables still decide.
 
 ## What turns on
 

@@ -1,9 +1,13 @@
 # AI review for merge requests
 
-A reusable GitLab CI job, `ai-review-mr`, that reads a merge request and opens one
-discussion thread per finding. Other ubixsys repos include it; it lives in
-`ci/ai-review/` until it becomes a `kelpie review` command, and including repos will not
-need to change when it does.
+There are two engines with the same behaviour and the same thread markers:
+
+- **`kelpie:review`** (this is the one that stays): a command in Kelpie's image, in
+  `php/Kelpie/Service/Review`. A repo includes `ci/kelpie.yml`, which runs the job `kelpie-review`.
+  See "The kelpie:review command" below.
+- **`ai-review-mr`** (`ci/ai-review/`): the original shell job, which runs OpenCode in a Node
+  container. It stays until repos have moved to `kelpie:review`, then it is removed. Everything in
+  the rest of this page that is not marked otherwise describes both.
 
 ## How it relates to `code:review`
 
@@ -19,7 +23,64 @@ They do not overlap. The review is told not to report what a linter, type checke
 `.ai-review.md` (repo-specific review notes: what to look hard at, what to ignore). They
 are read from the **target branch**, so an MR cannot rewrite the rules it is judged by.
 
-## Include it
+## The kelpie:review command
+
+```bash
+php bin/ubix kelpie:review                      # in an MR pipeline: reads the CI_* variables
+php bin/ubix kelpie:review --dry-run --diff my.diff --canned reply.json --repo .
+```
+
+`--dry-run` never calls GitLab and prints the validated review and every comment it would post.
+`--diff FILE` reviews a diff file, `--canned FILE` uses a file as the model's reply, `--existing FILE`
+dedupes against a JSON file of discussions. Exit codes are those of the shell job: `0`, `1` blocking
+findings in `blocking` mode, `75` could not run, plus `2` for an unknown `AI_REVIEW_MODE`.
+
+### Include it
+
+```yaml
+include:
+  - project: ubixsys/ubixkelpie
+    ref: dev                       # a release tag, once there is one
+    file: ci/kelpie.yml
+```
+
+The job pulls `KELPIE_REVIEW_IMAGE` (default `$CI_REGISTRY/ubixsys/ubixkelpie:dev`) and runs the
+command in it. It needs the same two group variables as the shell job (`OPENROUTER_API_KEY`,
+`AI_REVIEW_GITLAB_TOKEN`) and **no Kelpie server or database**. A repo that is not Kelpie logs in to
+the registry with `KELPIE_REGISTRY_USER` / `KELPIE_REGISTRY_TOKEN` (a read-registry deploy token) or has
+its project on Kelpie's job-token allowlist; the default login is the job's own token.
+
+The `AI_REVIEW_*` variables, defaults, skips, caps, dismissal and dedupe below apply unchanged. What
+differs from the shell job:
+
+| | Shell job | `kelpie:review` |
+|---|---|---|
+| Model engine | OpenCode (Node) in a tools container | A bounded loop in PHP over OpenRouter tool calling |
+| Tools | `read`, `grep`, `glob`, repo mounted read-only | the same three, run by `RepoToolsService`: paths stay inside the checkout (no `..`, no symlink out, never `.git`), results capped; `vendor/` and `node_modules/` are skipped by `grep` and `glob` |
+| Secrets in the model's reach | the GitLab token is not in OpenCode's environment | the model only ever sees tool output; the token is used by the GitLab client alone |
+| Model turns | OpenCode's own limit | `AI_REVIEW_MAX_TURNS` (default 12); the last turn has no tools, so the model must answer |
+| `AI_REVIEW_MODEL` | `openrouter/<id>` | the same; the prefix is dropped for the API |
+| `AI_REVIEW_EFFORT` | `opencode --variant` | OpenRouter's `reasoning.effort` |
+| Usage stamp | OpenCode's estimate | OpenRouter's reported tokens and cost, summed over the run's calls |
+| Class placement | not reported (the prompt calls layering machine-checked) | reported: see below |
+
+### Class placement
+
+Until a machine check exists, the prompt asks the model to report a **new** class that sits outside
+the uBixCore family layout: a directory that is not a family (a `Foo/` holding a `BarService`), a name
+whose suffix belongs to another family, business logic in a controller or command, or a layer reached
+around. Existing misplaced classes are not this change's fault and are not reported. A repository's
+own standards documents can name a directory as a family.
+
+### Shadow
+
+`AI_REVIEW_SHADOW: "true"` makes a run post **one** summary note and no threads, mark it as a shadow
+run, use its own marker (`<!-- kelpie-review:shadow ... -->`, so it never replaces the other engine's
+note), list what it would have opened, and never exit `1`. Kelpie's own pipeline runs it this way
+beside the template's `ai-review-mr` until it is judged good enough to drop that job and turn the
+shadow off.
+
+## Include the shell job
 
 ```yaml
 include:
@@ -145,7 +206,7 @@ GitLab. Needs `bash`, `jq`, `curl`, `git` and, for a real model, `opencode` and
 
 ## Notes
 
-- **A job retry reuses the pipeline's old CI config.** After changing `ai-review.yml` (or
+- **A job retry reuses the pipeline's old CI config.** After changing `ai-review.yml` or `kelpie.yml` (or
   the include ref), verify with a new push, not a retry; `review.sh` itself is fetched fresh
   at `AI_REVIEW_REF` on every run.
 

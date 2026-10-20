@@ -1,0 +1,16 @@
+diff --git a/php/Kelpie/Foo/BarService.php b/php/Kelpie/Foo/BarService.php
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/php/Kelpie/Foo/BarService.php
+@@ -0,0 +1,8 @@
++<?php
++
++namespace Kelpie\Foo;
++
++final class BarService
++{
++    public function run(): void
++    {
++    }
++}

@@ -1,0 +1,5 @@
+[
+ {"id":"o1","notes":[{"id":11,"resolved":false,"author":{"id":9},"body":"**major** (high confidence): Withdraw and deposit are saved separately\n\n`src/Transfer.php:15`\n\nwhy\n<!-- ai-review:fp=aaaaaaaaaaaa -->"}]},
+ {"id":"o2","notes":[{"id":12,"resolved":false,"author":{"id":9},"body":"**minor** (high confidence): Magic number in fee calculation\n\n`src/Fee.php:3`\n\nwhy\n<!-- ai-review:fp=bbbbbbbbbbbb -->"}]},
+ {"id":"d2","notes":[{"id":3,"body":"<!-- ai-review:summary round=1 sha=abc -->\nold","resolved":null,"author":{"id":9}}]}
+]

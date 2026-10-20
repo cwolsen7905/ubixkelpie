@@ -1,0 +1,4 @@
+{"verdict":"concerns","summary":"Adds a service in a new directory.",
+ "findings":[
+  {"severity":"minor","confidence":"high","file":"php/Kelpie/Foo/BarService.php","line":6,"title":"BarService is in a directory that is not a family","why":"A *Service belongs in php/Kelpie/Service/. Move it there.","fingerprint":"misplaced-bar-service"}
+ ]}

@@ -12,7 +12,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface as Output;
 
 /**
- * Run the issue triage worker: take queued issues and post one comment and one label each
+ * Run the worker: take queued merge request jobs (triage, reply, fix) and issue triage jobs off the job table
  *
  * @see \Kelpie\Tests\Console\Command\WorkCommandTest PHPUnit test case
  */
@@ -36,7 +36,7 @@ final class WorkCommand extends RunCommand
      */
     protected function configure(): void
     {
-        $this->setDescription('Run the issue triage worker (idles unless KELPIE_AUTOFIX_ENABLED=true); exits after a bounded run so it can be restarted')
+        $this->setDescription('Run the job worker (idles unless KELPIE_AUTOFIX_ENABLED=true); exits after a bounded run so it can be restarted')
             ->addOption('max-jobs', null, InputOption::VALUE_REQUIRED, 'Most jobs to take before exiting (default 200)')
             ->addOption('max-seconds', null, InputOption::VALUE_REQUIRED, 'Longest run in seconds before exiting (default 3600)');
     }

@@ -13,13 +13,15 @@ use Ubix\DataTransferObject\DtoInterface as Dto;
  */
 final readonly class AutofixJob implements Dto
 {
+    public const string REVIEW = 'review';
+
     /**
      * Constructor
      *
      * @param string  $projectPath  Project path with namespace
      * @param int     $mrIid        Merge request IID
      * @param string  $headSha      Head commit sha of the MR source branch
-     * @param string  $source       What raised it: 'note' or 'pipeline'
+     * @param string  $source       What raised it: 'note', 'pipeline' or 'review'
      * @param ?string $discussionId The thread the note belongs to (note jobs)
      * @param bool    $afterAutofix Whether the head commit is a Kelpie-Autofix commit, so only new threads by someone else may be acted on
      */

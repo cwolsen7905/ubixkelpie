@@ -10,24 +10,13 @@ use Generator;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\JobLogReader;
 use Kelpie\GitLab\MergeRequestLister;
-use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\EventFilter;
-use Kelpie\Policy\SafetyPolicy;
-use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
-use Kelpie\Sandbox\Checkout;
-use Kelpie\Sandbox\GateRunner;
 use Kelpie\Service\Autofix\AutofixJobService;
-use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\EnqueueService;
-use Kelpie\Service\Autofix\FixerRunnerService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\SweepService;
-use Kelpie\Service\Autofix\TriageStatusService;
-use Kelpie\Service\Triage\TriageService;
-use Kelpie\Tests\Agent\ScriptedFixerAgent;
 use Kelpie\Tests\GitLab\FakeGitlab;
-use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -46,7 +35,9 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Every thread goes through the webhook's filter, so the bot's own threads and the like are skipped
  * - A failed gate job's log becomes one marked, masked thread, opened once per job
  * - Threads that predate a Kelpie commit are left alone
- * - At most the run limit of threads runs per sweep
+ * - Enabled, the sweep only queues jobs for the worker and runs nothing
+ * - A thread Kelpie already answered is not queued again
+ * - At most the run limit of jobs is queued per sweep
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\SweepService
  */
@@ -84,7 +75,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $lines = $this->service(false)->sweep(new DateTimeImmutable());
 
         $this->assertEqualsCanonicalizing([
-            'ubixsys/ubixkelpie!3 d1abc123  would run (autofix disabled)',
+            'ubixsys/ubixkelpie!3 d1abc123  would queue (autofix disabled)',
             'ubixsys/ubixkelpie!3 pipeline job 55  would open a thread (autofix disabled)',
         ], $lines);
         foreach ($this->gitlab->requests() as $request) {
@@ -151,7 +142,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * Enabled: the failed log is opened as one marked, masked thread and run through the fixer
+     * Enabled: the failed log is opened as one marked, masked thread and queued for the worker
      *
      * @return void
      */
@@ -162,7 +153,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $lines = $this->service(true)->sweep(new DateTimeImmutable());
 
         $this->assertCount(1, $lines);
-        $this->assertStringContainsString('  failed', $lines[0]); // The scripted runner clones nothing: a clean failure
+        $this->assertStringContainsString('  queued (job 7, enqueued)', $lines[0]);
         $bodies = [];
         foreach ($this->gitlab->notes() as $notes) {
             if (str_contains($notes[0]['body'], '<!-- kelpie:pipeline job=55 ')) {
@@ -216,7 +207,43 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * Past the run limit threads are deferred, not run
+     * Enabled: a thread becomes a job row and nothing runs, so the model and the fixer are never reached
+     *
+     * @return void
+     */
+    public function testThreadIsQueuedNotRun(): void
+    {
+        $this->gitlab->note('d1abc123', 'Please fix the typo.');
+
+        $lines = $this->service(true)->sweep(new DateTimeImmutable());
+
+        $this->assertSame(['ubixsys/ubixkelpie!3 d1abc123  queued (job 7, enqueued)'], $lines);
+        $this->assertStringContainsString('INSERT INTO ubixkelpie.autofix_jobs', implode("\n", $this->queries->getArrayCopy()));
+        foreach ($this->gitlab->requests() as $request) {
+            $this->assertStringNotContainsString('openrouter', $request);
+            $this->assertStringNotContainsString('labels', $request);
+        }
+    }
+
+    /**
+     * A thread Kelpie answered, with nothing written since, is not queued again
+     *
+     * @return void
+     */
+    public function testAnsweredThreadIsNotQueued(): void
+    {
+        $this->gitlab->note('d1abc123', 'Please fix the typo.');
+        $this->gitlab->note('d1abc123', '<!-- kelpie:reply thread=d1abc123 class=needs_human -->', 'now', null, 'kelpie-bot');
+
+        $this->assertSame(
+            ['ubixsys/ubixkelpie!3 d1abc123  skipped: already answered'],
+            $this->service(true)->sweep(new DateTimeImmutable()),
+        );
+        $this->assertCount(0, $this->queries);
+    }
+
+    /**
+     * Past the run limit threads are deferred, not queued
      *
      * @return void
      */
@@ -297,7 +324,6 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $factory = new Psr17Factory();
         $apiUrl  = 'https://gitlab.test/api/v4';
         $writer  = $gitlab->writer($logger);
-        $triage  = new TriageService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new TriagePrompt($logger), new SafetyPolicy($logger), $json);
         $queries = $this->queries;
         $sql     = $this->createStub(SqlService::class);
         $sql->method('query')->willReturnCallback(static function (string $statement) use ($queries): int {
@@ -327,40 +353,20 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             }
         });
 
-        $jobs   = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
-        $runner = new ScriptedProcessRunner();
-
-        $fixer = new FixerRunnerService(
-            $logger,
-            $enabled,
-            $writer,
-            new ClaimService($logger, $writer, 1800),
-            new ReplyService($logger, $writer),
-            $triage,
-            new TriageStatusService($logger, $writer),
-            new SafetyPolicy($logger),
-            new ScriptedFixerAgent(static function (): bool {
-                return true;
-            }),
-            new GateRunner($logger, $runner, ''),
-            new Checkout($logger, $runner, 'tok-not-real'),
-            $jobs->reader(),
-            $jobs->writer(),
-            'https://gitlab.test/g/p.git',
-        );
+        $jobs = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
 
         return new SweepService(
             $logger,
             $enabled,
             $projects,
             $maxRuns,
-            new EnqueueService($logger, new EventFilter($logger)),
+            new EnqueueService($logger, new EventFilter($logger), $jobs),
             new MergeRequestLister($logger, $http, $factory, $apiUrl, $json),
             new DiscussionReader($logger, $http, $factory, $apiUrl, $json),
             $writer,
             new JobLogReader($logger, $http, $factory, $apiUrl, $json),
             $jobs,
-            array_fill_keys($projects, $fixer),
+            new ReplyService($logger, $writer),
         );
     }
 }

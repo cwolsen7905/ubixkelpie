@@ -109,6 +109,54 @@ final class EventFilterTest extends UbixConcreteClassOrEnumTestCase implements I
     }
 
     /**
+     * A finished review job becomes an MR-less job keyed by the head sha
+     *
+     * @return void
+     */
+    public function testAFinishedReviewJobBecomesAJob(): void
+    {
+        foreach (['success', 'failed'] as $status) {
+            $job = (new EventFilter($this->createStub(Logger::class)))->filter('job hook', array_replace($this->reviewJob(), ['build_status' => $status]));
+
+            $this->assertInstanceOf(AutofixJob::class, $job);
+            $this->assertSame(0, $job->mrIid);
+            $this->assertSame('abc123', $job->headSha);
+            $this->assertSame('review', $job->source);
+            $this->assertNull($job->discussionId);
+        }
+    }
+
+    /**
+     * Job hooks that are not a finished review of an enrolled project's head are skipped with their reason
+     *
+     * @return void
+     */
+    public function testJobHookSkips(): void
+    {
+        $filter = new EventFilter($this->createStub(Logger::class));
+
+        $this->assertSame('not a review job', $filter->filter('job hook', array_replace($this->reviewJob(), ['build_name' => 'phpunit'])));
+        $this->assertSame('review job not finished', $filter->filter('job hook', array_replace($this->reviewJob(), ['build_status' => 'running'])));
+        $this->assertSame('project not allow-listed', $filter->filter('job hook', array_replace_recursive($this->reviewJob(), ['project' => ['path_with_namespace' => 'other/p']])));
+        $this->assertSame('author is the bot or a Shepherd agent', $filter->filter('job hook', array_replace_recursive($this->reviewJob(), ['user' => ['username' => 'kelpie-bot']])));
+        $this->assertSame('head is a kelpie-autofix commit', $filter->filter('job hook', array_replace_recursive($this->reviewJob(), ['commit' => ['message' => "fix\n\nKelpie-Autofix: d0"]])));
+        $this->assertSame('no head sha', $filter->filter('job hook', array_replace($this->reviewJob(), ['sha' => ''])));
+    }
+
+    /**
+     * The review job's name is configurable
+     *
+     * @return void
+     */
+    public function testReviewJobNamesAreConfigurable(): void
+    {
+        $filter = new EventFilter($this->createStub(Logger::class), reviewJobs: ['ai-review']);
+
+        $this->assertSame('not a review job', $filter->filter('job hook', $this->reviewJob()));
+        $this->assertInstanceOf(AutofixJob::class, $filter->filter('job hook', array_replace($this->reviewJob(), ['build_name' => 'ai-review'])));
+    }
+
+    /**
      * Other events are not autofix events
      *
      * @return void
@@ -196,6 +244,21 @@ final class EventFilterTest extends UbixConcreteClassOrEnumTestCase implements I
             'object_attributes' => ['source' => 'merge_request_event', 'status' => 'failed', 'sha' => 'abc123'],
             'project'           => ['path_with_namespace' => 'ubixsys/ubixkelpie'],
             'user'              => ['username' => 'alice'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewJob(): array
+    {
+        return [
+            'build_name'   => 'kelpie-review',
+            'build_status' => 'success',
+            'commit'       => ['message' => 'feat: x'],
+            'project'      => ['path_with_namespace' => 'ubixsys/ubixkelpie'],
+            'sha'          => 'abc123',
+            'user'         => ['username' => 'alice'],
         ];
     }
 }

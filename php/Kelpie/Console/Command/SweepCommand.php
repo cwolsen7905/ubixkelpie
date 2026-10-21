@@ -15,8 +15,8 @@ use Symfony\Component\Console\Output\OutputInterface as Output;
  * Sweep the open MRs of the allow-listed projects for threads and failed pipelines that need resolution
  *
  * The scheduled safety net for lost webhook deliveries (design section 1), run every 15 minutes.
- * With `KELPIE_AUTOFIX_ENABLED` off it only reads and reports what it would do. With it on it runs
- * up to `KELPIE_SWEEP_MAX_RUNS` (default 5) threads through the same triage and fixer as `kelpie:fix`.
+ * With `KELPIE_AUTOFIX_ENABLED` off it only reads and reports what it would do. With it on it queues
+ * up to `KELPIE_SWEEP_MAX_RUNS` (default 5) jobs for `kelpie:work`, the one runner, which triages and fixes them.
  *
  * @see \Kelpie\Tests\Console\Command\SweepCommandTest PHPUnit test case
  */
@@ -40,8 +40,8 @@ final class SweepCommand extends RunCommand
      */
     protected function configure(): void
     {
-        $this->setDescription('Sweep open MRs for unresolved threads and failed pipelines (reports only unless KELPIE_AUTOFIX_ENABLED=true)')
-            ->addOption('max-runs', null, InputOption::VALUE_REQUIRED, 'Most threads to run this sweep (default: KELPIE_SWEEP_MAX_RUNS, else 5)');
+        $this->setDescription('Sweep open MRs for unresolved threads and failed pipelines (queues jobs for kelpie:work; reports only unless KELPIE_AUTOFIX_ENABLED=true)')
+            ->addOption('max-runs', null, InputOption::VALUE_REQUIRED, 'Most jobs to queue this sweep (default: KELPIE_SWEEP_MAX_RUNS, else 5)');
     }
 
     /**

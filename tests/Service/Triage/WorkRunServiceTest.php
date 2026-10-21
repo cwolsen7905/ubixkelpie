@@ -10,6 +10,7 @@ use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
 use Kelpie\Service\Triage\WorkRunService;
+use Kelpie\Tests\Console\Command\CommandServices;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -17,6 +18,7 @@ use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
+use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
@@ -139,6 +141,8 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
         $model      = $this->createStub(HttpClient::class);
         $model->method('sendRequest')->willReturn(new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => '{"class": "needs_human", "reason": "unclear"}']]]])));
 
+        $services = new CommandServices($logger, $gitlab, $this->createStub(SqlService::class), $settings);
+
         return new WorkRunService(
             $logger,
             new GitlabClientFactory($logger, $gitlab, $factory, $factory, $json, $settings),
@@ -148,6 +152,9 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             new IssueTriagePrompt($logger),
             $json,
             $settings,
+            $services->jobs(),
+            $services->sweep(),
+            $services->runners(),
             0,
         );
     }

@@ -49,7 +49,7 @@ final class AutofixJobCoalescerService
      */
     public function enqueue(AutofixJob $input, DateTimeImmutable $now): EnqueueOutcome
     {
-        $threadKey = $input->discussionId ?? '';
+        $threadKey = $this->threadKey($input);
         $open      = $this->reader->getOpenJob($input->projectPath, $input->mrIid, $threadKey);
 
         if ($open instanceof AutofixJobRecord) {
@@ -62,7 +62,8 @@ final class AutofixJobCoalescerService
             }
         }
 
-        $exceeded = $this->exceededCap(
+        // A fan-out job runs nothing itself; the caps bind the thread jobs it creates
+        $exceeded = $input->discussionId === null ? null : $this->exceededCap(
             $this->reader->countFixCommitsForMr($input->projectPath, $input->mrIid),
             $this->reader->countAttemptsForThread($input->projectPath, $input->mrIid, $threadKey),
             $this->reader->countJobsSince($input->projectPath, $now->modify('-1 day')),
@@ -100,6 +101,20 @@ final class AutofixJobCoalescerService
         }
 
         return EnqueueOutcome::Enqueued;
+    }
+
+    /**
+     * The key of the one open job a job coalesces with
+     *
+     * The discussion id; '' for an MR-level job; for a review job, which does not know its MR yet, the head sha.
+     *
+     * @param AutofixJob $job The job
+     *
+     * @return string
+     */
+    public function threadKey(AutofixJob $job): string
+    {
+        return $job->discussionId ?? ($job->source === AutofixJob::REVIEW ? 'review-' . $job->headSha : '');
     }
 
     /**

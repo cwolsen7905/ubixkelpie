@@ -1,6 +1,8 @@
-# Issue triage worker (dev): `kelpie:work` takes queued issues off the autofix_jobs table and posts one
-# comment and one kelpie::* label each. Same image, namespace, Vault role, KV path and database as the
-# kelpie-api Deployment; no Service, no Ingress, no port.
+# Job worker (dev): `kelpie:work` takes queued jobs off the autofix_jobs table: merge request jobs (the webhook
+# writes them for MR comments, failed gate pipelines and finished kelpie-review jobs; the sweep writes them
+# for what a lost webhook missed) and issue triage jobs. Same image, namespace, Vault role, KV path and database
+# as the kelpie-api Deployment; no Service, no Ingress, no port. One replica: it is the one runner of MR jobs.
+# See docs/operations/worker.md.
 #
 # The dev webhook is not wired (GitLab hooks point at prod), so on dev the queue stays empty: this proves the
 # command override gets its Vault secrets and database, and that the loop starts and idles. The worker exits

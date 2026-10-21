@@ -16,6 +16,7 @@ use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\Project\ProjectSqlRepository;
+use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
@@ -117,7 +118,8 @@ return static function (): Container {
             ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
             ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
-            ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES')),
+            ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES'))
+            ->constructorParameter('reviewJobs', $envList('KELPIE_REVIEW_JOBS', EventFilter::REVIEW_JOBS)),
         // Issue intake (design sections 2 and 6): classify, and put a 👀 on an accepted issue. The gate label's actor is
         // verified through the API with the bot token, GET only; off unless KELPIE_AUTOFIX_ENABLED is set.
         BotHttpClient::class             => autowire()
@@ -147,6 +149,8 @@ return static function (): Container {
         IssueTriageJobWriter::class      => autowire(IssueTriageJobSqlRepository::class),
         // Per-project modes and settings (K-30); read by the services that move to it in the cutover.
         ProjectReader::class             => autowire(ProjectSqlRepository::class),
+        EnqueueService::class            => autowire()
+            ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true)),
         GitlabWebhookController::class   => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
     ]);
 

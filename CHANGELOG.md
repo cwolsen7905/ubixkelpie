@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The webhook writes jobs and `kelpie:work` runs them (K-09): MR comments, failed gate pipelines and
+  finished `kelpie-review` jobs (new Job events handler) become rows in `autofix_jobs`; the worker leases a row
+  with a conditional UPDATE, retries a failure after 1 then 5 minutes (three attempts) and runs the fixer.
+  `kelpie:sweep` is now the backstop that only queues jobs. Migration
+  `20261021124000_autofix_jobs_worker_columns`; see `docs/operations/worker.md`.
+
 ## v0.1.0-beta.1
 
 First beta. Foundation plus the merge request workflow; issue fixing and code monitoring are

@@ -57,7 +57,7 @@ final class AutofixJobService
             return [$outcome, null];
         }
 
-        $job = $this->repository->getOpenJob($input->projectPath, $input->mrIid, $input->discussionId ?? '');
+        $job = $this->repository->getOpenJob($input->projectPath, $input->mrIid, $this->coalescer->threadKey($input));
         if ($job === null || $job->getId() === null || $job->getStatus() !== 'pending' || $job->getHeadSha() !== $input->headSha) {
             return [$outcome, null];
         }

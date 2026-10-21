@@ -14,8 +14,8 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Sweep the open MRs of the allow-listed projects for unresolved threads and failed pipelines
  *
- * Wires the sweep from the settings: the event filter, one fixer runner per project and the GitLab readers.
- * Reports only unless autofix is enabled. `kelpie:sweep` parses its input and prints what this returns.
+ * Wires the sweep from the settings: the event filter and the GitLab readers. Queues jobs for `kelpie:work` when
+ * autofix is enabled, and only reports otherwise. `kelpie:sweep` parses its input and prints what this returns.
  *
  * @see \Kelpie\Tests\Service\Autofix\SweepRunServiceTest PHPUnit test case
  */
@@ -24,23 +24,21 @@ final class SweepRunService
     /**
      * Constructor
      *
-     * @param Logger                    $logger   Logger
-     * @param GitlabClientFactory       $gitlab   The GitLab client factory
-     * @param FixerRunnerBuilderService $runners  The fixer runner factory
-     * @param AutofixJobService         $jobs     The job table
-     * @param AutofixSettings           $settings The settings
+     * @param Logger              $logger   Logger
+     * @param GitlabClientFactory $gitlab   The GitLab client factory
+     * @param AutofixJobService   $jobs     The job table
+     * @param AutofixSettings     $settings The settings
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly GitlabClientFactory $gitlab,
-        private readonly FixerRunnerBuilderService $runners,
         private readonly AutofixJobService $jobs,
         private readonly AutofixSettings $settings,
     ) {
     }
 
     /**
-     * Sweep
+     * Sweep, queueing the jobs
      *
      * @param ?string $maxRuns The `--max-runs` option as given, or null for the settings' default
      *
@@ -54,6 +52,20 @@ final class SweepRunService
             return new RunResult(false, ['GITLAB_API_URL and KELPIE_BOT_GITLAB_TOKEN must be set.'], true);
         }
 
+        $lines = $this->service(max(1, $maxRuns))->sweep(new DateTimeImmutable());
+
+        return new RunResult(true, $lines === [] ? ['Nothing needs resolution.'] : $lines);
+    }
+
+    /**
+     * The sweep, wired from the settings
+     *
+     * @param int $maxRuns Most jobs queued per sweep
+     *
+     * @return SweepService
+     */
+    public function service(int $maxRuns): SweepService
+    {
         $projects = $this->settings->projects;
         $filter   = new EventFilter(
             $this->logger,
@@ -63,27 +75,20 @@ final class SweepRunService
             skipBranches: $this->settings->skipBranches,
         );
 
-        $runners = [];
-        foreach ($projects as $path) {
-            $runners[$path] = $this->runners->make($this->settings->enabled, $path);
-        }
+        $writer = $this->gitlab->writer();
 
-        $service = new SweepService(
+        return new SweepService(
             $this->logger,
             $this->settings->enabled,
             $projects,
-            max(1, $maxRuns),
-            new EnqueueService($this->logger, $filter),
+            $maxRuns,
+            new EnqueueService($this->logger, $filter, $this->jobs),
             $this->gitlab->lister(),
             $this->gitlab->reader(),
-            $this->gitlab->writer(),
+            $writer,
             $this->gitlab->jobLogReader(),
             $this->jobs,
-            $runners,
+            new ReplyService($this->logger, $writer),
         );
-
-        $lines = $service->sweep(new DateTimeImmutable());
-
-        return new RunResult(true, $lines === [] ? ['Nothing needs resolution.'] : $lines);
     }
 }

@@ -22,7 +22,7 @@ use Ubix\Service\JsonService;
  * GitLab webhook receiver for Kelpie
  *
  * Verifies X-Gitlab-Token against GITLAB_WEBHOOK_SECRET, dispatches by
- * X-Gitlab-Event header. Note and Pipeline hooks also feed the autofix event filter (logs only). Merge Request and Emoji hooks are handed to uBixCore's
+ * X-Gitlab-Event header. Note, Pipeline and Job hooks also feed the autofix event filter, which writes a job row for `kelpie:work`; the webhook does no other work. Merge Request and Emoji hooks are handed to uBixCore's
  * ApprovalWebhookService, which re-runs the MR's sign-off job on an approval or a thumbs-up.
  *
  * @see \Kelpie\Tests\Controller\Gitlab\GitlabWebhookControllerTest PHPUnit test case
@@ -38,7 +38,7 @@ final class GitlabWebhookController extends Controller
      * @param NoteOnMrWebhookService  $noteOnMrWebhookService  Handles Note Hook on MRs
      * @param IssueOpenWebhookService $issueOpenWebhookService Handles Issue Hook open events
      * @param ApprovalWebhookService  $approvalWebhookService  Re-runs the sign-off job on an approval (uBixCore)
-     * @param EnqueueService          $enqueueService          Filters Note and Pipeline hooks into autofix jobs (logs only)
+     * @param EnqueueService          $enqueueService          Filters Note, Pipeline and Job hooks into autofix jobs and writes them
      * @param string                  $secret                  The webhook secret token
      */
     public function __construct(
@@ -108,7 +108,7 @@ final class GitlabWebhookController extends Controller
 
         return match ($eventLower) {
             'note hook' => $this->note($payload, $response, $event),
-            'pipeline hook' => $this->pipeline($payload, $response, $event),
+            'pipeline hook', 'job hook' => $this->pipeline($payload, $response, $event),
             'issue hook' => $this->issue($payload, $response),
             default => $this->renderJson($response, ['outcome' => 'ignored: not handled'], StatusCode::OK),
         };
@@ -135,7 +135,7 @@ final class GitlabWebhookController extends Controller
     }
 
     /**
-     * Dispatch to the autofix filter for a Pipeline Hook
+     * Dispatch to the autofix filter for a Pipeline or Job Hook
      *
      * @param array<int|string, mixed> $payload  The decoded payload
      * @param Response                 $response The PSR response

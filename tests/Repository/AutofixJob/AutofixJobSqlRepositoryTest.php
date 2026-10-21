@@ -100,6 +100,87 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * Counting jobs leaves out the fan-out rows, which run nothing
+     *
+     * @return void
+     */
+    public function testCountJobsSinceIgnoresFanOutRows(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getColumn')->with($this->stringContains('discussion_id IS NOT NULL'))->willReturn('0');
+
+        (new AutofixJobSqlRepository($this->createStub(Logger::class), $sql))->countJobsSince('g/p', new DateTimeImmutable());
+    }
+
+    /**
+     * The due job is a pending or lease-expired MR job of an enrolled project, due and under the attempt limit
+     *
+     * @return void
+     */
+    public function testGetDueJob(): void
+    {
+        $row = [
+            'after_autofix' => '0', 'attempt'       => '1', 'commit_sha'    => null, 'date_created'  => '2026-10-15 12:00:00',
+            'discussion_id' => 'd1', 'head_sha'      => 'abc', 'id'            => '7', 'mr_iid'        => '5', 'project_path'  => 'g/p',
+            'source'        => 'note', 'status'        => 'pending', 'thread_key'    => 'd1', 'triage_class'  => null,
+        ];
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRow')->with(
+            $this->logicalAnd($this->stringContains('source <> :issue_source'), $this->stringContains('locked_until < :lock_now'), $this->stringContains('project_path IN (:project_0, :project_1)')),
+            $this->callback(
+                static function (array $p): bool {
+                    return $p['due_now'] === '2026-10-21 12:00:00' && $p['max_attempts'] === 4 && $p['project_1'] === 'g/q';
+                },
+            ),
+        )->willReturn($row);
+
+        $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+        $job  = $repo->getDueJob(['g/p', 'g/q'], new DateTimeImmutable('2026-10-21 12:00:00'), 4);
+
+        $this->assertSame(7, $job?->getId());
+        $this->assertNull($repo->getDueJob([], new DateTimeImmutable(), 4));
+    }
+
+    /**
+     * Taking the lease is one conditional UPDATE
+     *
+     * @return void
+     */
+    public function testLockJobIsConditional(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('query')->with(
+            $this->logicalAnd($this->stringContains('WHERE id = :id AND attempt = :attempt'), $this->stringContains('locked_until < :lock_now')),
+            ['attempt' => 1, 'id' => 7, 'lock_now' => '2026-10-21 12:00:00', 'locked_by' => 'w1', 'locked_until' => '2026-10-21 12:30:00'],
+        )->willReturn(1);
+
+        (new AutofixJobSqlRepository($this->createStub(Logger::class), $sql))->lockJob(7, 1, 'w1', new DateTimeImmutable('2026-10-21 12:00:00'), 1800);
+    }
+
+    /**
+     * Retry puts the job back pending with its next time and error; failed and done only touch a running job
+     *
+     * @return void
+     */
+    public function testRetryDoneAndFailed(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->exactly(3))->method('query')->willReturnCallback(function (string $statement, array $parameters): int {
+            $this->assertStringContainsString("AND status = 'running'", $statement);
+            if (str_contains($statement, "status = 'pending'")) {
+                $this->assertSame(['id' => 7, 'last_error' => 'boom', 'next_attempt_at' => '2026-10-21 12:01:00'], $parameters);
+            }
+
+            return 1;
+        });
+
+        $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+        $repo->markRetry(7, new DateTimeImmutable('2026-10-21 12:01:00'), 'boom');
+        $repo->markDone(7);
+        $repo->markFailed(7, 'boom');
+    }
+
+    /**
      * Yield one result row
      *
      * @param array<string, bool|int|float|string|null> $row The row

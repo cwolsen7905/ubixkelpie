@@ -5,19 +5,12 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Autofix;
 
 use ArrayObject;
-use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
-use Kelpie\OpenRouter\OpenRouterClient;
-use Kelpie\Policy\SafetyPolicy;
-use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
-use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\SweepRunService;
-use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
-use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -79,7 +72,7 @@ final class SweepRunServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $result = $this->service()->sweep();
 
         $this->assertTrue($result->success);
-        $this->assertContains('ubixsys/ubixkelpie!3 d1abc123  would run (autofix disabled)', $result->lines);
+        $this->assertContains('ubixsys/ubixkelpie!3 d1abc123  would queue (autofix disabled)', $result->lines);
         foreach ($this->gitlab->requests() as $request) {
             $this->assertStringStartsWith('GET', $request);
         }
@@ -139,19 +132,9 @@ final class SweepRunServiceTest extends UbixConcreteClassOrEnumTestCase implemen
             return 1;
         });
 
-        $triage = new TriageService(
-            $logger,
-            new OpenRouterClient($logger, $this->gitlab, $factory, $factory, $json),
-            new TriagePrompt($logger),
-            new SafetyPolicy($logger),
-            $json,
-        );
-
         $jobs   = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
         $client = new GitlabClientFactory($logger, $this->gitlab, $factory, $factory, $json, $settings);
-        $runner = new ScriptedProcessRunner();
-        $agent  = new ClaudeCliFixerAgent($logger, $runner, 'test-key-not-real');
 
-        return new SweepRunService($logger, $client, new FixerRunnerBuilderService($logger, $client, $triage, $jobs, $runner, $agent, $settings), $jobs, $settings);
+        return new SweepRunService($logger, $client, $jobs, $settings);
     }
 }

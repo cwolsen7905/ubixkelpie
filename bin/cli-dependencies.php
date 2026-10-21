@@ -7,6 +7,7 @@ use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\OpenRouter\OpenRouterClient;
+use Kelpie\OpenRouter\Review\ReviewChatClient;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriageJobReader;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
@@ -47,12 +48,15 @@ return static function (): Container {
 
     // A model call takes far longer than the shared client's 5 s default (which GitLab keeps), so
     // OpenRouter gets its own client; the total is OPENROUTER_HTTP_TIMEOUT seconds, inside the review job's 15 minutes.
+    // The review's tool loop talks through ReviewChatClient, not OpenRouterClient, so both get it.
     $timeout = (int) getenv('OPENROUTER_HTTP_TIMEOUT');
-    $container->set(
-        OpenRouterClient::class,
-        autowire(OpenRouterClient::class)
-            ->constructorParameter('httpClient', autowire(CurlHttpClient::class)->constructorParameter('timeout', $timeout > 0 ? $timeout : 150)),
-    );
+    foreach ([OpenRouterClient::class, ReviewChatClient::class] as $class) {
+        $container->set(
+            $class,
+            autowire($class)
+                ->constructorParameter('httpClient', autowire(CurlHttpClient::class)->constructorParameter('timeout', $timeout > 0 ? $timeout : 150)),
+        );
+    }
 
     return $container;
 };

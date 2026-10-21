@@ -7,9 +7,15 @@ ARG RUNTIME_IMAGE
 FROM ${RUNTIME_IMAGE}
 
 USER root
-# pcntl/posix: phpunit time limits + posix_kill teardown.
+# pcntl/posix: phpunit time limits + posix_kill teardown. On the official-php
+# base (ubixcore-php >= the official-image switch) posix is built in and pcntl
+# comes from install-php-extensions; apk php85-* would add a second PHP there.
+# The apk branch keeps the old Alpine-package base working until it is gone.
 # mariadb-client: `bin/ubix database:resetSchema` shells out to `mysql`.
-RUN apk add --no-cache php85-pcntl php85-posix mariadb-client && \
+RUN if command -v install-php-extensions >/dev/null; then install-php-extensions pcntl; \
+    else apk add --no-cache php85-pcntl php85-posix; fi && \
+    php -r 'exit(extension_loaded("pcntl") && extension_loaded("posix") ? 0 : 1);' && \
+    apk add --no-cache mariadb-client && \
     # the unit-test MariaDB has no TLS; Alpine's mariadb client insists on it by default
     printf '[client]\nskip-ssl\n' > /etc/my.cnf.d/99-skip-ssl.cnf
 

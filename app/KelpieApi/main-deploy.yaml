@@ -84,8 +84,9 @@ spec:
         - name: IS_STAGING
           value: "false"
         # Feature flags, not secrets (docs/operations/autofix-flags.md): the manifest is reviewed in git.
+        # Off until propose mode (K-30) exists: nothing enforces propose-only yet.
         - name: KELPIE_AUTOFIX_ENABLED
-          value: "true"
+          value: "false"
         - name: KELPIE_AUTOFIX_PROJECTS
           value: "ubixsys/ubixkelpie,ubixsys/ubixshepherd"
         - name: LOG_LEVEL

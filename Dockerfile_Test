@@ -14,6 +14,7 @@ USER root
 # mariadb-client: `bin/ubix database:resetSchema` shells out to `mysql`.
 RUN if command -v install-php-extensions >/dev/null; then install-php-extensions pcntl; \
     else apk add --no-cache php85-pcntl php85-posix; fi && \
+    php -r 'exit(extension_loaded("pcntl") && extension_loaded("posix") ? 0 : 1);' && \
     apk add --no-cache mariadb-client && \
     # the unit-test MariaDB has no TLS; Alpine's mariadb client insists on it by default
     printf '[client]\nskip-ssl\n' > /etc/my.cnf.d/99-skip-ssl.cnf

@@ -17,6 +17,7 @@ use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\FixerRunnerService;
 use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\TriageStatusService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Agent\ScriptedFixerAgent;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -113,7 +114,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame($head, $this->jobs->commitSha());
         $this->assertSame('fix', $this->jobs->triageClass());
         $this->assertSame(1, $this->jobs->attempt());
-        $this->assertSame([], $this->gitlab->labels());
+        $this->assertSame(['triage: pushed'], $this->gitlab->labels());
 
         $bodies = implode("\n", array_column($this->gitlab->notes()['d1'], 'body'));
         $this->assertStringContainsString('Kelpie fixed this in https://gitlab.test/g/p/-/commit/' . $head . ':', $bodies);
@@ -231,7 +232,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame(FixOutcome::Unsafe, $outcome);
         $this->assertSame([], $this->gateCalls());
         $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
         $this->assertStringContainsString('protected path', $this->lastNote());
     }
 
@@ -252,7 +253,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertNull($runs[0]);
         $this->assertStringContainsString('vendor/bin/phpcs failed', (string) $runs[1]);
         $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
         $this->assertSame('failed', $this->jobs->status());
     }
 
@@ -281,7 +282,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         };
 
         $this->assertSame(FixOutcome::NoChange, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
     }
 
     /**
@@ -328,6 +329,24 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * `triage:off` and a draft supersede the job; a run in progress, new label or old, leaves it pending
+     *
+     * @return void
+     */
+    public function testOffDraftAndClaimedMergeRequestsAreSkipped(): void
+    {
+        $outcomes = [];
+        foreach ([['labels' => ['triage:off']], ['draft' => true], ['labels' => ['triage: working']], ['labels' => ['kelpie::working']]] as $fields) {
+            $this->gitlab->mergeRequestFields(['sha' => $this->sha, ...$fields]);
+            $outcomes[] = $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+        }
+
+        $this->assertSame(array_fill(0, 4, FixOutcome::Skipped), $outcomes);
+        $this->assertSame([], $this->agent->runs());
+        $this->assertCount(1, $this->gitlab->notes()); // The seeded thread only: no summary, no claim
+    }
+
+    /**
      * An MR whose source branch is a protected branch never reaches the agent
      *
      * @return void
@@ -351,7 +370,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
         $this->assertSame([], $this->agent->runs());
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
         $this->assertSame('done', $this->jobs->status());
     }
 
@@ -461,6 +480,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             new ClaimService($logger, $writer, 1800),
             new ReplyService($logger, $writer),
             $triage,
+            new TriageStatusService($logger, $writer),
             new SafetyPolicy($logger),
             $this->agent,
             new GateRunner($logger, $this->gate),

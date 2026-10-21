@@ -13,7 +13,9 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * For each thread: skip it if answered or claimed, claim, triage, reply or label, release
  *
- * No code changes. The `kelpie::working` label is on the MR while it works and comes off at the end.
+ * No code changes. An MR with `triage:off`, a draft, or one another run is working on is left alone. While
+ * it works the MR carries `triage: working`, a summary note and 👀 on the threads; at the end the note says
+ * what was done and one of `triage: pushed`, `proposed` or `needs you` stays (see `TriageStatusService`).
  *
  * @see \Kelpie\Tests\Service\Autofix\ThreadResponderServiceTest PHPUnit test case
  */
@@ -22,11 +24,12 @@ final class ThreadResponderService
     /**
      * Constructor
      *
-     * @param Logger           $logger        Logger
-     * @param DiscussionWriter $writer        The GitLab writer
-     * @param ClaimService     $claimService  The claim marker
-     * @param ReplyService     $replyService  The reply and label step
-     * @param TriageService    $triageService Classifies one thread
+     * @param Logger              $logger        Logger
+     * @param DiscussionWriter    $writer        The GitLab writer
+     * @param ClaimService        $claimService  The claim marker
+     * @param ReplyService        $replyService  The reply and label step
+     * @param TriageService       $triageService Classifies one thread
+     * @param TriageStatusService $status        The status labels and the summary note
      */
     public function __construct(
         private readonly Logger $logger,
@@ -34,6 +37,7 @@ final class ThreadResponderService
         private readonly ClaimService $claimService,
         private readonly ReplyService $replyService,
         private readonly TriageService $triageService,
+        private readonly TriageStatusService $status,
     ) {
     }
 
@@ -49,8 +53,20 @@ final class ThreadResponderService
      */
     public function respond(string $project, int $mrIid, string $sha, array $threads): array
     {
+        $mr = $this->writer->mergeRequest($project, $mrIid);
+        if ($mr === null) {
+            return $this->all($threads, ResponseOutcome::Failed);
+        }
+        $skip = $this->status->skipReason($mr) ?? ($this->status->isClaimed($mr) ? 'another triage run is working on it' : null);
+        if ($skip !== null) {
+            $this->logger->info('Autofix skipped a merge request', ['mr_iid' => $mrIid, 'reason' => $skip]);
+
+            return $this->all($threads, ResponseOutcome::Skipped);
+        }
+
         $outcomes = [];
-        $labelled = false;
+        $claims   = [];
+        $picked   = [];
 
         foreach ($threads as $thread) {
             $id    = $thread->discussionId;
@@ -71,19 +87,49 @@ final class ThreadResponderService
                 continue;
             }
 
-            if (!$labelled) {
-                $labelled = $this->writer->addLabel($project, $mrIid, ClaimService::LABEL);
-            }
-
-            try {
-                $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $this->triageService->triage($thread));
-            } finally {
-                $this->claimService->release($project, $mrIid, $id, $claim, $sha);
-            }
+            $claims[$id] = $claim;
+            $picked[]    = $thread;
         }
 
-        if ($labelled && !$this->writer->removeLabel($project, $mrIid, ClaimService::LABEL)) {
-            $this->logger->warning('Autofix working label could not be removed', ['mr_iid' => $mrIid]);
+        if ($picked === []) {
+            return $outcomes;
+        }
+
+        $run     = $this->status->start($project, $mrIid, $picked);
+        $results = [];
+
+        try {
+            foreach ($picked as $thread) {
+                $id = $thread->discussionId;
+
+                try {
+                    $verdict       = $this->triageService->triage($thread);
+                    $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $verdict);
+                    $results[$id]  = $this->status->resultFor($verdict, $outcomes[$id]);
+                } finally {
+                    $this->claimService->release($project, $mrIid, $id, $claims[$id], $sha);
+                }
+            }
+        } finally {
+            $this->status->finish($project, $mrIid, $run, $results);
+        }
+
+        return $outcomes;
+    }
+
+    /**
+     * The same outcome for every thread
+     *
+     * @param Thread[]        $threads The threads
+     * @param ResponseOutcome $outcome The outcome
+     *
+     * @return array<string, ResponseOutcome>
+     */
+    private function all(array $threads, ResponseOutcome $outcome): array
+    {
+        $outcomes = [];
+        foreach ($threads as $thread) {
+            $outcomes[$thread->discussionId] = $outcome;
         }
 
         return $outcomes;

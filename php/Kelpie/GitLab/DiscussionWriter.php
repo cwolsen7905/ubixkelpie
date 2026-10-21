@@ -114,7 +114,17 @@ final class DiscussionWriter
 
         $webUrl = $mr['web_url'] ?? '';
 
-        return new MergeRequestInfo($sha, $source, $target, ($mr['draft'] ?? false) === true, ($mr['state'] ?? '') === 'opened', $from, $to, is_string($webUrl) ? $webUrl : '');
+        return new MergeRequestInfo(
+            $sha,
+            $source,
+            $target,
+            ($mr['draft'] ?? false) === true,
+            ($mr['state'] ?? '') === 'opened',
+            $from,
+            $to,
+            is_string($webUrl) ? $webUrl : '',
+            $this->strings($mr['labels'] ?? null),
+        );
     }
 
     /**
@@ -150,6 +160,25 @@ final class DiscussionWriter
         $id      = $created['id'] ?? null;
 
         return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * Open a new MR-level discussion and say which note it starts with
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     * @param string $body    The first note
+     *
+     * @return ?array{0: string, 1: int} The discussion ID and the first note's ID, null on failure
+     */
+    public function openNote(string $project, int $mrIid, string $body): ?array
+    {
+        $created = $this->send('POST', $this->mrUrl($project, $mrIid) . '/discussions', ['body' => $body]);
+        $id      = $created['id'] ?? null;
+        $notes   = is_array($created['notes'] ?? null) ? $created['notes'] : [];
+        $first   = is_array($notes[0] ?? null) ? ($notes[0]['id'] ?? null) : null;
+
+        return is_string($id) && $id !== '' && is_int($first) ? [$id, $first] : null;
     }
 
     /**
@@ -208,6 +237,95 @@ final class DiscussionWriter
     public function removeLabel(string $project, int $mrIid, string $label): bool
     {
         return $this->send('PUT', $this->mrUrl($project, $mrIid), ['remove_labels' => $label]) !== null;
+    }
+
+    /**
+     * Replace labels on the MR in one request: others are kept, the ones to add are added, the ones to remove are removed
+     *
+     * @param string   $project The project ID or URL-encodable path
+     * @param int      $mrIid   The MR IID
+     * @param string[] $add     Labels to add
+     * @param string[] $remove  Labels to remove
+     *
+     * @return bool Whether GitLab accepted it
+     */
+    public function changeLabels(string $project, int $mrIid, array $add, array $remove): bool
+    {
+        $body = [];
+        if ($add !== []) {
+            $body['add_labels'] = implode(',', $add);
+        }
+        if ($remove !== []) {
+            $body['remove_labels'] = implode(',', $remove);
+        }
+
+        return $body === [] || $this->send('PUT', $this->mrUrl($project, $mrIid), $body) !== null;
+    }
+
+    /**
+     * Create the labels the project does not have yet
+     *
+     * @param string               $project The project ID or URL-encodable path
+     * @param array<string,string> $labels  Label title => colour
+     *
+     * @return bool Whether every label exists now
+     */
+    public function ensureLabels(string $project, array $labels): bool
+    {
+        $url      = sprintf('%s/projects/%s/labels', $this->apiUrl, rawurlencode($project));
+        $existing = $this->send('GET', $url . '?per_page=100', null);
+        if ($existing === null) {
+            return false;
+        }
+
+        $have = [];
+        foreach ($existing as $label) {
+            $title = is_array($label) ? ($label['name'] ?? null) : null;
+            if (is_string($title)) {
+                $have[] = $title;
+            }
+        }
+
+        $ok = true;
+        foreach ($labels as $title => $colour) {
+            if (!in_array($title, $have, true) && $this->send('POST', $url, ['color' => $colour, 'name' => $title]) === null) {
+                $ok = false;
+            }
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Put an emoji on a note of the MR
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     * @param int    $noteId  The note ID
+     * @param string $emoji   The GitLab emoji name, e.g. `eyes`
+     *
+     * @return bool Whether GitLab accepted it (it refuses a second one of the same name by the same user)
+     */
+    public function awardEmoji(string $project, int $mrIid, int $noteId, string $emoji): bool
+    {
+        return $this->send('POST', $this->mrUrl($project, $mrIid) . '/notes/' . $noteId . '/award_emoji', ['name' => $emoji]) !== null;
+    }
+
+    /**
+     * @param mixed $value A decoded list of strings
+     *
+     * @return list<string>
+     */
+    private function strings(mixed $value): array
+    {
+        $out = [];
+        foreach (is_array($value) ? $value : [] as $item) {
+            if (is_string($item)) {
+                $out[] = $item;
+            }
+        }
+
+        return $out;
     }
 
     /**

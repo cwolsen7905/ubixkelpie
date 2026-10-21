@@ -23,6 +23,7 @@ use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\FixerRunnerService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\SweepService;
+use Kelpie\Service\Autofix\TriageStatusService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Agent\ScriptedFixerAgent;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -189,8 +190,13 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
 
         $this->service(true)->sweep(new DateTimeImmutable());
 
-        $this->assertNotContains('POST /projects/1/merge_requests/3/discussions', $this->gitlab->requests());
-        $this->assertCount(1, $this->gitlab->notes());
+        $pipelineNotes = 0;
+        foreach ($this->gitlab->notes() as $notes) {
+            foreach ($notes as $note) {
+                $pipelineNotes += str_contains($note['body'], 'kelpie:pipeline job=55') ? 1 : 0;
+            }
+        }
+        $this->assertSame(1, $pipelineNotes); // Only the triage summary note is new
     }
 
     /**
@@ -331,6 +337,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             new ClaimService($logger, $writer, 1800),
             new ReplyService($logger, $writer),
             $triage,
+            new TriageStatusService($logger, $writer),
             new SafetyPolicy($logger),
             new ScriptedFixerAgent(static function (): bool {
                 return true;

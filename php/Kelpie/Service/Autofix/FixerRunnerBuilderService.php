@@ -62,6 +62,7 @@ final class FixerRunnerBuilderService
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
             new ReplyService($this->logger, $writer),
             $this->triageService,
+            new TriageStatusService($this->logger, $writer),
             new SafetyPolicy($this->logger),
             $this->agent,
             new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth),

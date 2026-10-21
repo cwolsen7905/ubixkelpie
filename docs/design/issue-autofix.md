@@ -81,6 +81,7 @@ Open questions (not guessed here):
   GitLab webhooks point at prod only. Other projects follow with the same steps.
 - **Labels:** `kelpie::fix` (the gate, working name), `kelpie:skip` (opt out), plus Kelpie's own
   `kelpie::triaged`, `kelpie::fix-proposed`, `kelpie::needs-human`.
+- **Merge request status labels:** see "Where triage is with a merge request" below.
 - `kelpie-bot` as Developer; `dev` protected (MR only), which it already is.
 - **CI variables:** none. The gate runs in Kelpie; the repo's own pipeline runs on the MR as for
   anyone.
@@ -159,3 +160,22 @@ run the first live test with real work on the board.
 | 8 | Limits | 5 files, 80 lines, one attempt |
 | 9 | Webhook | Per-project hook to prod now; revisit if GitLab tier changes |
 | 10 | Webhook secret | Same as today across tiers; give prod its own before enrolling more projects |
+
+## Where triage is with a merge request
+
+A person can see from the MR list where Kelpie is. A triage run on a merge request:
+
+- starts by replacing the labels with `triage: working` (any `triage: pushed`, `triage: proposed`,
+  `triage: needs you` from an earlier round, and the older `kelpie::working`, come off), posting one
+  summary note ("working on N threads") and putting 👀 on the first note of each thread it picked up;
+- ends by editing that same note into what it did per thread (fixed, already fixed and resolved,
+  proposed, or "could not answer: yours" with the reason), removing `triage: working` and leaving
+  exactly one of `triage: pushed`, `triage: proposed`, `triage: needs you`. When threads ended
+  differently the most demanding wins: needs you, then proposed, then pushed.
+
+Labels are replaced each round, never stacked, and Kelpie creates them on the project when they
+are missing. A merge request with `triage:off`, a draft, or one carrying `triage: working` (or the
+older `kelpie::working`, still read as a claim so work in flight is not run twice) is left alone;
+a skipped job is dropped for `triage:off` and drafts, and stays pending for a run in progress.
+A run that dies mid-way leaves `triage: working` behind; a person removes it by hand.
+The code is `Service/Autofix/TriageStatusService`.

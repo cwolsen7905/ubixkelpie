@@ -94,7 +94,7 @@ final class RespondServiceTest extends UbixConcreteClassOrEnumTestCase implement
 
         $this->assertTrue($result->success);
         $this->assertSame(['d1  replied'], $result->lines);
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
         foreach ($this->gitlab->requests() as $request) {
             $this->assertStringStartsNotWith('DELETE', $request);
         }

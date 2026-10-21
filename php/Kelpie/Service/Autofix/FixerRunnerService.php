@@ -8,10 +8,12 @@ use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\DataTransferObject\ThreadResult;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\FixOutcome;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
+use Kelpie\Enum\TriageStatus;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
@@ -42,19 +44,20 @@ final class FixerRunnerService
     /**
      * Constructor
      *
-     * @param Logger           $logger        Logger
-     * @param bool             $enabled       KELPIE_AUTOFIX_ENABLED
-     * @param DiscussionWriter $writer        The GitLab writer
-     * @param ClaimService     $claimService  The claim marker
-     * @param ReplyService     $replyService  The reply and label step
-     * @param TriageService    $triageService Classifies the thread
-     * @param SafetyPolicy     $safetyPolicy  The hard limits, applied to the real diff
-     * @param FixerAgent       $agent         Edits the checkout
-     * @param GateRunner       $gateRunner    The repo's gate
-     * @param Checkout         $checkout      The sandbox checkout
-     * @param AutofixJobReader $jobReader     The job reader
-     * @param AutofixJobWriter $jobWriter     The job writer
-     * @param string           $remoteUrl     The git URL of the project
+     * @param Logger              $logger        Logger
+     * @param bool                $enabled       KELPIE_AUTOFIX_ENABLED
+     * @param DiscussionWriter    $writer        The GitLab writer
+     * @param ClaimService        $claimService  The claim marker
+     * @param ReplyService        $replyService  The reply and label step
+     * @param TriageService       $triageService Classifies the thread
+     * @param TriageStatusService $status        The status labels and the summary note
+     * @param SafetyPolicy        $safetyPolicy  The hard limits, applied to the real diff
+     * @param FixerAgent          $agent         Edits the checkout
+     * @param GateRunner          $gateRunner    The repo's gate
+     * @param Checkout            $checkout      The sandbox checkout
+     * @param AutofixJobReader    $jobReader     The job reader
+     * @param AutofixJobWriter    $jobWriter     The job writer
+     * @param string              $remoteUrl     The git URL of the project
      */
     public function __construct(
         private readonly Logger $logger,
@@ -63,6 +66,7 @@ final class FixerRunnerService
         private readonly ClaimService $claimService,
         private readonly ReplyService $replyService,
         private readonly TriageService $triageService,
+        private readonly TriageStatusService $status,
         private readonly SafetyPolicy $safetyPolicy,
         private readonly FixerAgent $agent,
         private readonly GateRunner $gateRunner,
@@ -105,6 +109,15 @@ final class FixerRunnerService
             return FixOutcome::HeadMoved;
         }
 
+        if ($this->status->skipReason($mr) !== null) {
+            $this->jobWriter->supersedeJob($jobId);
+
+            return FixOutcome::Skipped;
+        }
+        if ($this->status->isClaimed($mr)) {
+            return FixOutcome::Skipped; // Left pending: another run is on this merge request
+        }
+
         $notes = $this->writer->notes($project, $mrIid, $id);
         if ($notes === null) {
             return FixOutcome::Failed;
@@ -121,16 +134,17 @@ final class FixerRunnerService
         }
 
         $this->jobWriter->markRunning($jobId);
-        $labelled = $this->writer->addLabel($project, $mrIid, ClaimService::LABEL);
-        $class    = null;
-        $commit   = null;
+        $statusRun = $this->status->start($project, $mrIid, [$thread]);
+        $class     = null;
+        $commit    = null;
+        $result    = null;
 
         try {
             $verdict = $this->triageService->triage($thread);
             $class   = $verdict->class->value;
 
             if ($verdict->class !== TriageClass::Fix) {
-                $this->replyService->respond($project, $mrIid, $id, $verdict);
+                $result  = $this->status->resultFor($verdict, $this->replyService->respond($project, $mrIid, $id, $verdict));
                 $outcome = FixOutcome::NotAFix;
             } else {
                 [$outcome, $commit] = $this->fix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft);
@@ -138,6 +152,7 @@ final class FixerRunnerService
                 if ($outcome === FixOutcome::Pushed && $commit !== null) {
                     $this->announce($project, $mrIid, $id, $commit, $mr->webUrl, $verdict->reason);
                 }
+                $result = $this->resultFor($outcome, $commit);
             }
         } catch (Throwable $e) {
             $this->logger->error('Autofix runner crashed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
@@ -145,9 +160,7 @@ final class FixerRunnerService
         } finally {
             $this->checkout->close();
             $this->claimService->release($project, $mrIid, $id, $claim, $sha);
-            if ($labelled) {
-                $this->writer->removeLabel($project, $mrIid, ClaimService::LABEL);
-            }
+            $this->status->finish($project, $mrIid, $statusRun, $result === null ? [] : [$id => $result]);
         }
 
         $done = in_array($outcome, [FixOutcome::Pushed, FixOutcome::NotAFix], true);
@@ -155,6 +168,25 @@ final class FixerRunnerService
         $this->logger->info('Autofix run finished', ['outcome' => $outcome->value, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
 
         return $outcome;
+    }
+
+    /**
+     * What a fix attempt comes to, for the summary note and the label; null when nothing was said on the thread
+     *
+     * @param FixOutcome $outcome The outcome
+     * @param ?string    $commit  The pushed commit
+     *
+     * @return ?ThreadResult
+     */
+    private function resultFor(FixOutcome $outcome, ?string $commit): ?ThreadResult
+    {
+        return match ($outcome) {
+            FixOutcome::Pushed     => new ThreadResult(TriageStatus::Pushed, 'fixed in `' . mb_substr((string) $commit, 0, 12) . '`'),
+            FixOutcome::NoChange   => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the agent made no change'),
+            FixOutcome::GateFailed => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the fix did not pass the gate'),
+            FixOutcome::Unsafe     => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the fix is outside the safety limits'),
+            default                => null,
+        };
     }
 
     /**

@@ -38,6 +38,20 @@ final class FakeGitlab implements HttpClient
     private array $labels = [];
 
     /**
+     * Labels the project has
+     *
+     * @var list<string>
+     */
+    private array $projectLabels = [];
+
+    /**
+     * Note IDs that got an emoji, as "id:name"
+     *
+     * @var list<string>
+     */
+    private array $awards = [];
+
+    /**
      * Whether resolving a thread answers with an error
      */
     private bool $resolveFails = false;
@@ -175,6 +189,38 @@ final class FakeGitlab implements HttpClient
     }
 
     /**
+     * Put labels on the MR, as if a person had
+     *
+     * @param string[] $labels The labels
+     *
+     * @return void
+     */
+    public function withLabels(array $labels): void
+    {
+        $this->labels = array_values($labels);
+    }
+
+    /**
+     * The labels the project has
+     *
+     * @return list<string>
+     */
+    public function projectLabels(): array
+    {
+        return $this->projectLabels;
+    }
+
+    /**
+     * The emoji given, as "noteId:name"
+     *
+     * @return list<string>
+     */
+    public function awards(): array
+    {
+        return $this->awards;
+    }
+
+    /**
      * The "METHOD path" of every request so far
      *
      * @return list<string>
@@ -272,10 +318,10 @@ final class FakeGitlab implements HttpClient
             return new Psr7Response(200, [], $this->trace);
         }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions$#', $path) === 1 && $method === 'POST') {
-            $id = 'ab' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);
-            $this->note($id, $this->fakeString($body['body'] ?? null), 'now', null, 'kelpie-bot');
+            $id     = 'ab' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);
+            $noteId = $this->note($id, $this->fakeString($body['body'] ?? null), 'now', null, 'kelpie-bot');
 
-            return $this->fakeJson(['id' => $id], 201);
+            return $this->fakeJson(['id' => $id, 'notes' => [['id' => $noteId]]], 201);
         }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions/(\w+)/notes/(\d+)$#', $path, $m) === 1 && $method === 'PUT') {
             if (!isset($this->notes[$m[1]])) {
@@ -326,17 +372,40 @@ final class FakeGitlab implements HttpClient
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions/(\w+)$#', $path, $m) === 1 && $method === 'GET') {
             return isset($this->notes[$m[1]]) ? $this->fakeJson($this->fakeDiscussion($m[1])) : $this->fakeJson(['message' => '404 Not found'], 404);
         }
+        if (preg_match('#^/projects/[^/]+/labels$#', $path) === 1) {
+            if ($method === 'POST') {
+                $this->projectLabels[] = $this->fakeString($body['name'] ?? null);
+
+                return $this->fakeJson(['name' => $this->fakeString($body['name'] ?? null)], 201);
+            }
+
+            $listed = [];
+            foreach ($this->projectLabels as $name) {
+                $listed[] = ['name' => $name];
+            }
+
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode($listed));
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/notes/(\d+)/award_emoji$#', $path, $m) === 1 && $method === 'POST') {
+            $award = $m[1] . ':' . $this->fakeString($body['name'] ?? null);
+            if (in_array($award, $this->awards, true)) {
+                return $this->fakeJson(['message' => '404 Award Emoji Name has already been taken'], 404);
+            }
+            $this->awards[] = $award;
+
+            return $this->fakeJson(['name' => $this->fakeString($body['name'] ?? null)], 201);
+        }
         if (preg_match('#^/projects/[^/]+/merge_requests/3$#', $path) === 1) {
             if ($method === 'PUT') {
-                $this->labels = array_values(array_diff(
-                    array_unique([...$this->labels, ...(isset($body['add_labels']) ? [$this->fakeString($body['add_labels'])] : [])]),
-                    isset($body['remove_labels']) ? [$this->fakeString($body['remove_labels'])] : [],
-                ));
+                $add          = isset($body['add_labels']) ? explode(',', $this->fakeString($body['add_labels'])) : [];
+                $remove       = isset($body['remove_labels']) ? explode(',', $this->fakeString($body['remove_labels'])) : [];
+                $this->labels = array_values(array_diff(array_unique([...$this->labels, ...$add]), $remove));
             }
 
             return $this->fakeJson([
                 'draft'             => false,
                 'iid'               => 3,
+                'labels'            => $this->labels,
                 'sha'               => str_repeat('a', 40),
                 'source_branch'     => 'feat/x',
                 'source_project_id' => 1,

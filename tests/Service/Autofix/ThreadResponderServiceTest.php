@@ -13,6 +13,7 @@ use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\ThreadResponderService;
+use Kelpie\Service\Autofix\TriageStatusService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -67,7 +68,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $outcomes = $this->responder('needs_human')->respond('1', 3, 'abc', [$this->thread('d1')]);
 
         $this->assertSame(['d1' => ResponseOutcome::Replied], $outcomes);
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels()); // The working label came off again
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels()); // The working label came off, the outcome stayed
         $bodies = array_column($this->gitlab->notes()['d1'], 'body');
         $this->assertStringContainsString('kelpie:release', $bodies[1]);
         $this->assertStringContainsString('kelpie:reply', $bodies[2]);
@@ -101,7 +102,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $outcomes = $this->responder('fix')->respond('1', 3, 'abc', [$this->thread('d1')]);
 
         $this->assertSame(['d1' => ResponseOutcome::Silent], $outcomes);
-        $this->assertSame([], $this->gitlab->labels());
+        $this->assertSame(['triage: proposed'], $this->gitlab->labels());
         $this->assertCount(2, $this->gitlab->notes()['d1']); // The original and the released claim
         $this->assertStringContainsString('kelpie:release', $this->gitlab->notes()['d1'][1]['body']);
     }
@@ -129,6 +130,52 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
+     * The run shows itself: a summary note edited into the outcome, 👀 on the thread, one status label
+     *
+     * @return void
+     */
+    public function testRunLeavesASummaryAndOneStatusLabel(): void
+    {
+        $firstNote = $this->gitlab->note('d1', 'Should we redesign this?');
+
+        $this->responder('needs_human')->respond('1', 3, 'abc', [$this->thread('d1', $firstNote)]);
+
+        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame([$firstNote . ':eyes'], $this->gitlab->awards());
+        $summaries = [];
+        foreach ($this->gitlab->notes() as $id => $notes) {
+            if ($id !== 'd1') {
+                $summaries[] = $notes[0]['body'];
+            }
+        }
+        $this->assertCount(1, $summaries);
+        $this->assertStringContainsString('**needs you**', $summaries[0]);
+        $this->assertStringContainsString('could not answer: yours — Because.', $summaries[0]);
+    }
+
+    /**
+     * `triage:off`, a draft and a run in progress (new or old label) leave the MR alone: no model call, no note, no label change
+     *
+     * @return void
+     */
+    public function testOffDraftAndClaimedMergeRequestsAreSkipped(): void
+    {
+        $this->gitlab->note('d1', 'x');
+
+        $results = [];
+        foreach ([['triage:off'], ['kelpie::working'], ['triage: working'], []] as $i => $labels) {
+            $this->gitlab->withLabels($labels);
+            $this->gitlab->mergeRequestFields(['draft' => $i === 3]);
+            $results[] = $this->responder('needs_human')->respond('1', 3, 'abc', [$this->thread('d1')]);
+        }
+
+        $this->assertSame(array_fill(0, 4, ['d1' => ResponseOutcome::Skipped]), $results);
+        $this->assertSame(0, $this->modelCalls);
+        $this->assertSame([], $this->gitlab->labels());
+        $this->assertCount(1, $this->gitlab->notes()); // Only the seeded thread
+    }
+
+    /**
      * Clean the environment
      *
      * @return void
@@ -150,13 +197,14 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
-     * @param string $id The discussion ID
+     * @param string $id          The discussion ID
+     * @param int    $firstNoteId The first note
      *
      * @return Thread
      */
-    private function thread(string $id): Thread
+    private function thread(string $id, int $firstNoteId = 1): Thread
     {
-        return new Thread($id, 1, 'alice', 'Please look.', false, 1, new DateTimeImmutable(), new DateTimeImmutable(), 'src/A.php', 3);
+        return new Thread($id, $firstNoteId, 'alice', 'Please look.', false, 1, new DateTimeImmutable(), new DateTimeImmutable(), 'src/A.php', 3);
     }
 
     /**
@@ -195,6 +243,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
                 new SafetyPolicy($logger),
                 $json,
             ),
+            new TriageStatusService($logger, $writer),
         );
     }
 }

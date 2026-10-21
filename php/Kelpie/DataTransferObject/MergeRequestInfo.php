@@ -16,14 +16,15 @@ final readonly class MergeRequestInfo implements Dto
     /**
      * Constructor
      *
-     * @param string $sha             Head commit sha of the source branch
-     * @param string $sourceBranch    The source branch
-     * @param string $targetBranch    The target branch
-     * @param bool   $draft           Whether the MR is a draft
-     * @param bool   $open            Whether the MR is open
-     * @param int    $sourceProjectId The project the source branch lives in
-     * @param int    $targetProjectId The project the MR targets
-     * @param string $webUrl          The MR's web URL, empty when GitLab did not say
+     * @param string   $sha             Head commit sha of the source branch
+     * @param string   $sourceBranch    The source branch
+     * @param string   $targetBranch    The target branch
+     * @param bool     $draft           Whether the MR is a draft
+     * @param bool     $open            Whether the MR is open
+     * @param int      $sourceProjectId The project the source branch lives in
+     * @param int      $targetProjectId The project the MR targets
+     * @param string   $webUrl          The MR's web URL, empty when GitLab did not say
+     * @param string[] $labels          The label titles on the MR
      */
     public function __construct(
         public string $sha,
@@ -34,6 +35,7 @@ final readonly class MergeRequestInfo implements Dto
         public int $sourceProjectId,
         public int $targetProjectId,
         public string $webUrl = '',
+        public array $labels = [],
     ) {
     }
 }

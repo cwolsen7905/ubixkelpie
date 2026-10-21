@@ -49,7 +49,8 @@ kelpie-review:
       git fetch -q --depth=100 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || true
       # The review runs as the runner's own uid/gid, so nothing it writes is root-owned. Only the
       # variables listed are passed in; the model reads the checkout through its read-only tools.
-      docker run --rm --name "kelpie-review-$CI_JOB_ID" --user "$(id -u):$(id -g)" \
+      rc=0
+      docker run --name "kelpie-review-$CI_JOB_ID" --user "$(id -u):$(id -g)" \
         -v "$CI_PROJECT_DIR:/repo:ro" \
         -e HOME=/tmp -e LOGGER_PATH=/tmp -e LOG_LEVEL=warning -e IS_DEV=false -e AI_REVIEW_REPO=/repo \
         -e OPENROUTER_API_KEY -e AI_REVIEW_GITLAB_TOKEN \
@@ -57,7 +58,16 @@ kelpie-review:
         -e AI_REVIEW_MAX_BYTES -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL -e AI_REVIEW_MAX_TURNS \
         -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
         -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
-        --entrypoint php "$KELPIE_REVIEW_IMAGE" /web/bin/ubix kelpie:review
+        --entrypoint php "$KELPIE_REVIEW_IMAGE" /web/bin/ubix kelpie:review || rc=$?
+      # The container is kept (after_script removes it) so its log files, written under /tmp, can
+      # be shown when the review could not run: otherwise the reason is lost with the container.
+      if [ "$rc" -ne 0 ]; then
+        logs=$(mktemp -d)
+        docker cp "kelpie-review-$CI_JOB_ID:/tmp/." "$logs" >/dev/null 2>&1 || true
+        for f in "$logs"/*.log "$logs"/*/*.log; do [ -f "$f" ] && { echo "kelpie-review: container log $(basename "$f"):" >&2; tail -n 50 "$f" >&2; }; done
+        rm -rf "$logs"
+      fi
+      exit "$rc"
   after_script:
     # Nothing here may fail the job: every command is guarded and quiet.
     - docker rm -f "kelpie-review-$CI_JOB_ID" >/dev/null 2>&1 || true

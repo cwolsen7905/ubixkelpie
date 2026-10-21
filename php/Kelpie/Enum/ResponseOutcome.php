@@ -15,5 +15,6 @@ enum ResponseOutcome: string
     case Silent          = 'silent';
     case AlreadyAnswered = 'already_answered';
     case ClaimedByOther  = 'claimed_by_other';
+    case Skipped         = 'skipped';
     case Failed          = 'failed';
 }

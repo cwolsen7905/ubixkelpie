@@ -81,6 +81,33 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * Labels are changed in one request, project labels are created once, 👀 lands on a note, a summary note is opened
+     *
+     * @return void
+     */
+    public function testStatusCalls(): void
+    {
+        $writer = $this->gitlab->writer($this->createStub(Logger::class));
+
+        $this->gitlab->withLabels(['old', 'gone']);
+        $this->assertTrue($writer->changeLabels('1', 3, ['new', 'newer'], ['gone']));
+        $this->assertSame(['old', 'new', 'newer'], $this->gitlab->labels());
+        $this->assertSame(['old', 'new', 'newer'], $writer->mergeRequest('1', 3)?->labels);
+        $this->assertTrue($writer->changeLabels('1', 3, [], []));
+
+        $this->assertTrue($writer->ensureLabels('1', ['a' => '#000000', 'b' => '#ffffff']));
+        $this->assertTrue($writer->ensureLabels('1', ['a' => '#000000', 'c' => '#ffffff']));
+        $this->assertSame(['a', 'b', 'c'], $this->gitlab->projectLabels());
+
+        $this->assertTrue($writer->awardEmoji('1', 3, 7, 'eyes'));
+        $this->assertFalse($writer->awardEmoji('1', 3, 7, 'eyes'));
+
+        $opened = $writer->openNote('1', 3, 'summary');
+        $this->assertNotNull($opened);
+        $this->assertSame($this->gitlab->notes()[$opened[0]][0]['id'], $opened[1]);
+    }
+
+    /**
      * The MR facts the fixer needs are read, and a fork is told apart
      *
      * @return void

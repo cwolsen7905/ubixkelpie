@@ -75,6 +75,7 @@ final class RespondService
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
             new ReplyService($this->logger, $writer),
             $this->triageService,
+            new TriageStatusService($this->logger, $writer),
         );
 
         $lines = [];

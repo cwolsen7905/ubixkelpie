@@ -30,7 +30,11 @@ fallback to the environment list when the table is empty: an unenrolled project 
 | `max_fix_commits_per_mr` | Fix commits per merge request | 3 |
 
 A `triage:off` label on an issue or merge request switches triage off for that one item, in any
-mode but `off`. It never changes the table.
+mode but `off`. It never changes the table. A draft merge request is skipped the same way.
+
+While triage works on a merge request it shows `triage: working`, and a finished run leaves one of
+`triage: pushed`, `triage: proposed` or `triage: needs you` (see "Where triage is with a merge
+request" in `docs/design/issue-autofix.md`). Kelpie creates these labels on the project if missing.
 
 ## Rollout
 

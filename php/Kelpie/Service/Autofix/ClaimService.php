@@ -22,8 +22,6 @@ use Psr\Log\LoggerInterface as Logger;
  */
 final class ClaimService
 {
-    public const string LABEL = 'kelpie::working';
-
     private const int DEFAULT_TTL_SECONDS = 1800;
 
     /**

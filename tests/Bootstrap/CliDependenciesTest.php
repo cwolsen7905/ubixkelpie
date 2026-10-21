@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Bootstrap;
 use DI\Container;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
+use Kelpie\OpenRouter\Review\ReviewChatClient;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use ReflectionProperty;
@@ -16,7 +17,7 @@ use Ubix\HttpClient\CurlHttpClient;
  * PHPUnit test case for bin/cli-dependencies.php
  *
  * What must hold:
- * - OpenRouter's client gets 150 s by default and OPENROUTER_HTTP_TIMEOUT seconds when it is set
+ * - OpenRouter's clients (the text client and the review's chat client) get 150 s by default and OPENROUTER_HTTP_TIMEOUT seconds when it is set
  * - An unusable value falls back to the default
  * - The shared client, which GitLab uses, keeps the framework's own timeout
  */
@@ -48,6 +49,20 @@ final class CliDependenciesTest extends TestCase
         putenv('OPENROUTER_HTTP_TIMEOUT=200');
 
         self::assertSame(200, $this->timeoutOf($this->container()->get(OpenRouterClient::class)));
+    }
+
+    /**
+     * It gives the review's chat client the same timeout, since the review loop calls the model through it
+     *
+     * @return void
+     */
+    public function testReviewChatClientGetsTheOpenRouterTimeout(): void
+    {
+        putenv('OPENROUTER_HTTP_TIMEOUT');
+        self::assertSame(self::DEFAULT_TIMEOUT, $this->timeoutOf($this->container()->get(ReviewChatClient::class)));
+
+        putenv('OPENROUTER_HTTP_TIMEOUT=200');
+        self::assertSame(200, $this->timeoutOf($this->container()->get(ReviewChatClient::class)));
     }
 
     /**

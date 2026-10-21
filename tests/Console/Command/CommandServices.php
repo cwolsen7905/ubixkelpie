@@ -73,6 +73,22 @@ final class CommandServices
     }
 
     /**
+     * @return AutofixJobService
+     */
+    public function jobs(): AutofixJobService
+    {
+        return $this->jobs;
+    }
+
+    /**
+     * @return FixerRunnerBuilderService
+     */
+    public function runners(): FixerRunnerBuilderService
+    {
+        return $this->runners;
+    }
+
+    /**
      * @return FixThreadService
      */
     public function fix(): FixThreadService
@@ -93,7 +109,7 @@ final class CommandServices
      */
     public function sweep(): SweepRunService
     {
-        return new SweepRunService($this->logger, $this->gitlab, $this->runners, $this->jobs, $this->settings);
+        return new SweepRunService($this->logger, $this->gitlab, $this->jobs, $this->settings);
     }
 
     /**

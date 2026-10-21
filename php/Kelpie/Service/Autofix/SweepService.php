@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\Enum\EnqueueOutcome;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\GitLab\JobLogReader;
@@ -16,7 +17,7 @@ use Kelpie\Policy\EventFilter;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
- * The scheduled safety net: walk the open MRs and feed what needs resolution to the webhook's entry point
+ * The scheduled safety net: walk the open MRs and put what needs resolution on the job table for `kelpie:work`
  *
  * Every unresolved thread becomes a synthetic Note Hook payload and a failed gate job of the head
  * pipeline a synthetic Pipeline Hook payload, both handed to `EnqueueService::enqueue`, so the same
@@ -24,8 +25,10 @@ use Psr\Log\LoggerInterface as Logger;
  * as one MR thread (marked, so it is opened once per job), after which it is an ordinary thread for
  * triage, the fixer, the caps and the replies.
  *
- * With `$enabled` false nothing is written anywhere: candidates are only reported. With it true at most
- * `$maxRuns` threads are run per sweep.
+ * The sweep runs nothing itself: `kelpie:work` is the one runner, so the two cannot race. A thread that
+ * already has a job open is coalesced into it; one that is already answered is not queued again. With
+ * `$enabled` false nothing is written anywhere: candidates are only reported. With it true at most
+ * `$maxRuns` jobs are queued per sweep. `sweepMr` is also what the worker calls for a finished review job.
  *
  * @see \Kelpie\Tests\Service\Autofix\SweepServiceTest PHPUnit test case
  */
@@ -36,18 +39,18 @@ final class SweepService
     /**
      * Constructor
      *
-     * @param Logger               $logger     Logger
-     * @param bool                 $enabled    Whether `KELPIE_AUTOFIX_ENABLED` is on
-     * @param string[]             $projects   Allow-listed project paths
-     * @param int                  $maxRuns    Most threads run per sweep
-     * @param EnqueueService       $enqueue    The webhook's entry point
-     * @param MergeRequestLister   $lister     Lists open MRs
-     * @param DiscussionReader     $reader     Reads unresolved threads
-     * @param DiscussionWriter     $writer     Opens the pipeline thread
-     * @param JobLogReader         $logReader  Reads failed jobs and their logs
-     * @param AutofixJobService    $jobs       The job state
-     * @param FixerRunnerService[] $runners    The fixer by project path (the git remote differs)
-     * @param string[]             $gateStages Pipeline stages whose failure is fixable
+     * @param Logger             $logger     Logger
+     * @param bool               $enabled    Whether `KELPIE_AUTOFIX_ENABLED` is on
+     * @param string[]           $projects   Allow-listed project paths
+     * @param int                $maxRuns    Most jobs queued per sweep
+     * @param EnqueueService     $enqueue    The webhook's entry point
+     * @param MergeRequestLister $lister     Lists open MRs
+     * @param DiscussionReader   $reader     Reads unresolved threads
+     * @param DiscussionWriter   $writer     Opens the pipeline thread
+     * @param JobLogReader       $logReader  Reads failed jobs and their logs
+     * @param AutofixJobService  $jobs       The job table
+     * @param ReplyService       $replies    Tells whether a thread is already answered
+     * @param string[]           $gateStages Pipeline stages whose failure is fixable
      */
     public function __construct(
         private readonly Logger $logger,
@@ -60,7 +63,7 @@ final class SweepService
         private readonly DiscussionWriter $writer,
         private readonly JobLogReader $logReader,
         private readonly AutofixJobService $jobs,
-        private readonly array $runners,
+        private readonly ReplyService $replies,
         private readonly array $gateStages = EventFilter::GATE_STAGES,
     ) {
     }
@@ -74,50 +77,73 @@ final class SweepService
      */
     public function sweep(DateTimeImmutable $now): array
     {
-        $lines = [];
-        $runs  = 0;
+        $lines  = [];
+        $queued = 0;
 
         foreach ($this->projects as $path) {
             foreach ($this->lister->open($path) as $mr) {
-                foreach ($this->candidates($path, $mr) as $candidate) {
-                    if (is_string($candidate)) {
-                        $lines[] = $candidate;
-                        continue;
-                    }
-
-                    [$job, $thread] = $candidate;
-                    $label          = sprintf('%s!%d %s', $path, $mr->iid, $thread->discussionId);
-
-                    if (!$this->enabled) {
-                        $lines[] = $label . '  would run (autofix disabled)';
-                        continue;
-                    }
-                    if ($runs >= $this->maxRuns) {
-                        $lines[] = $label . '  deferred (sweep run limit)';
-                        continue;
-                    }
-
-                    [$outcome, $record] = $this->jobs->pendingJob($job, $now);
-                    if ($record === null || $record->getId() === null) {
-                        $lines[] = $label . '  not run (' . $outcome->value . ')';
-                        continue;
-                    }
-
-                    $runner = $this->runners[$path] ?? null;
-                    if ($runner === null) {
-                        $lines[] = $label . '  not run (no fixer for the project)';
-                        continue;
-                    }
-
-                    $runs++;
-                    $result  = $runner->run((string) $mr->projectId, $path, $mr->iid, $thread, $mr->sha, $record->getId());
-                    $lines[] = $label . '  ' . $result->value;
-                    $this->logger->info('Autofix sweep: ran', ['mr_iid' => $mr->iid, 'outcome' => $result->value, 'project_path' => $path]);
-                }
+                [$mrLines, $count] = $this->sweepMr($path, $mr, $now, $this->maxRuns - $queued);
+                $lines             = [...$lines, ...$mrLines];
+                $queued           += $count;
             }
         }
 
         return $lines;
+    }
+
+    /**
+     * Sweep one open MR: queue a job for each thread (and failed gate job) that needs resolution
+     *
+     * @param string              $path   The project path
+     * @param MergeRequestSummary $mr     The MR
+     * @param DateTimeImmutable   $now    The current time, for the daily cap
+     * @param int                 $budget Most jobs to queue for this MR
+     *
+     * @return array{0: list<string>, 1: int} One line per thread or pipeline job considered, and how many jobs were queued
+     */
+    public function sweepMr(string $path, MergeRequestSummary $mr, DateTimeImmutable $now, int $budget): array
+    {
+        $lines  = [];
+        $queued = 0;
+
+        foreach ($this->candidates($path, $mr) as $candidate) {
+            if (is_string($candidate)) {
+                $lines[] = $candidate;
+                continue;
+            }
+
+            [$job, $thread] = $candidate;
+            $label          = sprintf('%s!%d %s', $path, $mr->iid, $thread->discussionId);
+
+            if (!$this->enabled) {
+                $lines[] = $label . '  would queue (autofix disabled)';
+                continue;
+            }
+            if ($queued >= $budget) {
+                $lines[] = $label . '  deferred (sweep run limit)';
+                continue;
+            }
+
+            $notes = $this->writer->notes((string) $mr->projectId, $mr->iid, $thread->discussionId);
+            if ($notes !== null && $this->replies->isAnswered($notes, $thread->discussionId)) {
+                $lines[] = $label . '  skipped: already answered';
+                continue;
+            }
+
+            [$outcome, $record] = $this->jobs->pendingJob($job, $now);
+            if ($record === null || $record->getId() === null) {
+                $lines[] = $label . '  not queued (' . $outcome->value . ')';
+                continue;
+            }
+
+            if ($outcome === EnqueueOutcome::Enqueued) {
+                $queued++;
+            }
+            $lines[] = $label . '  queued (job ' . $record->getId() . ', ' . $outcome->value . ')';
+            $this->logger->info('Autofix sweep: queued', ['job_id' => $record->getId(), 'mr_iid' => $mr->iid, 'outcome' => $outcome->value, 'project_path' => $path]);
+        }
+
+        return [$lines, $queued];
     }
 
     /**

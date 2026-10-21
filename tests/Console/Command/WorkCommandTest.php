@@ -17,6 +17,7 @@ use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
 use Symfony\Component\Console\Tester\CommandTester;
 use Ubix\Service\JsonService;
+use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
@@ -93,6 +94,8 @@ final class WorkCommandTest extends UbixConcreteClassOrEnumTestCase implements I
         $http    = $this->createStub(HttpClient::class);
         $http->method('sendRequest')->willReturn(new Psr7Response(404));
 
+        $services = new CommandServices($logger, $http, $this->createStub(SqlService::class), $settings);
+
         return new WorkCommand($logger, new WorkRunService(
             $logger,
             new GitlabClientFactory($logger, $http, $factory, $factory, $json, $settings),
@@ -102,6 +105,9 @@ final class WorkCommandTest extends UbixConcreteClassOrEnumTestCase implements I
             new IssueTriagePrompt($logger),
             $json,
             $settings,
+            $services->jobs(),
+            $services->sweep(),
+            $services->runners(),
             0,
         ));
     }

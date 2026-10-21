@@ -177,4 +177,56 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
             $this->commitSha   = $commitSha;
         }
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getDueJob(array $projects, DateTimeImmutable $now, int $maxAttempts): ?AutofixJobRecord
+    {
+        $this->log[] = __FUNCTION__ . ':' . implode(',', $projects) . ',' . $now->format('c') . ',' . $maxAttempts;
+
+        return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getJobLockedBy(int $id, string $workerId): ?AutofixJobRecord
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id . ',' . $workerId;
+
+        return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function lockJob(int $id, int $attempt, string $workerId, DateTimeImmutable $now, int $lockSeconds): void
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id . ',' . $workerId . ',' . $attempt . ',' . $now->format('c') . ',' . $lockSeconds;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function markDone(int $id): void
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function markRetry(int $id, DateTimeImmutable $nextAttemptAt, string $error): void
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id . ',' . $nextAttemptAt->format('c') . ',' . $error;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function markFailed(int $id, string $error): void
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id . ',' . $error;
+    }
 }

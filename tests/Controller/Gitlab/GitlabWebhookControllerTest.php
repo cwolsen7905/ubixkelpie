@@ -7,6 +7,8 @@ namespace Kelpie\Tests\Controller\Gitlab;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Policy\EventFilter;
+use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
+use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
@@ -27,6 +29,7 @@ use Ubix\Exception\HttpClientException;
 use Ubix\Renderer\TemplateRenderer;
 use Ubix\Service\Ci\ApprovalWebhookService;
 use Ubix\Service\JsonService;
+use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
@@ -214,6 +217,30 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
 
         $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
         $this->assertStringContainsString('queued: ubixsys/ubixkelpie!3@abc', stripslashes((string) $result->getBody()));
+    }
+
+    /**
+     * A finished review Job Hook is written as a job for the worker
+     *
+     * @return void
+     */
+    public function testAFinishedReviewJobHookIsQueued(): void
+    {
+        $controller = $this->makeController($this->captureLogger(), 'secret');
+        $payload    = $this->encode([
+            'build_name'   => 'kelpie-review',
+            'build_status' => 'success',
+            'project'      => ['path_with_namespace' => 'ubixsys/ubixkelpie'],
+            'sha'          => 'abc',
+        ]);
+
+        $request = (new ServerRequest('POST', '/gitlab/webhook', ['X-Gitlab-Token' => 'secret', 'X-Gitlab-Event' => 'Job Hook']))
+            ->withBody((new StreamFactory())->createStream($payload));
+
+        $result = $controller->webhook($request, new Response());
+
+        $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
+        $this->assertStringContainsString('queued: ubixsys/ubixkelpie!0@abc (enqueued)', stripslashes((string) $result->getBody()));
     }
 
     /**
@@ -602,6 +629,11 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             ['require-approval', 'require-approval-mr'],
         );
 
+        $sql = $this->createStub(SqlService::class);
+        $sql->method('query')->willReturn(1);
+        $sql->method('lastInsertId')->willReturn('7');
+        $sql->method('getColumn')->willReturn('0');
+
         return new GitlabWebhookController(
             $logger,
             $templateRender,
@@ -609,7 +641,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             $noteService,
             $issueService,
             $approvalService,
-            new EnqueueService($logger, new EventFilter($logger)),
+            new EnqueueService($logger, new EventFilter($logger), new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql)), true),
             $secret,
         );
     }

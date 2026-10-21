@@ -139,6 +139,26 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
     }
 
     /**
+     * A fan-out job runs nothing, so the caps (here the commits per MR) do not bind it, and a review job is keyed by its head
+     *
+     * @return void
+     */
+    public function testFanOutJobsAreNotCapped(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('createJob')->with($this->callback(
+            static function (AutofixJobRecord $job): bool {
+                return $job->getThreadKey() === 'review-abc' && $job->getDiscussionId() === null;
+            },
+        ));
+
+        $input = new AutofixJob('g/p', 0, 'abc', AutofixJob::REVIEW);
+
+        $this->assertSame('review-abc', $this->coalescer(null, $writer, 99)->threadKey($input));
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->coalescer(null, $writer, 99)->enqueue($input, new DateTimeImmutable()));
+    }
+
+    /**
      * Losing the unique-index race coalesces
      *
      * @return void

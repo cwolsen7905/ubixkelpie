@@ -62,4 +62,25 @@ interface AutofixJobReaderInterface
      * @return int The number of jobs created since then, superseded ones included
      */
     public function countJobsSince(string $projectPath, DateTimeImmutable $since): int;
+
+    /**
+     * The oldest MR job a worker may take: pending or with an expired lease, due, and under the attempt limit
+     *
+     * @param string[]          $projects    Allow-listed project paths
+     * @param DateTimeImmutable $now         The current time
+     * @param int               $maxAttempts Attempts after which a job is not offered again
+     *
+     * @return ?AutofixJobRecord
+     */
+    public function getDueJob(array $projects, DateTimeImmutable $now, int $maxAttempts): ?AutofixJobRecord;
+
+    /**
+     * The running job this worker holds the lease on
+     *
+     * @param int    $id       The job id
+     * @param string $workerId The worker
+     *
+     * @return ?AutofixJobRecord
+     */
+    public function getJobLockedBy(int $id, string $workerId): ?AutofixJobRecord;
 }

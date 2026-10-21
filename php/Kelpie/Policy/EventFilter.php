@@ -23,6 +23,11 @@ final class EventFilter
      */
     public const array GATE_STAGES = ['lint', 'test', 'lint-and-test', 'static-analysis'];
 
+    /**
+     * The CI job that posts the review threads
+     */
+    public const array REVIEW_JOBS = ['kelpie-review'];
+
     private const string MARKER = '<!-- kelpie:';
 
     private const string TRAILER = 'Kelpie-Autofix:';
@@ -37,6 +42,7 @@ final class EventFilter
      * @param string[] $targetBranches MR target branches that may be fixed
      * @param string[] $skipBranches   Source branch prefixes owned by Shepherd
      * @param string[] $gateStages     Pipeline stages whose failure is fixable
+     * @param string[] $reviewJobs     Names of the CI jobs whose finishing means the review threads are posted
      */
     public function __construct(
         private readonly Logger $logger,
@@ -46,6 +52,7 @@ final class EventFilter
         private readonly array $targetBranches = ['dev', 'staging'],
         private readonly array $skipBranches = [],
         private readonly array $gateStages = self::GATE_STAGES,
+        private readonly array $reviewJobs = self::REVIEW_JOBS,
     ) {
     }
 
@@ -62,6 +69,7 @@ final class EventFilter
         $result = match ($event) {
             'note hook' => $this->note($payload),
             'pipeline hook' => $this->pipeline($payload),
+            'job hook' => $this->job($payload),
             default => 'not an autofix event',
         };
 
@@ -154,6 +162,43 @@ final class EventFilter
             $sha,
             'pipeline',
         );
+    }
+
+    /**
+     * A finished review job: the MR's threads are now posted, so they are worth looking at
+     *
+     * The payload does not name the MR, so the job carries only the head sha (MR iid 0) and the worker finds the MR.
+     * A review that failed still posted what it found, so success and failed both count.
+     *
+     * @param array<int|string, mixed> $payload The Job Hook payload
+     *
+     * @return AutofixJob|string
+     */
+    private function job(array $payload): AutofixJob|string
+    {
+        if (!in_array($this->str($payload, 'build_name'), $this->reviewJobs, true)) {
+            return 'not a review job';
+        }
+        if (!in_array($this->str($payload, 'build_status'), ['success', 'failed'], true)) {
+            return 'review job not finished';
+        }
+        $path = $this->str($this->arr($payload, 'project'), 'path_with_namespace');
+        if (!in_array($path, $this->projects, true)) {
+            return 'project not allow-listed';
+        }
+        $skip = $this->skipUser($payload);
+        if ($skip !== null) {
+            return $skip;
+        }
+        if (str_contains($this->str($this->arr($payload, 'commit'), 'message'), self::TRAILER)) {
+            return 'head is a kelpie-autofix commit';
+        }
+        $sha = $this->str($payload, 'sha');
+        if ($sha === '') {
+            return 'no head sha';
+        }
+
+        return new AutofixJob($path, 0, $sha, AutofixJob::REVIEW);
     }
 
     /**

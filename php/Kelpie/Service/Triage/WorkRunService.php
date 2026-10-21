@@ -12,11 +12,15 @@ use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriageJobReader;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
+use Kelpie\Service\Autofix\AutofixJobService;
+use Kelpie\Service\Autofix\FixerRunnerBuilderService;
+use Kelpie\Service\Autofix\MrJobWorkerService;
+use Kelpie\Service\Autofix\SweepRunService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
 
 /**
- * The `kelpie:work` loop: poll the queue, triage what is due, stop after a bounded run
+ * The `kelpie:work` loop: poll the queue, run what is due (merge request jobs first, then issue triage), stop after a bounded run
  *
  * The loop ends by itself (a job count or a time limit) and the Deployment restarts it, so memory
  * stays bounded and no signal handling is needed. A kill after a claim is safe: the lock expires
@@ -33,15 +37,18 @@ final class WorkRunService
     /**
      * Constructor
      *
-     * @param Logger               $logger           Logger
-     * @param GitlabClientFactory  $gitlab           Builds the issue client from the settings
-     * @param IssueTriageJobReader $reader           Reads the due jobs
-     * @param IssueTriageJobWriter $writer           Locks and settles jobs
-     * @param OpenRouterClient     $openRouterClient The model client
-     * @param IssueTriagePrompt    $prompt           The issue prompt
-     * @param JsonService          $jsonService      JSON service
-     * @param AutofixSettings      $settings         The settings: flags, project list, tokens
-     * @param int                  $pollSeconds      Seconds to sleep when nothing is due
+     * @param Logger                    $logger           Logger
+     * @param GitlabClientFactory       $gitlab           Builds the issue client from the settings
+     * @param IssueTriageJobReader      $reader           Reads the due jobs
+     * @param IssueTriageJobWriter      $writer           Locks and settles jobs
+     * @param OpenRouterClient          $openRouterClient The model client
+     * @param IssueTriagePrompt         $prompt           The issue prompt
+     * @param JsonService               $jsonService      JSON service
+     * @param AutofixSettings           $settings         The settings: flags, project list, tokens
+     * @param AutofixJobService         $jobs             The merge request job table
+     * @param SweepRunService           $sweepRun         Builds the sweep that fan-out jobs use
+     * @param FixerRunnerBuilderService $runners          The fixer runner factory
+     * @param int                       $pollSeconds      Seconds to sleep when nothing is due
      */
     public function __construct(
         private readonly Logger $logger,
@@ -52,6 +59,9 @@ final class WorkRunService
         private readonly IssueTriagePrompt $prompt,
         private readonly JsonService $jsonService,
         private readonly AutofixSettings $settings,
+        private readonly AutofixJobService $jobs,
+        private readonly SweepRunService $sweepRun,
+        private readonly FixerRunnerBuilderService $runners,
         private readonly int $pollSeconds = 5,
     ) {
     }
@@ -75,21 +85,33 @@ final class WorkRunService
         }
 
         if (!$settings->enabled) {
-            $this->logger->warning('Issue triage worker: KELPIE_AUTOFIX_ENABLED is not "true"; idling, nothing is claimed');
+            $this->logger->warning('Worker: KELPIE_AUTOFIX_ENABLED is not "true"; idling, nothing is claimed');
         }
 
-        $worker = new IssueTriageWorkerService(
+        $workerId = bin2hex(random_bytes(8));
+        $mrWorker = new MrJobWorkerService(
+            $this->logger,
+            $this->jobs->reader(),
+            $this->jobs->writer(),
+            $this->gitlab->lister(),
+            $this->gitlab->reader(),
+            $this->sweepRun->service(max(1, $settings->sweepMaxRuns)),
+            $this->runners,
+            $workerId,
+        );
+        $worker   = new IssueTriageWorkerService(
             $this->logger,
             $this->reader,
             $this->writer,
             new IssueTriageService($this->logger, $this->gitlab->issueClient(), $this->openRouterClient, $this->prompt, $this->jsonService, $settings->botUsername),
-            bin2hex(random_bytes(8)),
+            $workerId,
         );
 
         $deadline = (new DateTimeImmutable())->modify('+' . $timeLimit . ' seconds');
         $taken    = 0;
         while ($taken < $jobLimit && new DateTimeImmutable() < $deadline) {
-            if ($worker->step($settings->enabled, $settings->projects, new DateTimeImmutable())) {
+            $now = new DateTimeImmutable();
+            if ($mrWorker->step($settings->enabled, $settings->projects, $now) || $worker->step($settings->enabled, $settings->projects, $now)) {
                 ++$taken;
                 continue;
             }

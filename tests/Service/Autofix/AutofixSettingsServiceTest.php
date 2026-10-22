@@ -51,7 +51,6 @@ final class AutofixSettingsServiceTest extends UbixConcreteClassOrEnumTestCase i
         $this->assertSame('', $settings->apiUrl);
         $this->assertSame('anthropic/claude-sonnet-5.5', $settings->fixerModel);
         $this->assertFalse($settings->enabled);
-        $this->assertSame(['ubixsys/ubixkelpie'], $settings->projects);
         $this->assertSame(1800, $settings->claimTtl);
         $this->assertSame(5, $settings->sweepMaxRuns);
         $this->assertSame('kelpie-bot', $settings->botUsername);
@@ -79,7 +78,6 @@ final class AutofixSettingsServiceTest extends UbixConcreteClassOrEnumTestCase i
     public function testReadsTheEnvironment(): void
     {
         putenv('GITLAB_API_URL=https://gitlab.test/api/v4/');
-        putenv('KELPIE_AUTOFIX_PROJECTS= a/b , ,c/d');
         putenv('KELPIE_SKIP_AUTHORS=x, y');
         putenv('KELPIE_SKIP_BRANCHES=release/');
         putenv('KELPIE_CLAIM_TTL_SECONDS=60');
@@ -89,7 +87,6 @@ final class AutofixSettingsServiceTest extends UbixConcreteClassOrEnumTestCase i
         $settings = $this->settings();
 
         $this->assertSame('https://gitlab.test/api/v4', $settings->apiUrl);
-        $this->assertSame(['a/b', 'c/d'], $settings->projects);
         $this->assertSame(['x', 'y'], $settings->skipAuthors);
         $this->assertSame(['release/'], $settings->skipBranches);
         $this->assertSame(60, $settings->claimTtl);

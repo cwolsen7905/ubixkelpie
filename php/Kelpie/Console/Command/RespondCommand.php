@@ -16,8 +16,8 @@ use Symfony\Component\Console\Output\OutputInterface as Output;
  * Triage the unresolved threads of one MR and answer them on GitLab
  *
  * Unlike `kelpie:triage` this writes: claim notes, replies and labels, as the kelpie-bot user
- * (`KELPIE_BOT_GITLAB_TOKEN`). It changes no code. Only allow-listed projects
- * (`KELPIE_AUTOFIX_PROJECTS`, default `ubixsys/ubixkelpie`).
+ * (`KELPIE_BOT_GITLAB_TOKEN`). It changes no code. Only projects whose mode in
+ * `projects` is `propose` or `push`.
  *
  * @see \Kelpie\Tests\Console\Command\RespondCommandTest PHPUnit test case
  */

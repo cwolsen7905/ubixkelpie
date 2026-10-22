@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Autofix;
 
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
@@ -13,6 +14,7 @@ use Kelpie\Service\Autofix\RespondService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -63,6 +65,22 @@ final class RespondServiceTest extends UbixConcreteClassOrEnumTestCase implement
         $this->assertTrue($service->respond('3', '1', 'other/project')->isError);
 
         $this->assertFalse($this->service(new AutofixSettings(apiUrl: 'https://gitlab.test/api/v4'))->respond('3', '1', 'ubixsys/ubixkelpie')->success);
+        $this->assertSame([], $this->gitlab->requests());
+    }
+
+    /**
+     * A project that is off, or has no row, is refused before any GitLab call
+     *
+     * @return void
+     */
+    public function testNeedsAProjectThatIsNotOff(): void
+    {
+        foreach ([[], ['ubixsys/ubixkelpie' => ProjectMode::Off]] as $modes) {
+            $result = $this->service(null, $modes)->respond('3', '1', 'ubixsys/ubixkelpie');
+
+            $this->assertTrue($result->isError);
+            $this->assertStringContainsString('not enrolled', $result->lines[0]);
+        }
         $this->assertSame([], $this->gitlab->requests());
     }
 
@@ -137,12 +155,14 @@ final class RespondServiceTest extends UbixConcreteClassOrEnumTestCase implement
     /**
      * Build the service over the fake GitLab and a model that always says needs_human
      *
-     * @param ?AutofixSettings $settings The settings; a configured bot on ubixsys/ubixkelpie when null
+     * @param ?AutofixSettings            $settings The settings; a configured bot on ubixsys/ubixkelpie when null
+     * @param ?array<string, ProjectMode> $modes    The projects table; ubixsys/ubixkelpie in propose when null
      *
      * @return RespondService
      */
-    private function service(?AutofixSettings $settings = null): RespondService
+    private function service(?AutofixSettings $settings = null, ?array $modes = null): RespondService
     {
+        $modes    ??= ['ubixsys/ubixkelpie' => ProjectMode::Propose];
         $settings ??= new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real');
         $logger     = $this->createStub(Logger::class);
         $json       = new JsonService($logger);
@@ -169,6 +189,6 @@ final class RespondServiceTest extends UbixConcreteClassOrEnumTestCase implement
             new LlmFamilyService($logger),
         );
 
-        return new RespondService($logger, new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings), $triage, $settings);
+        return new RespondService($logger, new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings), $triage, $settings, InMemoryProjects::service($modes));
     }
 }

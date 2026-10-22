@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Triage;
 
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Service\Triage\TriageBackfillService;
 use Kelpie\Tests\GitLab\FakeIssueListGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -137,6 +139,26 @@ final class TriageBackfillServiceTest extends UbixConcreteClassOrEnumTestCase im
     }
 
     /**
+     * Only projects that are not off are listed, and one that is off or has no row is refused by name
+     *
+     * @return void
+     */
+    public function testOnlyEnrolledProjectsAreBackfilled(): void
+    {
+        $queue = new InMemoryIssueQueue();
+        $modes = ['org/proj' => ProjectMode::Propose, 'org/other' => ProjectMode::Off];
+
+        $all = $this->service($queue, $this->gitlab(), null, $modes)->backfill(dryRun: false);
+        $off = $this->service($queue, $this->gitlab(), null, $modes)->backfill('org/other', dryRun: false);
+
+        $this->assertTrue($all->success);
+        $this->assertSame(['org/proj#1', 'org/proj#6'], $queue->enqueued());
+        $this->assertFalse($off->success);
+        $this->assertTrue($off->isError);
+        $this->assertStringContainsString('not enrolled', $off->lines[0]);
+    }
+
+    /**
      * Bad input and missing settings are errors, and nothing is read or written
      *
      * @return void
@@ -228,22 +250,24 @@ final class TriageBackfillServiceTest extends UbixConcreteClassOrEnumTestCase im
      */
     private function settings(bool $enabled = true): AutofixSettings
     {
-        return new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: $enabled, projects: ['org/proj', 'org/other']);
+        return new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: $enabled);
     }
 
     /**
-     * @param InMemoryIssueQueue  $queue    The queue
-     * @param FakeIssueListGitlab $gitlab   The fake GitLab
-     * @param ?AutofixSettings    $settings The settings; enabled, two projects, when null
+     * @param InMemoryIssueQueue          $queue    The queue
+     * @param FakeIssueListGitlab         $gitlab   The fake GitLab
+     * @param ?AutofixSettings            $settings The settings; enabled, when null
+     * @param ?array<string, ProjectMode> $modes    The projects table; org/proj and org/other in propose when null
      *
      * @return TriageBackfillService
      */
-    private function service(InMemoryIssueQueue $queue, FakeIssueListGitlab $gitlab, ?AutofixSettings $settings = null): TriageBackfillService
+    private function service(InMemoryIssueQueue $queue, FakeIssueListGitlab $gitlab, ?AutofixSettings $settings = null, ?array $modes = null): TriageBackfillService
     {
+        $modes    ??= ['org/proj' => ProjectMode::Propose, 'org/other' => ProjectMode::Push];
         $settings ??= $this->settings();
         $logger     = $this->createStub(Logger::class);
         $factory    = new Psr17Factory();
 
-        return new TriageBackfillService($logger, new GitlabClientFactory($logger, $gitlab, $factory, $factory, new JsonService($logger), $settings), $queue, $queue, $settings);
+        return new TriageBackfillService($logger, new GitlabClientFactory($logger, $gitlab, $factory, $factory, new JsonService($logger), $settings), $queue, $queue, $settings, InMemoryProjects::service($modes));
     }
 }

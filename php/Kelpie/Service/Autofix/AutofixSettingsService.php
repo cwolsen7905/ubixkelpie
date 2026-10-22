@@ -10,7 +10,7 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Reads the autofix settings from the process environment
  *
- * Nothing is validated: a service decides what a missing token or an unlisted project means for its own run.
+ * Nothing is validated: a service decides what a missing token means for its own run.
  *
  * @see \Kelpie\Tests\Service\Autofix\AutofixSettingsServiceTest PHPUnit test case
  */
@@ -35,15 +35,13 @@ final class AutofixSettingsService
     {
         $this->logger->debug('Reading the autofix settings from the environment');
 
-        $apiUrl   = rtrim((string) getenv('GITLAB_API_URL'), '/');
-        $projects = $this->csv((string) (getenv('KELPIE_AUTOFIX_PROJECTS') ?: AutofixSettings::DEFAULT_PROJECT));
+        $apiUrl = rtrim((string) getenv('GITLAB_API_URL'), '/');
 
         return new AutofixSettings(
             apiUrl:        $apiUrl,
             botToken:      (string) getenv('KELPIE_BOT_GITLAB_TOKEN'),
             apiToken:      (string) getenv('GITLAB_API_TOKEN'),
             enabled:       getenv('KELPIE_AUTOFIX_ENABLED') === 'true',
-            projects:      $projects,
             ciProjectId:   (string) getenv('CI_PROJECT_ID'),
             ciProjectPath: (string) getenv('CI_PROJECT_PATH'),
             claimTtl:      (int) (getenv('KELPIE_CLAIM_TTL_SECONDS') ?: AutofixSettings::DEFAULT_CLAIM_TTL),

@@ -17,7 +17,9 @@ use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\MrJobWorkerService;
 use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Service\Autofix\SweepRunService;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 use Ubix\Service\JsonService;
 
 /**
@@ -45,11 +47,12 @@ final class WorkRunService
      * @param OpenRouterClient               $openRouterClient The model client
      * @param IssueTriagePrompt              $prompt           The issue prompt
      * @param JsonService                    $jsonService      JSON service
-     * @param AutofixSettings                $settings         The settings: flags, project list, tokens
+     * @param AutofixSettings                $settings         The settings: flags, tokens
      * @param AutofixJobService              $jobs             The merge request job table
      * @param SweepRunService                $sweepRun         Builds the sweep that fan-out jobs use
      * @param FixerRunnerBuilderService      $runners          The fixer runner factory
      * @param ProposalReactionBuilderService $reactions        Builds what acts on a thumbs on a proposal
+     * @param ProjectModeService             $modes            Which projects are enrolled, read again on every pass
      * @param int                            $pollSeconds      Seconds to sleep when nothing is due
      */
     public function __construct(
@@ -65,6 +68,7 @@ final class WorkRunService
         private readonly SweepRunService $sweepRun,
         private readonly FixerRunnerBuilderService $runners,
         private readonly ProposalReactionBuilderService $reactions,
+        private readonly ProjectModeService $modes,
         private readonly int $pollSeconds = 5,
     ) {
     }
@@ -92,17 +96,6 @@ final class WorkRunService
         }
 
         $workerId = bin2hex(random_bytes(8));
-        $mrWorker = new MrJobWorkerService(
-            $this->logger,
-            $this->jobs->reader(),
-            $this->jobs->writer(),
-            $this->gitlab->lister(),
-            $this->gitlab->reader(),
-            $this->sweepRun->service(max(1, $settings->sweepMaxRuns)),
-            $this->runners,
-            $this->reactions,
-            $workerId,
-        );
         $worker   = new IssueTriageWorkerService(
             $this->logger,
             $this->reader,
@@ -114,8 +107,11 @@ final class WorkRunService
         $deadline = (new DateTimeImmutable())->modify('+' . $timeLimit . ' seconds');
         $taken    = 0;
         while ($taken < $jobLimit && new DateTimeImmutable() < $deadline) {
-            $now = new DateTimeImmutable();
-            if ($mrWorker->step($settings->enabled, $settings->projects, $now) || $worker->step($settings->enabled, $settings->projects, $now)) {
+            $now      = new DateTimeImmutable();
+            $projects = $this->enrolled();
+            // Built on every pass: the sweep it fans out with is wired from the projects enrolled right now
+            $mrWorker = $projects === [] ? null : $this->mrWorker($workerId);
+            if (($mrWorker !== null && $mrWorker->step($settings->enabled, $projects, $now)) || $worker->step($settings->enabled, $projects, $now)) {
                 ++$taken;
                 continue;
             }
@@ -124,5 +120,41 @@ final class WorkRunService
         }
 
         return new RunResult(true, ['Worker stopped after ' . $taken . ' job(s).']);
+    }
+
+    /**
+     * The projects whose mode is not off
+     *
+     * @return string[] None when the table cannot be read: nothing is claimed rather than something it should not
+     */
+    private function enrolled(): array
+    {
+        try {
+            return $this->modes->enrolledPaths();
+        } catch (Throwable $e) {
+            $this->logger->error('Worker: the projects could not be read; nothing is claimed this pass', ['error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * @param string $workerId This worker's lease id
+     *
+     * @return MrJobWorkerService
+     */
+    private function mrWorker(string $workerId): MrJobWorkerService
+    {
+        return new MrJobWorkerService(
+            $this->logger,
+            $this->jobs->reader(),
+            $this->jobs->writer(),
+            $this->gitlab->lister(),
+            $this->gitlab->reader(),
+            $this->sweepRun->service(max(1, $this->settings->sweepMaxRuns)),
+            $this->runners,
+            $this->reactions,
+            $workerId,
+        );
     }
 }

@@ -29,7 +29,7 @@ final readonly class AutofixSettings implements Dto
      * @param string   $botToken      The kelpie-bot token (writes)
      * @param string   $apiToken      The read token of the dry-run triage
      * @param bool     $enabled       Whether autofix may run (KELPIE_AUTOFIX_ENABLED is "true")
-     * @param string[] $projects      The project paths autofix may touch
+     * @param string[] $projects      Not read: which projects Kelpie acts on is the `projects` table (ProjectModeService)
      * @param string   $ciProjectId   The default project ID (CI_PROJECT_ID)
      * @param string   $ciProjectPath The default project path (CI_PROJECT_PATH)
      * @param int      $claimTtl      Seconds a claim on a thread lasts

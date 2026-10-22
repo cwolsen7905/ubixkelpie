@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Triage;
 
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\IssueTriageJob;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
@@ -13,6 +14,7 @@ use Kelpie\Service\Triage\WorkRunService;
 use Kelpie\Tests\Console\Command\CommandServices;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -28,6 +30,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - Without GitLab or OpenRouter settings it refuses before touching the queue
  * - It takes queued jobs until its job limit and reports how many
+ * - It claims only for projects whose mode is not off, and re-reads the table on every pass
  * - With autofix off it claims nothing and stops at its time limit
  *
  * @coversDefaultClass \Kelpie\Service\Triage\WorkRunService
@@ -79,6 +82,35 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
     }
 
     /**
+     * The claim is for the projects that are enrolled now: propose and push, not off, not unlisted
+     *
+     * @return void
+     */
+    public function testClaimsOnlyForEnrolledProjects(): void
+    {
+        $queue = new InMemoryIssueQueue();
+
+        $this->service($queue, new FakeIssueGitlab(), null, ['org/a' => ProjectMode::Propose, 'org/b' => ProjectMode::Push, 'org/off' => ProjectMode::Off])->run('1', '1');
+
+        $this->assertNotSame([], $queue->claims());
+        $this->assertSame(['org/a,org/b'], array_values(array_unique($queue->claims())));
+    }
+
+    /**
+     * No row, or off, means no project is claimed for
+     *
+     * @return void
+     */
+    public function testClaimsNothingWhenNoProjectIsEnrolled(): void
+    {
+        $queue = new InMemoryIssueQueue([new IssueTriageJob(1, 'org/proj', 7, 0)]);
+
+        $this->service($queue, new FakeIssueGitlab(), null, ['org/proj' => ProjectMode::Off])->run('1', '1');
+
+        $this->assertSame([''], array_values(array_unique($queue->claims())));
+    }
+
+    /**
      * Disabled, it claims nothing, and the time limit ends the run
      *
      * @return void
@@ -120,20 +152,22 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
      */
     private function settings(bool $enabled = true): AutofixSettings
     {
-        return new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: $enabled, projects: ['org/proj'], openRouterKey: 'key-not-real');
+        return new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: $enabled, openRouterKey: 'key-not-real');
     }
 
     /**
      * Build the service over a queue and a fake GitLab, with a model that always says needs_human and no waiting between polls
      *
-     * @param InMemoryIssueQueue $queue    The queue
-     * @param FakeIssueGitlab    $gitlab   The fake GitLab
-     * @param ?AutofixSettings   $settings The settings; a working, enabled set when null
+     * @param InMemoryIssueQueue          $queue    The queue
+     * @param FakeIssueGitlab             $gitlab   The fake GitLab
+     * @param ?AutofixSettings            $settings The settings; a working, enabled set when null
+     * @param ?array<string, ProjectMode> $modes    The projects table; org/proj in propose when null
      *
      * @return WorkRunService
      */
-    private function service(InMemoryIssueQueue $queue, FakeIssueGitlab $gitlab, ?AutofixSettings $settings = null): WorkRunService
+    private function service(InMemoryIssueQueue $queue, FakeIssueGitlab $gitlab, ?AutofixSettings $settings = null, ?array $modes = null): WorkRunService
     {
+        $modes    ??= ['org/proj' => ProjectMode::Propose];
         $settings ??= $this->settings();
         $logger     = $this->createStub(Logger::class);
         $json       = new JsonService($logger);
@@ -141,7 +175,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
         $model      = $this->createStub(HttpClient::class);
         $model->method('sendRequest')->willReturn(new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => '{"class": "needs_human", "reason": "unclear"}']]]])));
 
-        $services = new CommandServices($logger, $gitlab, $this->createStub(SqlService::class), $settings);
+        $services = new CommandServices($logger, $gitlab, $this->createStub(SqlService::class), $settings, $modes);
 
         return new WorkRunService(
             $logger,
@@ -156,6 +190,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             $services->sweep(),
             $services->runners(),
             $services->reactions(),
+            InMemoryProjects::service($modes),
             0,
         );
     }

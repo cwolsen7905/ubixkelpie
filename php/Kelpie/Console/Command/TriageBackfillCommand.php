@@ -41,7 +41,7 @@ final class TriageBackfillCommand extends RunCommand
     {
         $this->setDescription('Queue open issues that have no kelpie:: label for the triage worker (a dry run unless --no-dry-run)')
             ->addOption('dry-run', null, InputOption::VALUE_NEGATABLE, 'Only list what would be queued (the default); --no-dry-run queues it', true)
-            ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Only this project path (must be in KELPIE_AUTOFIX_PROJECTS)')
+            ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Only this project path (its mode in `projects` must not be off)')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Most issues to queue in this run (default 20)');
     }
 

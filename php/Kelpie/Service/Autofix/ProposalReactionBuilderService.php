@@ -11,6 +11,7 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcom
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
 
@@ -32,6 +33,7 @@ final class ProposalReactionBuilderService
      * @param ThreadOutcomeWriter $outcomes      Where the proposal's fate is written
      * @param JsonService         $json          JSON service
      * @param AutofixSettings     $settings      The settings
+     * @param ProjectModeService  $modes         What Kelpie may do on a project
      */
     public function __construct(
         private readonly Logger $logger,
@@ -42,6 +44,7 @@ final class ProposalReactionBuilderService
         private readonly ThreadOutcomeWriter $outcomes,
         private readonly JsonService $json,
         private readonly AutofixSettings $settings,
+        private readonly ProjectModeService $modes,
     ) {
     }
 
@@ -67,6 +70,7 @@ final class ProposalReactionBuilderService
             $this->outcomes,
             $this->jobs->writer(),
             $this->json,
+            $this->modes,
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
         );
     }

@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Service\Autofix;
 use ArrayObject;
 use Generator;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
@@ -21,6 +22,7 @@ use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -121,7 +123,30 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $result = $this->service(true, $settings)->fix('3', 'd1abc123');
 
         $this->assertTrue($result->isError);
-        $this->assertStringContainsString('KELPIE_AUTOFIX_PROJECTS', $result->lines[0]);
+        $this->assertStringContainsString('not enrolled', $result->lines[0]);
+    }
+
+    /**
+     * A project that is off, or has no row, is refused before any GitLab call or job; propose and push are let through
+     *
+     * @return void
+     */
+    public function testNeedsAProjectThatIsNotOff(): void
+    {
+        foreach ([[], ['ubixsys/ubixkelpie' => ProjectMode::Off]] as $modes) {
+            $result = $this->service(true, null, $modes)->fix('3', 'd1abc123', '1', 'ubixsys/ubixkelpie');
+
+            $this->assertTrue($result->isError);
+            $this->assertStringContainsString('not enrolled', $result->lines[0]);
+        }
+        $this->assertSame([], $this->gitlab->requests());
+        $this->assertCount(0, $this->queries);
+
+        foreach ([ProjectMode::Propose, ProjectMode::Push] as $mode) {
+            $result = $this->service(true, null, ['ubixsys/ubixkelpie' => $mode])->fix('3', 'd1abc123', '1', 'ubixsys/ubixkelpie');
+
+            $this->assertStringNotContainsString('not enrolled', implode("\n", $result->lines));
+        }
     }
 
     /**
@@ -191,13 +216,15 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     /**
      * Build the service over the fake GitLab, a model that says fix, a scripted process runner and a stubbed SQL service
      *
-     * @param bool             $enabled  Whether autofix is on
-     * @param ?AutofixSettings $settings The settings; a configured bot on ubixsys/ubixkelpie when null
+     * @param bool                        $enabled  Whether autofix is on
+     * @param ?AutofixSettings            $settings The settings; a configured bot on ubixsys/ubixkelpie when null
+     * @param ?array<string, ProjectMode> $modes    The projects table; ubixsys/ubixkelpie in propose when null
      *
      * @return FixThreadService
      */
-    private function service(bool $enabled = true, ?AutofixSettings $settings = null): FixThreadService
+    private function service(bool $enabled = true, ?AutofixSettings $settings = null, ?array $modes = null): FixThreadService
     {
+        $modes    ??= ['ubixsys/ubixkelpie' => ProjectMode::Propose];
         $settings ??= new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: $enabled);
         $logger     = $this->createStub(Logger::class);
         $json       = new JsonService($logger);
@@ -259,6 +286,6 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $open    = new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json);
         $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
 
-        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), $settings), $settings);
+        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), $settings), $settings, InMemoryProjects::service($modes));
     }
 }

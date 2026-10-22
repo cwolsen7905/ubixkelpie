@@ -8,6 +8,7 @@ use ArrayObject;
 use DateTimeImmutable;
 use Generator;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Model\AutofixJobRecord;
 use Kelpie\Policy\EventFilter;
@@ -292,6 +293,24 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A thumbs-up job in a project that is only in propose mode is handled without a push: the reply says so, no retry
+     *
+     * @return void
+     */
+    public function testAnApplyJobInProposeModeIsNotPushed(): void
+    {
+        $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markRetry');
+
+        $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'apply')), $writer, true, ProjectMode::Propose)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $notes = $this->gitlab->notes()['d1abc123'];
+        $this->assertStringContainsString('class=not-pushed', $notes[count($notes) - 1]['body']);
+    }
+
+    /**
      * @return void
      */
     protected function setUp(): void
@@ -369,15 +388,16 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
      * @param AutofixJobReader $reader           The job reader
      * @param AutofixJobWriter $writer           The job writer
      * @param bool             $proposalOnRecord Whether thread d1abc123 has an open proposal on record, made at HEAD
+     * @param ProjectMode      $mode             The mode of ubixsys/ubixkelpie; push by default
      *
      * @return MrJobWorkerService
      */
-    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false): MrJobWorkerService
+    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false, ProjectMode $mode = ProjectMode::Push): MrJobWorkerService
     {
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
         $factory  = new Psr17Factory();
-        $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: true, projects: ['ubixsys/ubixkelpie'], openRouterKey: 'key-not-real');
+        $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: true, openRouterKey: 'key-not-real');
         $gitlab   = new GitlabClientFactory($logger, $this->gitlab, $factory, $factory, $json, $settings);
         $queries  = $this->queries;
         $sql      = $this->createStub(SqlService::class);
@@ -434,8 +454,8 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $gitlab->lister(),
             $gitlab->reader(),
             $sweep,
-            (new CommandServices($logger, $this->gitlab, $sql, $settings))->runners(),
-            (new CommandServices($logger, $this->gitlab, $sql, $settings))->reactions(),
+            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode]))->runners(),
+            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode]))->reactions(),
             'w1',
         );
     }

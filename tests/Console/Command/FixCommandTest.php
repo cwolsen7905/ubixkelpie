@@ -56,7 +56,7 @@ final class FixCommandTest extends UbixConcreteClassOrEnumTestCase implements IU
         $tester = new CommandTester($this->command());
 
         $this->assertSame(1, $tester->execute(['mr' => '3', 'discussion' => 'd1abc123', '--project' => '1', '--path' => 'other/project']));
-        $this->assertStringContainsString('not in KELPIE_AUTOFIX_PROJECTS', $tester->getDisplay());
+        $this->assertStringContainsString('not enrolled', $tester->getDisplay());
     }
 
     /**

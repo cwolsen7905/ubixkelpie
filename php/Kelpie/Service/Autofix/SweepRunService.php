@@ -9,10 +9,11 @@ use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\RunResult;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Policy\EventFilter;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
- * Sweep the open MRs of the allow-listed projects for unresolved threads and failed pipelines
+ * Sweep the open MRs of the enrolled projects for unresolved threads and failed pipelines
  *
  * Wires the sweep from the settings: the event filter and the GitLab readers. Queues jobs for `kelpie:work` when
  * autofix is enabled, and only reports otherwise. `kelpie:sweep` parses its input and prints what this returns.
@@ -28,12 +29,14 @@ final class SweepRunService
      * @param GitlabClientFactory $gitlab   The GitLab client factory
      * @param AutofixJobService   $jobs     The job table
      * @param AutofixSettings     $settings The settings
+     * @param ProjectModeService  $modes    Which projects are enrolled
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly GitlabClientFactory $gitlab,
         private readonly AutofixJobService $jobs,
         private readonly AutofixSettings $settings,
+        private readonly ProjectModeService $modes,
     ) {
     }
 
@@ -58,7 +61,7 @@ final class SweepRunService
     }
 
     /**
-     * The sweep, wired from the settings
+     * The sweep, wired from the settings and the projects enrolled right now
      *
      * @param int $maxRuns Most jobs queued per sweep
      *
@@ -66,7 +69,7 @@ final class SweepRunService
      */
     public function service(int $maxRuns): SweepService
     {
-        $projects = $this->settings->projects;
+        $projects = $this->modes->enrolledPaths();
         $filter   = new EventFilter(
             $this->logger,
             $this->settings->botUsername,

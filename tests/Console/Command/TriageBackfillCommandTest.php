@@ -6,10 +6,12 @@ namespace Kelpie\Tests\Console\Command;
 
 use Kelpie\Console\Command\TriageBackfillCommand;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Service\Triage\TriageBackfillService;
 use Kelpie\Tests\GitLab\FakeIssueListGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -104,11 +106,11 @@ final class TriageBackfillCommandTest extends UbixConcreteClassOrEnumTestCase im
      */
     private function command(InMemoryIssueQueue $queue): TriageBackfillCommand
     {
-        $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: true, projects: ['org/proj']);
+        $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real', enabled: true);
         $logger   = $this->createStub(Logger::class);
         $factory  = new Psr17Factory();
         $gitlab   = (new FakeIssueListGitlab())->withIssue('org/proj', 1)->withIssue('org/proj', 2);
 
-        return new TriageBackfillCommand($logger, new TriageBackfillService($logger, new GitlabClientFactory($logger, $gitlab, $factory, $factory, new JsonService($logger), $settings), $queue, $queue, $settings));
+        return new TriageBackfillCommand($logger, new TriageBackfillService($logger, new GitlabClientFactory($logger, $gitlab, $factory, $factory, new JsonService($logger), $settings), $queue, $queue, $settings, InMemoryProjects::service(['org/proj' => ProjectMode::Propose])));
     }
 }

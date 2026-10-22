@@ -15,8 +15,8 @@ use Symfony\Component\Console\Output\OutputInterface as Output;
 /**
  * Fix one review thread of an MR: sandboxed checkout, agent, the repo's gate, a non-force push
  *
- * Does nothing unless `KELPIE_AUTOFIX_ENABLED=true`. Only allow-listed projects
- * (`KELPIE_AUTOFIX_PROJECTS`, default `ubixsys/ubixkelpie`). It writes as the kelpie-bot user
+ * Does nothing unless `KELPIE_AUTOFIX_ENABLED=true`. Only projects whose mode in
+ * `projects` is `propose` or `push`. It writes as the kelpie-bot user
  * (`KELPIE_BOT_GITLAB_TOKEN`) and pushes to the MR's own source branch only. Run by hand: no worker
  * calls it yet.
  *

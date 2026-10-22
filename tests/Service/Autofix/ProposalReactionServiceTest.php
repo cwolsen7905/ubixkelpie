@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use Kelpie\DataTransferObject\ProcessResult;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
@@ -15,6 +16,7 @@ use Kelpie\Service\Autofix\EditApplyService;
 use Kelpie\Service\Autofix\ProposalReactionService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -87,6 +89,36 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $this->assertStringContainsString('Kelpie fixed this in `' . substr($pushed, 0, 12) . '`', $this->lastNote());
         $this->assertCount(4, $this->gateRunner->calls());
         $this->assertSame([], $this->gitlab->awards());
+    }
+
+    /**
+     * Below push mode a thumbs-up pushes nothing: the project in propose, off, or with no row
+     *
+     * @return void
+     */
+    public function testThumbsUpPushesNothingUnlessThePushModeIsOn(): void
+    {
+        foreach ([ProjectMode::Propose, ProjectMode::Off, null] as $mode) {
+            $this->assertNull($this->service(mode: $mode)->run('1', 'g/p', 3, 'd1', true, 1));
+
+            $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+            $this->assertSame(ThreadOutcome::Proposed, $this->row()->outcome);
+            $this->assertNull($this->jobs->commitSha());
+            $this->assertStringContainsString('not set to let me push', $this->lastNote());
+            $this->assertSame([], $this->gateRunner->calls());
+        }
+    }
+
+    /**
+     * A thumbs-down changes nothing on the remote, so propose mode may take it
+     *
+     * @return void
+     */
+    public function testThumbsDownWorksInProposeMode(): void
+    {
+        $this->assertNull($this->service(mode: ProjectMode::Propose)->run('1', 'g/p', 3, 'd1', false, 1));
+
+        $this->assertSame(ThreadOutcome::Declined, $this->row()->outcome);
     }
 
     /**
@@ -322,10 +354,11 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
      *
      * @param ?string        $remote The git remote, the fixture by default
      * @param ?ProcessRunner $gate   What runs the gate's steps, a scripted green one by default
+     * @param ?ProjectMode   $mode   The project g/p's mode; push by default, no row when null
      *
      * @return ProposalReactionService
      */
-    private function service(?string $remote = null, ?ProcessRunner $gate = null): ProposalReactionService
+    private function service(?string $remote = null, ?ProcessRunner $gate = null, ?ProjectMode $mode = ProjectMode::Push): ProposalReactionService
     {
         $logger = $this->createStub(Logger::class);
         $writer = $this->gitlab->writer($logger);
@@ -341,6 +374,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
             $this->outcomes,
             $this->jobs,
             new JsonService($logger),
+            InMemoryProjects::service($mode === null ? [] : ['g/p' => $mode]),
             $remote ?? $this->remote,
         );
     }

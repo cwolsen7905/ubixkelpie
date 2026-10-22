@@ -17,7 +17,7 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     /**
      * Status of the job: pending, running, superseded, done or failed
      */
-    private string $status = 'pending';
+    private string $status;
 
     private ?string $triageClass = null;
 
@@ -35,13 +35,16 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     /**
      * Constructor
      *
-     * @param int $attemptsOnThread Finished attempts already on the thread
-     * @param int $commitsOnMr      Fix commits already on the MR
+     * @param int    $attemptsOnThread Finished attempts already on the thread
+     * @param int    $commitsOnMr      Fix commits already on the MR
+     * @param string $status           Where the job starts: pending, or running when a worker holds its lease
      */
     public function __construct(
         private readonly int $attemptsOnThread = 0,
         private readonly int $commitsOnMr = 0,
+        string $status = 'pending',
     ) {
+        $this->status = $status;
     }
 
     /**
@@ -150,7 +153,7 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     public function supersedeJob(int $id): void
     {
         $this->log[]  = __FUNCTION__ . ':' . $id;
-        $this->status = $this->status === 'pending' ? 'superseded' : $this->status;
+        $this->status = in_array($this->status, ['pending', 'running'], true) ? 'superseded' : $this->status;
     }
 
     /**

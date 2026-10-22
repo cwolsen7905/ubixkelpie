@@ -206,6 +206,70 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * A fix proposal carries the diff in a fence it cannot close, the head, and no resolve
+     *
+     * @return void
+     */
+    public function testProposeFixPostsTheDiffAndLeavesTheThreadOpen(): void
+    {
+        $this->gitlab->note('d1', 'Fix it');
+        $diff = "--- a/a.md\n+++ b/a.md\n@@ -1 +1 @@\n-```\n+````\n";
+
+        $note = $this->service()->propose('1', 3, 'd1', TriageClass::Fix, str_repeat('a', 40), 'Closes the fence.', $diff);
+
+        $this->assertNotNull($note);
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringContainsString("`````diff\n" . rtrim($diff) . "\n`````", $body);
+        $this->assertStringContainsString('applies cleanly to `' . str_repeat('a', 12) . '`', $body);
+        $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=fix head=' . str_repeat('a', 40) . ' -->', $body);
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * A dismissal and a deferral give the reason and say the thread is the person's to resolve
+     *
+     * @return void
+     */
+    public function testProposeDismissalAndDeferralGiveTheReason(): void
+    {
+        $this->gitlab->note('d1', 'x');
+        $service = $this->service();
+
+        $service->propose('1', 3, 'd1', TriageClass::NotAnIssue, str_repeat('b', 40), 'The code is right @bob.');
+        $service->propose('1', 3, 'd1', TriageClass::Defer, str_repeat('b', 40), 'Later.');
+
+        $bodies = array_column($this->gitlab->notes()['d1'], 'body');
+        $this->assertStringContainsString('Kelpie proposes dismissing this: The code is right @', $bodies[1]);
+        $this->assertStringNotContainsString('@bob', $bodies[1]);
+        $this->assertStringContainsString('Kelpie proposes deferring this: Later.', $bodies[2]);
+        $this->assertStringContainsString('that is yours to do', $bodies[2]);
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * Only a fix, a dismissal or a deferral is a proposal
+     *
+     * @return void
+     */
+    public function testProposeRefusesOtherClasses(): void
+    {
+        $this->gitlab->note('d1', 'x');
+
+        $this->assertNull($this->service()->propose('1', 3, 'd1', TriageClass::NeedsHuman, str_repeat('a', 40), 'r'));
+        $this->assertCount(1, $this->gitlab->notes()['d1']);
+    }
+
+    /**
+     * A reply that GitLab refuses is no proposal
+     *
+     * @return void
+     */
+    public function testProposeFailureIsNull(): void
+    {
+        $this->assertNull($this->service()->propose('1', 4, 'nope', TriageClass::Defer, str_repeat('a', 40), 'r'));
+    }
+
+    /**
      * A failed label leaves the thread unanswered
      *
      * @return void

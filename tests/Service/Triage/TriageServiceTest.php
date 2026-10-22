@@ -11,6 +11,7 @@ use Kelpie\Enum\TriageClass;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -115,6 +116,41 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * The default model is not Anthropic, and the verdict carries what the call cost
+     *
+     * @return void
+     */
+    public function testDefaultModelIsAskedAndItsCostIsKept(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL');
+        $body    = '{"choices":[{"message":{"content":"{\"class\": \"defer\", \"reason\": \"later\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"cost":0.0001}}';
+        $verdict = $this->service(new Psr7Response(200, [], $body))->triage($this->thread());
+
+        $this->assertSame(TriageClass::Defer, $verdict->class);
+        $this->assertNotNull($verdict->completion);
+        $this->assertSame('google/gemini-3-flash', $verdict->completion->model);
+        $this->assertSame(0.0001, $verdict->completion->costUsd);
+    }
+
+    /**
+     * A triage model from the review's family is refused without a call
+     *
+     * @return void
+     */
+    public function testModelInTheReviewsFamilyIsRefused(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=anthropic/claude-haiku-5.5');
+        putenv('AI_REVIEW_MODEL=openrouter/anthropic/claude-sonnet-5.5');
+
+        $response = new Psr7Response(500);
+        $verdict  = $this->service($response)->triage($this->thread());
+
+        $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+        $this->assertStringContainsString('same family as the review', $verdict->reason);
+        $this->assertNull($verdict->completion);
+    }
+
+    /**
      * Set a dummy key
      *
      * @return void
@@ -132,6 +168,8 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     protected function tearDown(): void
     {
         putenv('OPENROUTER_API_KEY');
+        putenv('KELPIE_TRIAGE_MODEL');
+        putenv('AI_REVIEW_MODEL');
     }
 
     /**
@@ -166,6 +204,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
             new TriagePrompt($logger),
             new SafetyPolicy($logger),
             $json,
+            new LlmFamilyService($logger),
         );
     }
 

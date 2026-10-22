@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Propose mode (K-31): for each unresolved thread `kelpie:work` now triages, and for a `fix` asks a second model
+  for exact-text edits, applies them itself in a scratch checkout and replies on the thread with the diff git
+  writes. It no longer pushes. A thread can also get a proposed dismissal or a proposed deferral (new `defer`
+  triage class) with a reason. The triage and propose models (`KELPIE_TRIAGE_MODEL`, `KELPIE_PROPOSE_MODEL`,
+  defaults `google/gemini-3-flash` and `openai/gpt-5.5`) must be from a different family than the review's
+  (`AI_REVIEW_MODEL`), or the thread goes to a person. New table `thread_outcomes` (migration
+  `20261022100000_create_thread_outcomes`, apply it before the new image) records each thread's verdict, outcome,
+  models and cost. `docs/operations/worker.md` now also says when a running job is superseded.
 - The webhook writes jobs and `kelpie:work` runs them (K-09): MR comments, failed gate pipelines and
   finished `kelpie-review` jobs (new Job events handler) become rows in `autofix_jobs`; the worker leases a row
   with a conditional UPDATE, retries a failure after 1 then 5 minutes (three attempts) and runs the fixer.

@@ -130,6 +130,18 @@ final class Checkout
     }
 
     /**
+     * The staged changes as the diff git writes, which `git apply` takes at the sha the checkout is at
+     *
+     * @return ?string Null when git could not say
+     */
+    public function stagedDiff(): ?string
+    {
+        $result = $this->git(['diff', '--cached', '--no-color', '--no-ext-diff', '-M']);
+
+        return $result->exitCode === 0 ? $result->stdout : null;
+    }
+
+    /**
      * Commit the staged changes
      *
      * @param string $message The commit message

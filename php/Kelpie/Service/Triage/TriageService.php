@@ -19,13 +19,14 @@ use Ubix\Service\JsonService;
  * Classifies one review thread: prompt, model, parse, safety policy
  *
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
- * The model is `KELPIE_TRIAGE_MODEL`, default `anthropic/claude-haiku-5.5`.
+ * The model is `KELPIE_TRIAGE_MODEL`, default `google/gemini-3-flash` and never from the family that wrote the review
+ * (`LlmFamilyService`): then the verdict is `needs_human`, not a guess.
  *
  * @see \Kelpie\Tests\Service\Triage\TriageServiceTest PHPUnit test case
  */
 final class TriageService
 {
-    private const string DEFAULT_MODEL = 'anthropic/claude-haiku-5.5';
+    private const string DEFAULT_MODEL = 'google/gemini-3-flash';
 
     private const int MAX_REASON_LENGTH = 500;
 
@@ -37,6 +38,7 @@ final class TriageService
      * @param TriagePrompt     $triagePrompt     The prompt
      * @param SafetyPolicy     $safetyPolicy     The hard limits
      * @param JsonService      $jsonService      JSON service
+     * @param LlmFamilyService $families         Keeps the model out of the review's family
      */
     public function __construct(
         private readonly Logger $logger,
@@ -44,6 +46,7 @@ final class TriageService
         private readonly TriagePrompt $triagePrompt,
         private readonly SafetyPolicy $safetyPolicy,
         private readonly JsonService $jsonService,
+        private readonly LlmFamilyService $families,
     ) {
     }
 
@@ -57,8 +60,16 @@ final class TriageService
      */
     public function triage(Thread $thread, ?FixProposal $proposal = null): TriageVerdict
     {
-        $model  = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
-        $answer = $this->openRouterClient->complete($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread));
+        $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
+
+        if ($this->families->sameAsReview($model)) {
+            $this->logger->warning('Triage: model is from the review\'s family', ['model' => $model]);
+
+            return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
+        }
+
+        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread));
+        $answer     = $completion?->text;
 
         if ($answer === null) {
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage unavailable: the model gave no answer.');
@@ -71,7 +82,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage could not read the model\'s answer.');
         }
 
-        return $this->safetyPolicy->apply($verdict, $proposal);
+        return $this->safetyPolicy->apply(new TriageVerdict($verdict->class, $verdict->reason, $completion), $proposal);
     }
 
     /**

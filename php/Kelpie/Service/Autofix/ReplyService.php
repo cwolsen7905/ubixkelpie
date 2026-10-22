@@ -17,7 +17,8 @@ use Psr\Log\LoggerInterface as Logger;
  * `needs_human` gets a reply and the `kelpie::needs-human` label on the MR; `not_an_issue` gets a
  * reply; `already_fixed` gets a reply and the thread is resolved. A `fix` verdict is left silent here:
  * the fixer runner calls `fixed()` once the commit is pushed, and that reply never resolves the thread
- * (the reviewer confirms). Never pushes.
+ * (the reviewer confirms). `propose()` posts a proposal and leaves the thread open: a diff for a fix, a reason for a
+ * dismissal or a deferral. Never pushes.
  *
  * @see \Kelpie\Tests\Service\Autofix\ReplyServiceTest PHPUnit test case
  */
@@ -79,6 +80,7 @@ final class ReplyService
             TriageClass::NeedsHuman   => 'needs human** — %s' . "\n\nI did not change any code.",
             TriageClass::NotAnIssue   => 'not an issue** — %s' . "\n\nLeaving this open for the reviewer.",
             TriageClass::AlreadyFixed => 'already fixed** — %s' . "\n\nResolving this thread; reopen it if I got it wrong.",
+            TriageClass::Defer        => 'defer** — %s' . "\n\nLeaving this open for the reviewer.",
             TriageClass::Fix          => null,
         };
 
@@ -144,6 +146,68 @@ final class ReplyService
         $this->logger->info('Autofix fix reply posted', ['commit' => $commit, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
 
         return ResponseOutcome::Replied;
+    }
+
+    /**
+     * Post a proposal on the thread: a fix as the diff Kelpie made, a dismissal or a deferral as its reason
+     *
+     * Nothing is pushed or resolved; the thread stays open for the person.
+     *
+     * @param string      $project      The project ID or URL-encodable path
+     * @param int         $mrIid        The MR IID
+     * @param string      $discussionId The discussion ID
+     * @param TriageClass $kind         Fix, NotAnIssue (a dismissal) or Defer
+     * @param string      $headSha      The head the proposal was made at
+     * @param string      $text         The summary of the fix, or the reason
+     * @param string      $diff         The diff git wrote, for a fix
+     *
+     * @return ?int The new note's ID, null when the reply failed or the kind is not a proposal
+     */
+    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = ''): ?int
+    {
+        $text = $this->oneLine($text);
+        $text = $text === '' ? 'no reason given.' : $text;
+        $head = '`' . mb_substr($headSha, 0, 12) . '`';
+
+        $lead = match ($kind) {
+            TriageClass::Fix   => 'Kelpie proposes this change, which applies cleanly to ' . $head . ': ' . $text . "\n\n" . $this->fenced($diff, 'diff') . "\n\nI have not pushed anything.",
+            TriageClass::NotAnIssue => 'Kelpie proposes dismissing this: ' . $text . "\n\nI have not resolved the thread; that is yours to do.",
+            TriageClass::Defer => 'Kelpie proposes deferring this: ' . $text . "\n\nI have not resolved the thread; that is yours to do.",
+            default            => null,
+        };
+
+        if ($lead === null) {
+            return null;
+        }
+
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $lead, $discussionId, $kind->value, $headSha);
+        $note = $this->writer->reply($project, $mrIid, $discussionId, $body);
+        if ($note !== null) {
+            $this->logger->info('Autofix proposal posted', ['class' => $kind->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
+        }
+
+        return $note;
+    }
+
+    /**
+     * Code in a fence long enough that the text cannot close it, byte for byte (a diff must still apply)
+     *
+     * @param string $code     The text
+     * @param string $language The fence language
+     *
+     * @return string
+     */
+    private function fenced(string $code, string $language): string
+    {
+        $longest = 0;
+        if (preg_match_all('/`+/', $code, $runs) > 0) {
+            foreach ($runs[0] as $run) {
+                $longest = max($longest, strlen($run));
+            }
+        }
+        $fence = str_repeat('`', max(3, $longest + 1));
+
+        return $fence . $language . "\n" . rtrim($code) . "\n" . $fence;
     }
 
     /**

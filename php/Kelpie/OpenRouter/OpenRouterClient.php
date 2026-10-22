@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\OpenRouter;
 
+use Kelpie\DataTransferObject\Completion;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Http\Message\StreamFactoryInterface as StreamFactory;
@@ -60,6 +61,24 @@ final class OpenRouterClient
      */
     public function complete(string $model, string $system, string $user, int $maxTokens = 400): ?string
     {
+        return $this->chat($model, $system, $user, $maxTokens)?->text;
+    }
+
+    /**
+     * Ask a model for a JSON-object answer and report what it cost
+     *
+     * Same failure rules as `complete()`. The token counts and the cost are what OpenRouter's usage block
+     * says; a provider that leaves them out gives 0 tokens and a null cost.
+     *
+     * @param string $model     Model id (e.g. `anthropic/claude-haiku-5.5`)
+     * @param string $system    System message
+     * @param string $user      User message
+     * @param int    $maxTokens Upper bound on the answer's tokens
+     *
+     * @return ?Completion The answer, or null on any failure
+     */
+    public function chat(string $model, string $system, string $user, int $maxTokens = 400): ?Completion
+    {
         $apiKey = (string) getenv('OPENROUTER_API_KEY');
         if ($apiKey === '') {
             $this->logger->error('OpenRouter: OPENROUTER_API_KEY is not set');
@@ -79,6 +98,7 @@ final class OpenRouterClient
                 'model'           => $model,
                 'response_format' => ['type' => 'json_object'],
                 'temperature'     => 0,
+                'usage'           => ['include' => true],
             ]);
 
             $request  = $this->requestFactory->createRequest('POST', $apiUrl . '/chat/completions')
@@ -111,6 +131,15 @@ final class OpenRouterClient
             return null;
         }
 
-        return $content;
+        $usage = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
+        $cost  = $usage['cost'] ?? null;
+
+        return new Completion(
+            $content,
+            $model,
+            is_int($usage['prompt_tokens'] ?? null) ? $usage['prompt_tokens'] : 0,
+            is_int($usage['completion_tokens'] ?? null) ? $usage['completion_tokens'] : 0,
+            is_int($cost) || is_float($cost) ? (float) $cost : null,
+        );
     }
 }

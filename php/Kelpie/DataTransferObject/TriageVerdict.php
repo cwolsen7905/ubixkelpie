@@ -17,12 +17,14 @@ final readonly class TriageVerdict implements Dto
     /**
      * Constructor
      *
-     * @param TriageClass $class  The class the thread falls into
-     * @param string      $reason A short reason, safe to show to a human
+     * @param TriageClass $class      The class the thread falls into
+     * @param string      $reason     A short reason, safe to show to a human
+     * @param ?Completion $completion The model call behind it, null when none was made
      */
     public function __construct(
         public TriageClass $class,
         public string $reason,
+        public ?Completion $completion = null,
     ) {
     }
 }

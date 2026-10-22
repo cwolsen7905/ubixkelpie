@@ -8,6 +8,7 @@ use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -159,6 +160,7 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
             new TriagePrompt($logger),
             new SafetyPolicy($logger),
             $json,
+            new LlmFamilyService($logger),
         );
 
         return new TriageDryRunService($logger, $httpClient, new Psr17Factory(), $json, $triage, $settings);

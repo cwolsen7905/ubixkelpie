@@ -14,6 +14,7 @@ use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\ThreadResponderService;
 use Kelpie\Service\Autofix\TriageStatusService;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -242,6 +243,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
                 new TriagePrompt($logger),
                 new SafetyPolicy($logger),
                 $json,
+                new LlmFamilyService($logger),
             ),
             new TriageStatusService($logger, $writer),
         );

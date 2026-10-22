@@ -37,6 +37,6 @@ final class TriageClassTest extends UbixConcreteClassOrEnumTestCase implements I
             $values[] = $class->value;
         }
 
-        $this->assertSame(['fix', 'needs_human', 'not_an_issue', 'already_fixed'], $values);
+        $this->assertSame(['fix', 'needs_human', 'not_an_issue', 'already_fixed', 'defer'], $values);
     }
 }

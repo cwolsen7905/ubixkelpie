@@ -91,6 +91,21 @@ final class ProjectSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase imp
     }
 
     /**
+     * A row with a mode Kelpie does not know reads as off, so it is not enrolled
+     *
+     * @return void
+     */
+    public function testGetEnrolledLeavesOutAnUnknownMode(): void
+    {
+        $sql = $this->createStub(SqlService::class);
+        $sql->method('getRows')->willReturn($this->rows([$this->row(['path' => 'g/a', 'mode' => 'yolo']), $this->row(['path' => 'g/b', 'mode' => 'push'])]));
+
+        $projects = $this->repository($this->createStub(Logger::class), $sql)->getEnrolled();
+
+        $this->assertSame(['g/b'], array_column($projects, 'path'));
+    }
+
+    /**
      * Unknown mode and unreadable globs are safe
      *
      * @return void

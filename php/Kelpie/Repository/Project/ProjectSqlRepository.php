@@ -78,7 +78,13 @@ final class ProjectSqlRepository implements ProjectReader
 
         $projects = [];
         foreach ($this->sqlService->getRows($sql, $parameters) as $row) {
-            $projects[] = $this->hydrate($row);
+            $project = $this->hydrate($row);
+            // The SQL leaves out 'off'; a mode Kelpie does not know reads as off here, so it is not enrolled either.
+            if ($options->path === null && $project->mode === ProjectMode::Off) {
+                continue;
+            }
+
+            $projects[] = $project;
         }
 
         return $projects;

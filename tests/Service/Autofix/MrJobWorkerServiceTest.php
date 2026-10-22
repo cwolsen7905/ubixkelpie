@@ -253,6 +253,45 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A thumbs-down job goes to the reaction service, not the fixer: the proposal is declined and the thread is told
+     *
+     * @return void
+     */
+    public function testADeclineJobDeclinesTheProposal(): void
+    {
+        $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markRetry');
+
+        $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'decline')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertContains('UPDATE ubixkelpie.thread_outcomes SET outcome = :outcome
+                WHERE project_path = :project_path AND mr_iid = :mr_iid AND discussion_id = :discussion_id', $this->queries->getArrayCopy());
+        $notes = $this->gitlab->notes()['d1abc123'];
+        $this->assertStringContainsString('class=declined', $notes[count($notes) - 1]['body']);
+    }
+
+    /**
+     * A thumbs-up job whose head has moved gets the stale reply, with no checkout and no retry
+     *
+     * @return void
+     */
+    public function testAnApplyJobForAMovedHeadIsToldStale(): void
+    {
+        $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
+        $this->gitlab->mergeRequestFields(['sha' => str_repeat('c', 40)]);
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markRetry');
+
+        $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'apply')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $notes = $this->gitlab->notes()['d1abc123'];
+        $this->assertStringContainsString('class=stale', $notes[count($notes) - 1]['body']);
+    }
+
+    /**
      * @return void
      */
     protected function setUp(): void
@@ -327,12 +366,13 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     /**
      * Build the worker over the fake GitLab and a stubbed SQL service
      *
-     * @param AutofixJobReader $reader The job reader
-     * @param AutofixJobWriter $writer The job writer
+     * @param AutofixJobReader $reader           The job reader
+     * @param AutofixJobWriter $writer           The job writer
+     * @param bool             $proposalOnRecord Whether thread d1abc123 has an open proposal on record, made at HEAD
      *
      * @return MrJobWorkerService
      */
-    private function service(AutofixJobReader $reader, AutofixJobWriter $writer): MrJobWorkerService
+    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false): MrJobWorkerService
     {
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
@@ -348,8 +388,28 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         });
         $sql->method('lastInsertId')->willReturn('7');
         $sql->method('getColumn')->willReturn('0');
-        $sql->method('getRows')->willReturnCallback(static function (): Generator {
-            yield from [];
+        $sql->method('getRows')->willReturnCallback(static function (string $statement) use ($proposalOnRecord): Generator {
+            if ($proposalOnRecord && str_contains($statement, 'thread_outcomes')) {
+                yield [
+                    'completion_tokens' => '0',
+                    'cost_usd'          => null,
+                    'diff'              => '',
+                    'discussion_id'     => 'd1abc123',
+                    'edits_json'        => '[{"file":"a.txt","new":"b","old":"a"}]',
+                    'head_sha'          => self::HEAD,
+                    'mode'              => 'propose',
+                    'mr_iid'            => '3',
+                    'outcome'           => 'proposed',
+                    'project_path'      => 'ubixsys/ubixkelpie',
+                    'prompt_tokens'     => '0',
+                    'proposal_note_id'  => '105',
+                    'propose_model'     => '',
+                    'reason'            => 'Adds a line.',
+                    'review_family'     => '',
+                    'triage_model'      => '',
+                    'verdict'           => 'fix',
+                ];
+            }
         });
 
         $jobs  = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
@@ -375,6 +435,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $gitlab->reader(),
             $sweep,
             (new CommandServices($logger, $this->gitlab, $sql, $settings))->runners(),
+            (new CommandServices($logger, $this->gitlab, $sql, $settings))->reactions(),
             'w1',
         );
     }

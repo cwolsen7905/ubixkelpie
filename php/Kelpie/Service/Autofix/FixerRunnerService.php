@@ -93,10 +93,11 @@ final class FixerRunnerService
      * @param Thread $thread      The thread
      * @param string $sha         The head sha the thread was read at; the checkout is made here
      * @param int    $jobId       The job for this MR and thread, held by the caller (pending, or running under its lease)
+     * @param string $steering    What the author or a maintainer asked for with "Triage:", empty when nothing
      *
      * @return FixOutcome
      */
-    public function run(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, int $jobId): FixOutcome
+    public function run(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, int $jobId, string $steering = ''): FixOutcome
     {
         if (!$this->enabled) {
             return FixOutcome::Disabled;
@@ -146,11 +147,11 @@ final class FixerRunnerService
         $result    = null;
 
         try {
-            $verdict = $this->triageService->triage($thread);
+            $verdict = $this->triageService->triage($thread, null, $steering);
             $class   = $verdict->class->value;
 
             [$outcome, $result, $record] = match ($verdict->class) {
-                TriageClass::Fix                          => $this->proposeFix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft, $verdict),
+                TriageClass::Fix                          => $this->proposeFix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft, $verdict, $steering),
                 TriageClass::NotAnIssue, TriageClass::Defer => $this->proposeNoChange($project, $projectPath, $mrIid, $thread, $sha, $verdict),
                 default                                   => $this->answer($project, $projectPath, $mrIid, $thread, $sha, $verdict),
             };
@@ -183,10 +184,11 @@ final class FixerRunnerService
      * @param string        $targetBranch The MR target branch
      * @param bool          $draft        Whether the MR is a draft
      * @param TriageVerdict $verdict      Triage's verdict
+     * @param string        $steering     What the author or a maintainer asked for with "Triage:", empty when nothing
      *
      * @return array{0: FixOutcome, 1: ?ThreadResult, 2: ThreadOutcomeRecord}
      */
-    private function proposeFix(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, string $sourceBranch, string $targetBranch, bool $draft, TriageVerdict $verdict): array
+    private function proposeFix(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, string $sourceBranch, string $targetBranch, bool $draft, TriageVerdict $verdict, string $steering = ''): array
     {
         $id = $thread->discussionId;
 
@@ -194,7 +196,7 @@ final class FixerRunnerService
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The scratch checkout could not be made.')];
         }
 
-        $edits = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason);
+        $edits = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering);
         if ($edits->failure !== '') {
             return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $edits->failure, $edits->completion);
         }

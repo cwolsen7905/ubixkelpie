@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
+use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\MergeRequestLister;
@@ -40,15 +41,16 @@ final class MrJobWorkerService
     /**
      * Constructor
      *
-     * @param Logger                    $logger   Logger
-     * @param AutofixJobReader          $reader   The job reader
-     * @param AutofixJobWriter          $writer   The job writer
-     * @param MergeRequestLister        $lister   Lists open MRs
-     * @param DiscussionReader          $threads  Reads unresolved threads
-     * @param SweepService              $sweep    Queues the thread jobs of one MR
-     * @param FixerRunnerBuilderService $runners  The fixer runner factory
-     * @param string                    $workerId Names this worker in the lease
-     * @param int                       $maxQueue Most thread jobs one fan-out may queue
+     * @param Logger                         $logger    Logger
+     * @param AutofixJobReader               $reader    The job reader
+     * @param AutofixJobWriter               $writer    The job writer
+     * @param MergeRequestLister             $lister    Lists open MRs
+     * @param DiscussionReader               $threads   Reads unresolved threads
+     * @param SweepService                   $sweep     Queues the thread jobs of one MR
+     * @param FixerRunnerBuilderService      $runners   The fixer runner factory
+     * @param ProposalReactionBuilderService $reactions Builds what acts on a thumbs-up or thumbs-down on a proposal
+     * @param string                         $workerId  Names this worker in the lease
+     * @param int                            $maxQueue  Most thread jobs one fan-out may queue
      */
     public function __construct(
         private readonly Logger $logger,
@@ -58,6 +60,7 @@ final class MrJobWorkerService
         private readonly DiscussionReader $threads,
         private readonly SweepService $sweep,
         private readonly FixerRunnerBuilderService $runners,
+        private readonly ProposalReactionBuilderService $reactions,
         private readonly string $workerId = 'worker',
         private readonly int $maxQueue = 20,
     ) {
@@ -212,6 +215,11 @@ final class MrJobWorkerService
             return null;
         }
 
+        if (in_array($job->getSource(), [AutofixJob::APPLY, AutofixJob::DECLINE], true)) {
+            // A thumbs on a proposal: the thread need not be read, the proposal carries what is to be done
+            return $this->reactions->make($path)->run((string) $mr->projectId, $path, $iid, $job->getDiscussionId() ?? '', $job->getSource() === AutofixJob::APPLY, $id);
+        }
+
         $thread = null;
         foreach ($this->threads->read($mr->projectId, $iid) as $candidate) {
             if ($candidate->discussionId === $job->getDiscussionId()) {
@@ -233,7 +241,7 @@ final class MrJobWorkerService
             }
         }
 
-        $outcome = $this->runners->make(true, $path)->run((string) $mr->projectId, $path, $iid, $thread, $sha, $id);
+        $outcome = $this->runners->make(true, $path)->run((string) $mr->projectId, $path, $iid, $thread, $sha, $id, $job->getSteering() ?? '');
         $now     = $this->reader->getJobById($id);
 
         // The runner ends the job itself when it has an answer; one left running is waiting (another run holds the MR)

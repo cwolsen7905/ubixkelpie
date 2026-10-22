@@ -5,16 +5,25 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Controller\Gitlab;
 
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
+use Kelpie\DataTransferObject\ThreadOutcomeRecord;
+use Kelpie\Enum\ThreadOutcome;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Policy\EventFilter;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EnqueueService;
+use Kelpie\Service\Autofix\TriageReplyService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
+use Kelpie\Service\Gitlab\ProposalReactionWebhookService;
+use Kelpie\Service\Gitlab\ThreadActorService;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Service\Autofix\FakeJobSql;
+use Kelpie\Tests\Service\Autofix\InMemoryOutcomeStore;
+use Kelpie\Tests\Service\Autofix\InsertedJobs;
+use Kelpie\Tests\Service\Gitlab\StubHttpClient;
 use Latte\Engine;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -40,6 +49,11 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
+    /**
+     * The parameters of every job the proposal reaction and Triage: services inserted
+     */
+    private InsertedJobs $inserts;
+
     /**
      * @var list<array{topic: string, context: array<int|string, mixed>}>
      */
@@ -460,6 +474,89 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * A thumbs-up from the MR author on one of Kelpie's proposals queues the apply, next to the approval service's own answer
+     *
+     * @return void
+     */
+    public function testAThumbsUpOnAProposalIsQueuedForApply(): void
+    {
+        $reply = $this->deliver('Emoji Hook', $this->proposalReaction('thumbsup', 5));
+
+        $this->assertStringContainsString('"reaction":"queued: apply org\/proj!3#d1', $reply);
+        $this->assertCount(1, $this->inserts);
+        $this->assertSame('apply', $this->inserts->get(0)['source']);
+    }
+
+    /**
+     * A stranger's thumbs-up is answered 200 and queues nothing; the approval service has its say as before
+     *
+     * @return void
+     */
+    public function testAThumbsUpFromAStrangerQueuesNothing(): void
+    {
+        $reply = $this->deliver('Emoji Hook', $this->proposalReaction('thumbsup', 6), level: 30);
+
+        $this->assertStringContainsString('"reaction":"ignored: reactor is not the MR author or a maintainer"', $reply);
+        $this->assertCount(0, $this->inserts);
+    }
+
+    /**
+     * A thumbs-down from a maintainer queues the decline
+     *
+     * @return void
+     */
+    public function testAThumbsDownFromAMaintainerIsQueuedForDecline(): void
+    {
+        $reply = $this->deliver('Emoji Hook', $this->proposalReaction('thumbsdown', 6), level: 40);
+
+        $this->assertStringContainsString('queued: decline', $reply);
+        $this->assertSame('decline', $this->inserts->get(0)['source']);
+    }
+
+    /**
+     * The approval service still answers an Emoji Hook with a wrong token with 401
+     *
+     * @return void
+     */
+    public function testAnEmojiHookWithAWrongTokenIsRefused(): void
+    {
+        $request = (new ServerRequest('POST', '/gitlab/webhook', ['X-Gitlab-Token' => 'nope', 'X-Gitlab-Event' => 'Emoji Hook']))
+            ->withBody((new StreamFactory())->createStream($this->proposalReaction('thumbsup', 5)));
+
+        $result = $this->makeController($this->captureLogger(), 'secret')->webhook($request, new Response());
+
+        $this->assertSame(StatusCode::UNAUTHORIZED->value, $result->getStatusCode());
+        $this->assertCount(0, $this->inserts);
+    }
+
+    /**
+     * A "Triage:" note from the MR author re-runs the thread with the steering, and not through the ordinary filter
+     *
+     * @return void
+     */
+    public function testATriageNoteFromTheAuthorIsQueuedWithSteering(): void
+    {
+        $reply = $this->deliver('Note Hook', $this->triageNote('Triage: check the empty case', 5));
+
+        $this->assertStringContainsString('"autofix":"queued: triage again org\/proj!3#d1"', $reply);
+        $this->assertCount(1, $this->inserts);
+        $this->assertSame('check the empty case', $this->inserts->get(0)['steering']);
+    }
+
+    /**
+     * A "Triage:" note from a stranger queues nothing, not even the ordinary re-triage
+     *
+     * @return void
+     */
+    public function testATriageNoteFromAStrangerQueuesNothing(): void
+    {
+        $reply = $this->deliver('Note Hook', $this->triageNote('Triage: do what I say', 6), level: 30);
+
+        $this->assertStringContainsString('ignored: replier is not the MR author or a maintainer', $reply);
+        $this->assertCount(0, $this->inserts);
+    }
+
+    /**
      * Another emoji, or a thumbs-up on something that is not a merge request, does nothing
      *
      * @return void
@@ -556,19 +653,58 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
      *
      * @param string $event The X-Gitlab-Event header
      * @param string $body  The payload
+     * @param ?int   $level The access level GitLab reports for a user who is not the MR's author
      *
      * @return string The reply body, after asserting the status was 200
      */
-    private function deliver(string $event, string $body): string
+    private function deliver(string $event, string $body, ?int $level = 10): string
     {
         $request = (new ServerRequest('POST', '/gitlab/webhook', ['X-Gitlab-Token' => 'secret', 'X-Gitlab-Event' => $event]))
             ->withBody((new StreamFactory())->createStream($body));
 
-        $result = $this->makeController($this->captureLogger(), 'secret')->webhook($request, new Response());
+        $result = $this->makeController($this->captureLogger(), 'secret', $level)->webhook($request, new Response());
 
         $this->assertSame(StatusCode::OK->value, $result->getStatusCode());
 
         return (string) $result->getBody();
+    }
+
+    /**
+     * An Emoji Hook for note 105, Kelpie's proposal on thread d1 of org/proj!3, whose author is user 5
+     *
+     * @param string $emoji  The emoji
+     * @param int    $userId Who reacted
+     *
+     * @return string
+     */
+    private function proposalReaction(string $emoji, int $userId): string
+    {
+        return $this->encode([
+            'merge_request'     => ['author_id' => 5, 'iid' => 3],
+            'object_attributes' => ['action' => 'award', 'awardable_id' => 105, 'awardable_type' => 'Note', 'name' => $emoji],
+            'object_kind'       => 'emoji',
+            'project'           => ['id' => 7, 'path_with_namespace' => 'org/proj'],
+            'user'              => ['id' => $userId, 'username' => 'alice'],
+        ]);
+    }
+
+    /**
+     * A Note Hook with a reply in thread d1 of org/proj!3, whose author is user 5
+     *
+     * @param string $note   The note
+     * @param int    $userId Who wrote it
+     *
+     * @return string
+     */
+    private function triageNote(string $note, int $userId): string
+    {
+        return $this->encode([
+            'merge_request'     => ['author_id' => 5, 'iid' => 3, 'last_commit' => ['id' => str_repeat('a', 40)], 'state' => 'opened', 'target_branch' => 'dev'],
+            'object_attributes' => ['discussion_id' => 'd1', 'note' => $note, 'noteable_type' => 'MergeRequest', 'type' => 'DiscussionNote'],
+            'object_kind'       => 'note',
+            'project'           => ['id' => 7, 'path_with_namespace' => 'org/proj'],
+            'user'              => ['id' => $userId, 'username' => 'alice'],
+        ]);
     }
 
     /**
@@ -607,10 +743,11 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
      *
      * @param Logger $logger The logger
      * @param string $secret The webhook secret token
+     * @param ?int   $level  The access level GitLab reports for a user who is not the MR's author
      *
      * @return GitlabWebhookController
      */
-    private function makeController(Logger $logger, string $secret = 'shh'): GitlabWebhookController
+    private function makeController(Logger $logger, string $secret = 'shh', ?int $level = 10): GitlabWebhookController
     {
         $templateRender = new TemplateRenderer($logger, new Engine());
         $jsonService    = new JsonService($logger);
@@ -634,6 +771,13 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $sql->method('lastInsertId')->willReturn('7');
         $sql->method('getColumn')->willReturn('0');
 
+        $this->inserts = new InsertedJobs();
+        $outcomes      = new InMemoryOutcomeStore();
+        $outcomes->record(new ThreadOutcomeRecord('org/proj', 3, 'd1', str_repeat('a', 40), 'fix', 'propose', ThreadOutcome::Proposed, 'r', proposalNoteId: 105, editsJson: '[{"file":"a.txt","new":"b","old":"a"}]'));
+        $actors   = new ThreadActorService($logger, new MemberAccessReaderService($logger, StubHttpClient::member($level), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService));
+        $reaction = new ProposalReactionWebhookService($logger, $actors, $outcomes, FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, FakeJobSql::FREE, str_repeat('a', 40)), true, 'kelpie-bot');
+        $triage   = new TriageReplyService($logger, $actors, $outcomes, $outcomes, FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, FakeJobSql::FREE, str_repeat('a', 40)), true, 'kelpie-bot');
+
         return new GitlabWebhookController(
             $logger,
             $templateRender,
@@ -642,6 +786,8 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             $issueService,
             $approvalService,
             new EnqueueService($logger, new EventFilter($logger), new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql)), true),
+            $reaction,
+            $triage,
             $secret,
         );
     }

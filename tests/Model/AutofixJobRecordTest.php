@@ -36,4 +36,18 @@ final class AutofixJobRecordTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertTrue((new AutofixJobRecord(projectPath: 'p', mrIid: 1, headSha: 'a', source: 'note', status: 'running'))->isOpen());
         $this->assertFalse((new AutofixJobRecord(projectPath: 'p', mrIid: 1, headSha: 'a', source: 'note', status: 'superseded'))->isOpen());
     }
+
+    /**
+     * Steering is none until set
+     *
+     * @return void
+     */
+    public function testSteering(): void
+    {
+        $job = new AutofixJobRecord(projectPath: 'p', mrIid: 1, headSha: 'a', source: 'note');
+        $this->assertNull($job->getSteering());
+
+        $job->setSteering('Mind the null case');
+        $this->assertSame('Mind the null case', $job->getSteering());
+    }
 }

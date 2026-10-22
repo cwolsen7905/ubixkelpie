@@ -70,10 +70,11 @@ final class ProposeEditsService
      * @param Thread $thread    The thread
      * @param string $directory The scratch checkout at the head
      * @param string $reason    Triage's reason for a fix
+     * @param string $steering  What the author or a maintainer asked for with "Triage:", empty when nothing
      *
      * @return ProposedEdits
      */
-    public function propose(Thread $thread, string $directory, string $reason): ProposedEdits
+    public function propose(Thread $thread, string $directory, string $reason, string $steering = ''): ProposedEdits
     {
         $model = $this->model();
         if ($this->families->sameAsReview($model)) {
@@ -100,7 +101,7 @@ final class ProposeEditsService
             $partial = true;
         }
 
-        $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forThread($thread, $path, $content, $partial, $reason), self::MAX_TOKENS);
+        $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forThread($thread, $path, $content, $partial, $reason, $steering), self::MAX_TOKENS);
         if ($completion === null) {
             return new ProposedEdits([], '', 'The propose model gave no answer.');
         }

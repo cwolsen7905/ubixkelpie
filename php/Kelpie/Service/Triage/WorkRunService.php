@@ -15,6 +15,7 @@ use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriag
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\MrJobWorkerService;
+use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Service\Autofix\SweepRunService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -37,18 +38,19 @@ final class WorkRunService
     /**
      * Constructor
      *
-     * @param Logger                    $logger           Logger
-     * @param GitlabClientFactory       $gitlab           Builds the issue client from the settings
-     * @param IssueTriageJobReader      $reader           Reads the due jobs
-     * @param IssueTriageJobWriter      $writer           Locks and settles jobs
-     * @param OpenRouterClient          $openRouterClient The model client
-     * @param IssueTriagePrompt         $prompt           The issue prompt
-     * @param JsonService               $jsonService      JSON service
-     * @param AutofixSettings           $settings         The settings: flags, project list, tokens
-     * @param AutofixJobService         $jobs             The merge request job table
-     * @param SweepRunService           $sweepRun         Builds the sweep that fan-out jobs use
-     * @param FixerRunnerBuilderService $runners          The fixer runner factory
-     * @param int                       $pollSeconds      Seconds to sleep when nothing is due
+     * @param Logger                         $logger           Logger
+     * @param GitlabClientFactory            $gitlab           Builds the issue client from the settings
+     * @param IssueTriageJobReader           $reader           Reads the due jobs
+     * @param IssueTriageJobWriter           $writer           Locks and settles jobs
+     * @param OpenRouterClient               $openRouterClient The model client
+     * @param IssueTriagePrompt              $prompt           The issue prompt
+     * @param JsonService                    $jsonService      JSON service
+     * @param AutofixSettings                $settings         The settings: flags, project list, tokens
+     * @param AutofixJobService              $jobs             The merge request job table
+     * @param SweepRunService                $sweepRun         Builds the sweep that fan-out jobs use
+     * @param FixerRunnerBuilderService      $runners          The fixer runner factory
+     * @param ProposalReactionBuilderService $reactions        Builds what acts on a thumbs on a proposal
+     * @param int                            $pollSeconds      Seconds to sleep when nothing is due
      */
     public function __construct(
         private readonly Logger $logger,
@@ -62,6 +64,7 @@ final class WorkRunService
         private readonly AutofixJobService $jobs,
         private readonly SweepRunService $sweepRun,
         private readonly FixerRunnerBuilderService $runners,
+        private readonly ProposalReactionBuilderService $reactions,
         private readonly int $pollSeconds = 5,
     ) {
     }
@@ -97,6 +100,7 @@ final class WorkRunService
             $this->gitlab->reader(),
             $this->sweepRun->service(max(1, $settings->sweepMaxRuns)),
             $this->runners,
+            $this->reactions,
             $workerId,
         );
         $worker   = new IssueTriageWorkerService(

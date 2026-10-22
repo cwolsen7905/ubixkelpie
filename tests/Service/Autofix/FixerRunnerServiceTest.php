@@ -79,6 +79,13 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     private ArrayObject $modelCalls;
 
     /**
+     * The user message of each OpenRouter call
+     *
+     * @var ArrayObject<int, string>
+     */
+    private ArrayObject $userMessages;
+
+    /**
      * Test that the class is following uBix standards
      *
      * @return void
@@ -124,6 +131,36 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertStringContainsString('+two', $body);
         $this->assertStringContainsString('I have not pushed anything.', $body);
         $this->assertStringContainsString('class=fix head=' . $this->sha . ' -->', $body);
+    }
+
+    /**
+     * Steering reaches both model calls as its own block, and is absent from a run without it
+     *
+     * @return void
+     */
+    public function testSteeringReachesTheTriageAndProposeCalls(): void
+    {
+        $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1, 'Mind the null case');
+
+        $this->assertCount(2, $this->userMessages);
+        foreach ($this->userMessages as $message) {
+            $this->assertStringContainsString("<steering>\nMind the null case\n</steering>", $message);
+        }
+    }
+
+    /**
+     * A run with no steering sends none
+     *
+     * @return void
+     */
+    public function testNoSteeringIsSentWhenThereIsNone(): void
+    {
+        $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+
+        $this->assertCount(2, $this->userMessages);
+        foreach ($this->userMessages as $message) {
+            $this->assertStringNotContainsString('<steering>', $message);
+        }
     }
 
     /**
@@ -542,11 +579,12 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->gitlab = new FakeGitlab();
         $this->gitlab->note('d1', 'Please fix the typo.');
         $this->gitlab->mergeRequestFields(['sha' => $this->sha]);
-        $this->jobs        = new InMemoryJobStore();
-        $this->outcomes    = new InMemoryOutcomeStore();
-        $this->triageClass = 'fix';
-        $this->modelCalls  = new ArrayObject();
-        $this->proposal    = ['edits' => [['file' => 'a.txt', 'new' => "one\ntwo", 'old' => 'one']], 'summary' => 'Adds the missing line.'];
+        $this->jobs         = new InMemoryJobStore();
+        $this->outcomes     = new InMemoryOutcomeStore();
+        $this->triageClass  = 'fix';
+        $this->modelCalls   = new ArrayObject();
+        $this->userMessages = new ArrayObject();
+        $this->proposal     = ['edits' => [['file' => 'a.txt', 'new' => "one\ntwo", 'old' => 'one']], 'summary' => 'Adds the missing line.'];
         putenv('OPENROUTER_API_KEY=test-key-not-real');
         putenv('OPENROUTER_API_URL=https://openrouter.test/api/v1');
         putenv('AI_REVIEW_MODEL');
@@ -583,12 +621,15 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $class    = $this->triageClass;
         $proposal = $this->proposal;
         $calls    = $this->modelCalls;
+        $users    = $this->userMessages;
         $http     = $this->createStub(HttpClient::class);
-        $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($class, $proposal, $json, $calls): Psr7Response {
+        $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($class, $proposal, $json, $calls, $users): Psr7Response {
             $sent      = $json->decode((string) $request->getBody());
             $messages  = is_array($sent['messages'] ?? null) ? $sent['messages'] : [];
             $first     = is_array($messages[0] ?? null) ? $messages[0] : [];
             $calls[]   = is_string($sent['model'] ?? null) ? $sent['model'] : '';
+            $second    = is_array($messages[1] ?? null) ? $messages[1] : [];
+            $users[]   = is_string($second['content'] ?? null) ? $second['content'] : '';
             $isPropose = str_contains(is_string($first['content'] ?? null) ? $first['content'] : '', 'You propose a small code change');
             $content   = $isPropose ? $json->encode($proposal) : $json->encode(['class' => $class, 'reason' => 'It is a typo.']);
             $usage     = ['completion_tokens' => 20, 'cost' => 0.001, 'prompt_tokens' => 100];

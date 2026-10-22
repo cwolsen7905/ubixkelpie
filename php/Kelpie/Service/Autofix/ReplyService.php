@@ -170,7 +170,7 @@ final class ReplyService
         $head = '`' . mb_substr($headSha, 0, 12) . '`';
 
         $lead = match ($kind) {
-            TriageClass::Fix   => 'Kelpie proposes this change, which applies cleanly to ' . $head . ': ' . $text . "\n\n" . $this->fenced($diff, 'diff') . "\n\nI have not pushed anything.",
+            TriageClass::Fix   => 'Kelpie proposes this change, which applies cleanly to ' . $head . ': ' . $text . "\n\n" . $this->fenced($diff, 'diff') . "\n\nI have not pushed anything. The MR author or a maintainer can react 👍 to have me push it (the gate runs first) or 👎 to drop it.",
             TriageClass::NotAnIssue => 'Kelpie proposes dismissing this: ' . $text . "\n\nI have not resolved the thread; that is yours to do.",
             TriageClass::Defer => 'Kelpie proposes deferring this: ' . $text . "\n\nI have not resolved the thread; that is yours to do.",
             default            => null,
@@ -187,6 +187,24 @@ final class ReplyService
         }
 
         return $note;
+    }
+
+    /**
+     * Say something about a proposal in its thread: it was declined, went stale, or could not be applied
+     *
+     * @param string $project      The project ID or URL-encodable path
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The discussion ID
+     * @param string $text         What to say, one paragraph
+     * @param string $kind         A word for the marker: declined, stale or failed
+     *
+     * @return bool Whether the reply was posted
+     */
+    public function notice(string $project, int $mrIid, string $discussionId, string $text, string $kind): bool
+    {
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s -->", $this->clean($text), $discussionId, $kind);
+
+        return $this->writer->reply($project, $mrIid, $discussionId, $body) !== null;
     }
 
     /**

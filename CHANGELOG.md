@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Thumbs and `Triage:` on a proposal (K-32): a 👍 from the MR author or a maintainer on Kelpie's proposed fix makes the
+  worker apply the stored edits at the recorded head, run the gate and push `fix(review): ...` to the MR branch (a
+  moved head gets a "stale" reply, a red gate pushes nothing); a 👎 declines it. A reply starting `Triage:` runs the
+  thread again with the rest of the text as steering for the triage and propose models. Anyone else, and Kelpie
+  itself, is ignored. New webhook handling for Emoji events (alongside the sign-off retry, which is unchanged) and
+  `apply`/`decline` job sources; the proposal reply now says what the reactions do. Migration
+  `20261022140000_autofix_jobs_steering` (apply it before the new image). Emoji events must be ticked on the
+  project hook, as for the sign-off retry. No `bin/` change.
 - Propose mode (K-31): for each unresolved thread `kelpie:work` now triages, and for a `fix` asks a second model
   for exact-text edits, applies them itself in a scratch checkout and replies on the thread with the diff git
   writes. It no longer pushes. A thread can also get a proposed dismissal or a proposed deferral (new `defer`

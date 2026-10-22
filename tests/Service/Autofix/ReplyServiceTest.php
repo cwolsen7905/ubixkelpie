@@ -172,6 +172,24 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * A notice is one paragraph with a marker of its kind, with no markers or mentions of the caller's smuggled in
+     *
+     * @return void
+     */
+    public function testNoticePostsAMarkedParagraph(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+
+        $this->assertTrue($this->service()->notice('1', 3, 'd1', 'Stale: moved. <!-- kelpie:claim --> @bob', 'stale'));
+
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringStartsWith('Stale: moved.', $body);
+        $this->assertStringNotContainsString('@bob', $body);
+        $this->assertSame(1, substr_count($body, '<!--'));
+        $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=stale -->', $body);
+    }
+
+    /**
      * Without a URL the short sha stands in, and a long summary is cut
      *
      * @return void

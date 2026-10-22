@@ -19,6 +19,8 @@
 #   AI_REVIEW_MODEL / AI_REVIEW_EFFORT / AI_REVIEW_BASE_BRANCH (default dev)
 #   AI_REVIEW_MAX_LINES / AI_REVIEW_MAX_BYTES / AI_REVIEW_MAX_ROUNDS / AI_REVIEW_EXTRA_LABEL
 #   AI_REVIEW_MAX_TURNS    model calls per review, the last without tools (default 12)
+#   OPENROUTER_HTTP_TIMEOUT  seconds allowed for one model call (default 150)
+# Every variable, where it is set and who reads it: docs/operations/ci-variables.md.
 
 variables:
   KELPIE_REVIEW_IMAGE: $CI_REGISTRY/ubixsys/ubixkelpie:dev
@@ -56,6 +58,7 @@ kelpie-review:
         -e OPENROUTER_API_KEY -e AI_REVIEW_GITLAB_TOKEN \
         -e AI_REVIEW_MODE -e AI_REVIEW_SHADOW -e AI_REVIEW_MODEL -e AI_REVIEW_EFFORT -e AI_REVIEW_MAX_LINES \
         -e AI_REVIEW_MAX_BYTES -e AI_REVIEW_MAX_ROUNDS -e AI_REVIEW_EXTRA_LABEL -e AI_REVIEW_MAX_TURNS \
+        -e OPENROUTER_HTTP_TIMEOUT \
         -e CI_API_V4_URL -e CI_PROJECT_ID -e CI_MERGE_REQUEST_IID -e CI_MERGE_REQUEST_TITLE \
         -e CI_MERGE_REQUEST_LABELS -e CI_MERGE_REQUEST_DIFF_BASE_SHA -e CI_COMMIT_SHA \
         --entrypoint php "$KELPIE_REVIEW_IMAGE" /web/bin/ubix kelpie:review || rc=$?

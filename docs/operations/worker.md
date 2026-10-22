@@ -11,6 +11,8 @@ Deployment running `php bin/ubix kelpie:work`. The web app and the sweep only wr
 | Webhook, **Comment events** (Note Hook on an MR) | a person comments in an MR thread | one job per (project, MR, discussion), source `note` |
 | Webhook, **Pipeline events** | the MR pipeline failed in a gate stage | one MR-level job, source `pipeline` |
 | Webhook, **Job events** | a `kelpie-review` job finishes (success or failed) | one MR-less job per head sha, source `review` |
+| Webhook, **Emoji events** | the MR author or a maintainer reacts 👍 or 👎 on one of Kelpie's proposals | one job for the thread, source `apply` or `decline` |
+| Webhook, Comment events | the MR author or a maintainer replies `Triage: ...` in a thread Kelpie has looked at | one job for the thread, source `note`, with the text after the colon in `steering` |
 | Webhook, Issue events | a new issue | an issue triage job (unchanged) |
 | `kelpie:sweep` (every 15 minutes) | an open MR has an unresolved, unanswered thread, or a failed gate job | one job per thread, source `note` or `pipeline` |
 
@@ -18,7 +20,8 @@ The webhook filters (loop guards, allow-list, drafts, forks, Shepherd branches) 
 no GitLab or model call. With `KELPIE_AUTOFIX_ENABLED` not `true` it writes nothing.
 
 The GitLab hook on each enrolled project must have **Comments**, **Pipeline events** and **Job events**
-ticked; Job events is the one that is new. The review job name is `kelpie-review`; set
+ticked, and **Emoji events** for the 👍/👎 on proposals (the same hook already gets them for the sign-off retry);
+Job events is the one that is new. The review job name is `kelpie-review`; set
 `KELPIE_REVIEW_JOBS` (comma separated) on the web app to change it.
 
 ## Coalescing and caps
@@ -59,6 +62,13 @@ they are not capped and not counted.
      supersedes its own job when the MR is closed, the head moved or the thread is answered (see "When a running
      job is superseded"). Every step is guarded by the GitLab markers and the head sha, so running a job twice
      does nothing twice.
+   - An **`apply` job** (a 👍 on a proposal) makes a checkout at the proposal's head, applies the stored edits,
+     runs the gate, commits and pushes to the MR's source branch (never forced), then replies and sets the
+     outcome `applied`. A moved head gets a "stale" reply and nothing else; a red gate pushes nothing and sets
+     `failed`; a checkout or push that fails is retried like any job. The MR must be open, in the same project, and
+     not from `dev`, `staging`, `main` or `master`. The gate is `composer install`, phpcs, phpstan and phpunit in the
+     checkout, each limited to 15 minutes, so the job can hold its 30-minute lease for most of that time.
+   - A **`decline` job** (a 👎) sets the outcome `declined` and replies; it makes no checkout.
    - A **fan-out job** (`review`, or `pipeline` without a thread) finds the open MR at its head and queues one
      thread job per thread that needs resolution, using the same per-MR code as the sweep.
 3. **Settle.** Done, or put back with an error. Attempt 1 failing retries after 1 minute, attempt 2 after
@@ -85,7 +95,13 @@ The runner never pushes. For a thread it:
    `needs_human` still labels the MR;
 4. writes one row to `ubixkelpie.thread_outcomes` for the thread (see below).
 
-The reply promises no reaction handling yet: 👍/👎 on a proposal and push mode are later work.
+The reply says so: the MR author or a maintainer reacts 👍 to have Kelpie push the proposal (an `apply` job, above)
+or 👎 to drop it. Reactions from anyone else, from Kelpie itself, or on a note that is not the latest proposal of
+a thread whose outcome is still `proposed` are ignored. Kelpie never adds a 👍 or 👎.
+
+A reply starting `Triage:` from the author or a maintainer runs the thread again with the text after the colon
+(at most 1000 characters) given to both models as a `<steering>` block. It needs the new column
+`autofix_jobs.steering` (migration `20261022140000_autofix_jobs_steering`, apply it before the new image).
 
 ### Models
 
@@ -108,8 +124,9 @@ the head sha, the verdict (the triage class), the mode (`propose`), the outcome,
 the review's family, tokens and cost summed over both calls (`cost_usd` is NULL when OpenRouter reported none),
 the proposal note id, and the edits and the diff that were posted. Outcomes written by a run are `proposed` (a
 fix, dismissal or deferral is waiting), `answered` (needs human or already fixed) and `failed` (no reply could
-be posted or no checkout made); `applied`, `declined`, `overridden`, `reverted` and `reopened` are for what
-happens to a proposal afterwards and are written by later work. Useful checks:
+be posted or no checkout made). A reaction then sets `applied` (pushed), `declined` or `failed` (red gate, or edits
+that no longer apply); a `Triage:` reply sets `reopened` until the new run records its outcome. `overridden` and
+`reverted` are not written yet. Useful checks:
 
 ```sql
 SELECT verdict, outcome, COUNT(*), SUM(cost_usd) FROM ubixkelpie.thread_outcomes

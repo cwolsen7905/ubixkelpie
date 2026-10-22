@@ -11,7 +11,29 @@ How Kelpie answers a review thread without changing the branch. The runner is
 3. `not_an_issue` and `defer` are replies with a reason, as proposals to dismiss or to defer.
 4. One `thread_outcomes` row records verdict, mode, outcome, models, tokens and cost.
 
-Nothing is pushed and a proposal never resolves a thread.
+Nothing is pushed until someone says so, and a proposal never resolves a thread.
+
+## What a person does with a proposal
+
+The MR author or a maintainer (access level 40 or more; Kelpie's own reactions and everyone else's are ignored)
+answers on the proposal note:
+
+- **👍 on a fix** applies it. The webhook only checks who reacted and writes an `apply` job; the worker then
+  re-reads the outcome (still `proposed`) and the MR. If the head is no longer the one the proposal was made at,
+  it replies "stale" and sets nothing. Otherwise it applies the stored edits in a fresh checkout at that head,
+  runs the gate (`composer install`, phpcs, phpstan, phpunit), commits `fix(review): ...` with a `Thread:` line and
+  the `Kelpie-Autofix` trailer, looks at the head once more, and pushes to the source branch, never forced. The
+  outcome becomes `applied`; a red gate pushes nothing and the outcome becomes `failed`, with the step named in the
+  reply. The thread stays open for the reviewer to confirm.
+- **👎** sets the outcome to `declined` (a `decline` job), replies once and leaves the thread open.
+- **A reply starting `Triage:`** in a thread Kelpie has already looked at runs the thread again. What follows the colon is
+  steering, passed to both model calls as its own fenced block that cannot change the rules or the answer format.
+  The outcome becomes `reopened` until the run records a new one. Such a note is not handed to the ordinary filter,
+  so a stranger's `Triage:` neither steers nor re-runs the thread.
+
+A 👍 on a dismissal or a deferral has nothing to apply and is ignored; a 👎 on one declines it. Kelpie never awards a
+👍 or 👎 itself: the only emoji it posts is its 👀 on a thread it is working on. Pushing needs the checkout, the
+gate and minutes of time, which is why the webhook writes a job instead of doing it.
 
 ## Why exact-text edits that Kelpie applies
 
@@ -20,8 +42,8 @@ of (file, old text, new text) is checkable: the old text must occur exactly once
 refused edit refuses the lot, so a proposal either applies in full or does not exist. The diff in the reply is
 produced by git from the result, not written by the model, so it applies with `git apply` to the head it names.
 
-Applying happens in a throwaway checkout that has no gate run on it: a proposal is advice, and the gate belongs
-to the later step that pushes it.
+Proposing happens in a throwaway checkout that has no gate run on it: a proposal is advice, and the gate belongs
+to the step that pushes it (on a 👍, above).
 
 ## Limits that do not depend on the prompt
 
@@ -43,13 +65,14 @@ the guard is checking against the wrong family, which is why the operations doc 
 
 One row per thread, replaced by a later run, so the table is a record of the latest state of each thread, not a
 log. It keeps the edits and the diff so that a later step can apply a proposal without a new model call. The
-outcome values beyond `proposed`, `answered` and `failed` exist for the reaction handling and the push mode that
-follow; nothing writes them yet.
+outcome values are written as follows: `proposed`, `answered` and `failed` by a run; `applied`, `declined`, and
+`failed` again by a reaction; `reopened` by a `Triage:` reply. `overridden` and `reverted` are not written yet.
+A proposal is found by its note id (`proposal_note_id`), so only a reaction on the note of the latest proposal counts.
 
 ## Not here
 
-- Reactions on a proposal (applying on 👍, handing the thread back on 👎).
-- Pushing, and the gate on a pushed result.
-- A `Triage:` reply that steers a re-run.
+- Noticing that a person changed the code after a proposal (`overridden`), or that a pushed fix was later reverted.
+- Letting a reaction through when another job is open on the thread: it is reported in the webhook response and the
+  reactor reacts again after the run.
 - Choosing the mode per project; the allow-list still decides which projects the worker touches.
 - A budget on spend; cost is recorded, not capped.

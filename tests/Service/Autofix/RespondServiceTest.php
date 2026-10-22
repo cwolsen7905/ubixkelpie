@@ -10,6 +10,7 @@ use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Service\Autofix\RespondService;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -165,6 +166,7 @@ final class RespondServiceTest extends UbixConcreteClassOrEnumTestCase implement
             new TriagePrompt($logger),
             new SafetyPolicy($logger),
             $json,
+            new LlmFamilyService($logger),
         );
 
         return new RespondService($logger, new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings), $triage, $settings);

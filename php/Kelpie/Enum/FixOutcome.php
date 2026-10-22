@@ -11,15 +11,13 @@ namespace Kelpie\Enum;
  */
 enum FixOutcome: string
 {
-    case Disabled     = 'disabled';
-    case Skipped      = 'skipped';
-    case NotAFix      = 'not_a_fix';
-    case HeadMoved    = 'head_moved';
-    case Unsafe       = 'unsafe';
-    case NoChange     = 'no_change';
-    case GateFailed   = 'gate_failed';
-    case AgentFailed  = 'agent_failed';
-    case PushRejected = 'push_rejected';
-    case Pushed       = 'pushed';
-    case Failed       = 'failed';
+    case Disabled      = 'disabled';
+    case Skipped       = 'skipped';
+    case NotAFix       = 'not_a_fix';
+    case HeadMoved     = 'head_moved';
+    case Unsafe        = 'unsafe';
+    case NoChange      = 'no_change';
+    case EditsRejected = 'edits_rejected';
+    case Proposed      = 'proposed';
+    case Failed        = 'failed';
 }

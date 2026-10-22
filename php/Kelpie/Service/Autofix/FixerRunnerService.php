@@ -4,42 +4,45 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
-use Kelpie\Agent\FixerAgentInterface as FixerAgent;
 use Kelpie\DataTransferObject\ChangeSet;
+use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\DataTransferObject\ThreadResult;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\FixOutcome;
 use Kelpie\Enum\ResponseOutcome;
+use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Enum\TriageClass;
 use Kelpie\Enum\TriageStatus;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
-use Kelpie\Sandbox\GateRunner;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
 use Throwable;
 
 /**
- * Fix one `fix`-triaged thread: checkout at the triaged sha, agent, gate, one commit, non-force push
+ * Propose mode for one thread: triage it, then reply with a diff, a dismissal, a deferral or a reason it needs a person
  *
- * Off unless `$enabled` (`KELPIE_AUTOFIX_ENABLED=true`). The push goes to the MR's own source branch
- * only, never a fork, never `dev`/`staging`/`main`. It is skipped if the branch head is no longer the
- * sha the thread was triaged at, checked just before the push as well as at the start. Failure paths
- * answer on the thread (design section 5) and push nothing. After a push it replies with the commit
- * link (section 4) and leaves the thread open.
+ * Off unless `$enabled` (`KELPIE_AUTOFIX_ENABLED=true`). For a thread triaged `fix` the propose model returns exact-text
+ * edits, Kelpie applies them in a scratch checkout at the head it read, and the reply carries the diff git writes. A
+ * dismissal or a deferral is a reply with the reason. Nothing is pushed and nothing is resolved by a proposal. A head
+ * that moved, a closed MR or a thread already answered supersedes the job (this job only, the one the worker holds).
+ * Every thread it answers gets one row in the outcome table.
  *
  * @see \Kelpie\Tests\Service\Autofix\FixerRunnerServiceTest PHPUnit test case
  */
 final class FixerRunnerService
 {
-    private const int MAX_RUNS = 2;
-
     private const array PROTECTED_BRANCHES = ['dev', 'staging', 'main', 'master'];
+
+    private const string MODE = 'propose';
 
     /**
      * Constructor
@@ -50,13 +53,15 @@ final class FixerRunnerService
      * @param ClaimService        $claimService  The claim marker
      * @param ReplyService        $replyService  The reply and label step
      * @param TriageService       $triageService Classifies the thread
+     * @param ProposeEditsService $propose       Asks the propose model for edits
+     * @param EditApplyService    $editApplier   Applies the edits to the checkout
      * @param TriageStatusService $status        The status labels and the summary note
      * @param SafetyPolicy        $safetyPolicy  The hard limits, applied to the real diff
-     * @param FixerAgent          $agent         Edits the checkout
-     * @param GateRunner          $gateRunner    The repo's gate
+     * @param LlmFamilyService    $families      The review's family, for the record
      * @param Checkout            $checkout      The sandbox checkout
      * @param AutofixJobReader    $jobReader     The job reader
      * @param AutofixJobWriter    $jobWriter     The job writer
+     * @param ThreadOutcomeWriter $outcomes      The outcome record
      * @param string              $remoteUrl     The git URL of the project
      */
     public function __construct(
@@ -66,26 +71,28 @@ final class FixerRunnerService
         private readonly ClaimService $claimService,
         private readonly ReplyService $replyService,
         private readonly TriageService $triageService,
+        private readonly ProposeEditsService $propose,
+        private readonly EditApplyService $editApplier,
         private readonly TriageStatusService $status,
         private readonly SafetyPolicy $safetyPolicy,
-        private readonly FixerAgent $agent,
-        private readonly GateRunner $gateRunner,
+        private readonly LlmFamilyService $families,
         private readonly Checkout $checkout,
         private readonly AutofixJobReader $jobReader,
         private readonly AutofixJobWriter $jobWriter,
+        private readonly ThreadOutcomeWriter $outcomes,
         private readonly string $remoteUrl,
     ) {
     }
 
     /**
-     * Run the fixer for one thread
+     * Run propose mode for one thread
      *
      * @param string $project     The project ID
      * @param string $projectPath The project path with namespace (the job key)
      * @param int    $mrIid       The MR IID
      * @param Thread $thread      The thread
      * @param string $sha         The head sha the thread was read at; the checkout is made here
-     * @param int    $jobId       The pending job for this MR and thread
+     * @param int    $jobId       The job for this MR and thread, held by the caller (pending, or running under its lease)
      *
      * @return FixOutcome
      */
@@ -136,24 +143,18 @@ final class FixerRunnerService
         $this->jobWriter->markRunning($jobId);
         $statusRun = $this->status->start($project, $mrIid, [$thread]);
         $class     = null;
-        $commit    = null;
         $result    = null;
 
         try {
             $verdict = $this->triageService->triage($thread);
             $class   = $verdict->class->value;
 
-            if ($verdict->class !== TriageClass::Fix) {
-                $result  = $this->status->resultFor($verdict, $this->replyService->respond($project, $mrIid, $id, $verdict));
-                $outcome = FixOutcome::NotAFix;
-            } else {
-                [$outcome, $commit] = $this->fix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft);
-
-                if ($outcome === FixOutcome::Pushed && $commit !== null) {
-                    $this->announce($project, $mrIid, $id, $commit, $mr->webUrl, $verdict->reason);
-                }
-                $result = $this->resultFor($outcome, $commit);
-            }
+            [$outcome, $result, $record] = match ($verdict->class) {
+                TriageClass::Fix                          => $this->proposeFix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft, $verdict),
+                TriageClass::NotAnIssue, TriageClass::Defer => $this->proposeNoChange($project, $projectPath, $mrIid, $thread, $sha, $verdict),
+                default                                   => $this->answer($project, $projectPath, $mrIid, $thread, $sha, $verdict),
+            };
+            $this->outcomes->record($record);
         } catch (Throwable $e) {
             $this->logger->error('Autofix runner crashed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
             $outcome = FixOutcome::Failed;
@@ -163,131 +164,206 @@ final class FixerRunnerService
             $this->status->finish($project, $mrIid, $statusRun, $result === null ? [] : [$id => $result]);
         }
 
-        $done = in_array($outcome, [FixOutcome::Pushed, FixOutcome::NotAFix], true);
-        $this->jobWriter->markFinished($jobId, $done ? 'done' : 'failed', $class, $commit);
+        $done = in_array($outcome, [FixOutcome::Proposed, FixOutcome::NotAFix], true);
+        $this->jobWriter->markFinished($jobId, $done ? 'done' : 'failed', $class);
         $this->logger->info('Autofix run finished', ['outcome' => $outcome->value, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
 
         return $outcome;
     }
 
     /**
-     * What a fix attempt comes to, for the summary note and the label; null when nothing was said on the thread
+     * A thread triaged `fix`: edits, applied in the scratch checkout, and the diff as the proposal
      *
-     * @param FixOutcome $outcome The outcome
-     * @param ?string    $commit  The pushed commit
+     * @param string        $project      The project ID
+     * @param string        $projectPath  The project path
+     * @param int           $mrIid        The MR IID
+     * @param Thread        $thread       The thread
+     * @param string        $sha          The triaged sha
+     * @param string        $sourceBranch The MR source branch
+     * @param string        $targetBranch The MR target branch
+     * @param bool          $draft        Whether the MR is a draft
+     * @param TriageVerdict $verdict      Triage's verdict
      *
-     * @return ?ThreadResult
+     * @return array{0: FixOutcome, 1: ?ThreadResult, 2: ThreadOutcomeRecord}
      */
-    private function resultFor(FixOutcome $outcome, ?string $commit): ?ThreadResult
-    {
-        return match ($outcome) {
-            FixOutcome::Pushed     => new ThreadResult(TriageStatus::Pushed, 'fixed in `' . mb_substr((string) $commit, 0, 12) . '`'),
-            FixOutcome::NoChange   => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the agent made no change'),
-            FixOutcome::GateFailed => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the fix did not pass the gate'),
-            FixOutcome::Unsafe     => new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — the fix is outside the safety limits'),
-            default                => null,
-        };
-    }
-
-    /**
-     * Reply on the thread with the commit link. The push stands whether or not the reply lands.
-     *
-     * @param string $project      The project ID
-     * @param int    $mrIid        The MR IID
-     * @param string $discussionId The discussion ID
-     * @param string $commit       The pushed commit
-     * @param string $mrUrl        The MR's web URL
-     * @param string $summary      The triage reason, used as the summary
-     *
-     * @return void
-     */
-    private function announce(string $project, int $mrIid, string $discussionId, string $commit, string $mrUrl, string $summary): void
-    {
-        $base = (string) preg_replace('#/-/merge_requests/\d+/?$#', '', $mrUrl);
-        $url  = $base === $mrUrl || $base === '' ? '' : $base . '/-/commit/' . $commit;
-
-        if ($this->replyService->fixed($project, $mrIid, $discussionId, $commit, $url, $summary) !== ResponseOutcome::Replied) {
-            $this->logger->warning('Autofix fix reply could not be posted', ['commit' => $commit, 'mr_iid' => $mrIid]);
-        }
-    }
-
-    /**
-     * The fix path for a thread triaged `fix`
-     *
-     * @param string $project      The project ID
-     * @param string $projectPath  The project path
-     * @param int    $mrIid        The MR IID
-     * @param Thread $thread       The thread
-     * @param string $sha          The triaged sha
-     * @param string $sourceBranch The MR source branch
-     * @param string $targetBranch The MR target branch
-     * @param bool   $draft        Whether the MR is a draft
-     *
-     * @return array{0: FixOutcome, 1: ?string} The outcome and the pushed commit
-     */
-    private function fix(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, string $sourceBranch, string $targetBranch, bool $draft): array
+    private function proposeFix(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, string $sourceBranch, string $targetBranch, bool $draft, TriageVerdict $verdict): array
     {
         $id = $thread->discussionId;
 
         if (!$this->checkout->open($this->remoteUrl, $sourceBranch, $sha)) {
-            return [FixOutcome::Failed, null];
+            return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The scratch checkout could not be made.')];
         }
 
-        $failure = null;
-        $run     = 0;
-        while (true) {
-            $run++;
-            if (!$this->agent->fix($this->checkout->directory(), $thread, $failure)) {
-                return [FixOutcome::AgentFailed, null];
-            }
-
-            $changes = $this->checkout->stageAndMeasure();
-            if ($changes === null) {
-                return [FixOutcome::Failed, null];
-            }
-            if ($changes->paths === []) {
-                $this->needsHuman($project, $mrIid, $id, 'The agent made no change.');
-
-                return [FixOutcome::NoChange, null];
-            }
-
-            $unsafe = $this->unsafe($projectPath, $mrIid, $id, $changes, $targetBranch, $draft);
-            if ($unsafe !== null) {
-                $this->needsHuman($project, $mrIid, $id, $unsafe);
-
-                return [FixOutcome::Unsafe, null];
-            }
-
-            $gate = $this->gateRunner->run($this->checkout->directory());
-            if ($gate->passed) {
-                break;
-            }
-            $failure = $gate->output;
-
-            if ($run >= self::MAX_RUNS) {
-                $this->needsHuman($project, $mrIid, $id, 'The fix I tried did not pass `' . $gate->failedStep . '`.');
-
-                return [FixOutcome::GateFailed, null];
-            }
+        $edits = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason);
+        if ($edits->failure !== '') {
+            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $edits->failure, $edits->completion);
         }
 
-        $message = sprintf("fix: address review thread\n\nKelpie-Autofix: thread=%s sha=%s", $thread->discussionId, $sha);
-        $commit  = $this->checkout->commit($message);
-        if ($commit === null) {
-            return [FixOutcome::Failed, null];
+        $rejected = $this->editApplier->apply($this->checkout->directory(), $edits->edits);
+        if ($rejected !== null) {
+            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, 'The edits I got did not apply exactly: ' . $rejected, $edits->completion);
         }
 
-        // Last look before the push: if the branch moved past the triaged sha, push nothing.
+        $changes = $this->checkout->stageAndMeasure();
+        if ($changes === null) {
+            return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'git could not measure the edits.', $edits->completion)];
+        }
+        if ($changes->paths === []) {
+            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::NoChange, 'The edits changed nothing.', $edits->completion);
+        }
+
+        $unsafe = $this->unsafe($projectPath, $mrIid, $id, $changes, $targetBranch, $draft);
+        if ($unsafe !== null) {
+            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::Unsafe, $unsafe, $edits->completion);
+        }
+
+        $diff = $this->checkout->stagedDiff();
+        if ($diff === null || trim($diff) === '') {
+            return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'git wrote no diff.', $edits->completion)];
+        }
+        if (preg_match('/<!--\s*kelpie:/i', $diff) === 1) {
+            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::Unsafe, 'The change contains text that looks like one of my own markers.', $edits->completion);
+        }
+
+        // Last look before the reply: a proposal made against a head that has moved would not apply.
         $now = $this->writer->mergeRequest($project, $mrIid);
         if ($now === null || $now->sha !== $sha || $now->sourceBranch !== $sourceBranch) {
-            return [FixOutcome::HeadMoved, null];
+            return [FixOutcome::HeadMoved, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The head moved before the proposal was posted.', $edits->completion)];
         }
 
-        if (!$this->checkout->push($sourceBranch)) {
-            return [FixOutcome::PushRejected, null];
+        $summary = $edits->summary === '' ? $verdict->reason : $edits->summary;
+        $note    = $this->replyService->propose($project, $mrIid, $id, TriageClass::Fix, $sha, $summary, $diff);
+        if ($note === null) {
+            return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The proposal could not be posted.', $edits->completion, diff: $diff)];
         }
 
-        return [FixOutcome::Pushed, $commit];
+        return [
+            FixOutcome::Proposed,
+            new ThreadResult(TriageStatus::Proposed, 'proposed a change to `' . implode('`, `', $changes->paths) . '`'),
+            $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Proposed, $summary, $edits->completion, $note, $edits->editsJson, $diff),
+        ];
+    }
+
+    /**
+     * A thread triaged `not_an_issue` or `defer`: the reason, as a proposal to dismiss or to defer
+     *
+     * @param string        $project     The project ID
+     * @param string        $projectPath The project path
+     * @param int           $mrIid       The MR IID
+     * @param Thread        $thread      The thread
+     * @param string        $sha         The triaged sha
+     * @param TriageVerdict $verdict     Triage's verdict
+     *
+     * @return array{0: FixOutcome, 1: ?ThreadResult, 2: ThreadOutcomeRecord}
+     */
+    private function proposeNoChange(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, TriageVerdict $verdict): array
+    {
+        $id   = $thread->discussionId;
+        $note = $this->replyService->propose($project, $mrIid, $id, $verdict->class, $sha, $verdict->reason);
+        if ($note === null) {
+            return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The proposal could not be posted.')];
+        }
+
+        $result = $this->status->resultFor($verdict, ResponseOutcome::Replied);
+
+        return [FixOutcome::Proposed, $result, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Proposed, $verdict->reason, null, $note)];
+    }
+
+    /**
+     * A thread that needs a person, or is already fixed: the existing reply, no proposal
+     *
+     * @param string        $project     The project ID
+     * @param string        $projectPath The project path
+     * @param int           $mrIid       The MR IID
+     * @param Thread        $thread      The thread
+     * @param string        $sha         The triaged sha
+     * @param TriageVerdict $verdict     Triage's verdict
+     *
+     * @return array{0: FixOutcome, 1: ?ThreadResult, 2: ThreadOutcomeRecord}
+     */
+    private function answer(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, TriageVerdict $verdict): array
+    {
+        $replied = $this->replyService->respond($project, $mrIid, $thread->discussionId, $verdict);
+        $outcome = $replied === ResponseOutcome::Failed ? ThreadOutcome::Failed : ThreadOutcome::Answered;
+
+        return [FixOutcome::NotAFix, $this->status->resultFor($verdict, $replied), $this->record($projectPath, $mrIid, $thread->discussionId, $sha, $verdict, $outcome, $verdict->reason)];
+    }
+
+    /**
+     * Tell the thread why no proposal could be made, and record it
+     *
+     * @param string        $project     The project ID
+     * @param string        $projectPath The project path
+     * @param int           $mrIid       The MR IID
+     * @param string        $id          The discussion ID
+     * @param string        $sha         The triaged sha
+     * @param TriageVerdict $verdict     Triage's verdict
+     * @param FixOutcome    $outcome     Why, as an outcome
+     * @param string        $reason      Why, for the person
+     * @param ?Completion   $completion  The propose model call, when there was one
+     *
+     * @return array{0: FixOutcome, 1: ?ThreadResult, 2: ThreadOutcomeRecord}
+     */
+    private function refused(string $project, string $projectPath, int $mrIid, string $id, string $sha, TriageVerdict $verdict, FixOutcome $outcome, string $reason, ?Completion $completion): array
+    {
+        $needsHuman = new TriageVerdict(TriageClass::NeedsHuman, $reason);
+        $replied    = $this->replyService->respond($project, $mrIid, $id, $needsHuman);
+
+        return [
+            $outcome,
+            $this->status->resultFor($needsHuman, $replied),
+            $this->record($projectPath, $mrIid, $id, $sha, $verdict, $replied === ResponseOutcome::Failed ? ThreadOutcome::Failed : ThreadOutcome::Answered, $reason, $completion),
+        ];
+    }
+
+    /**
+     * The outcome row for this run, with the models and the cost of both calls
+     *
+     * @param string        $projectPath The project path
+     * @param int           $mrIid       The MR IID
+     * @param string        $id          The discussion ID
+     * @param string        $sha         The triaged sha
+     * @param TriageVerdict $verdict     Triage's verdict
+     * @param ThreadOutcome $outcome     What came of it
+     * @param string        $reason      Why, or the summary
+     * @param ?Completion   $propose     The propose model call, when there was one
+     * @param ?int          $note        The proposal note
+     * @param string        $editsJson   The edits as JSON
+     * @param string        $diff        The diff posted
+     *
+     * @return ThreadOutcomeRecord
+     */
+    private function record(string $projectPath, int $mrIid, string $id, string $sha, TriageVerdict $verdict, ThreadOutcome $outcome, string $reason, ?Completion $propose = null, ?int $note = null, string $editsJson = '', string $diff = ''): ThreadOutcomeRecord
+    {
+        $calls  = array_values(array_filter([$verdict->completion, $propose]));
+        $cost   = null;
+        $prompt = 0;
+        $answer = 0;
+        foreach ($calls as $call) {
+            $prompt += $call->promptTokens;
+            $answer += $call->completionTokens;
+            $cost    = $call->costUsd === null ? $cost : ($cost ?? 0.0) + $call->costUsd;
+        }
+
+        return new ThreadOutcomeRecord(
+            $projectPath,
+            $mrIid,
+            $id,
+            $sha,
+            $verdict->class->value,
+            self::MODE,
+            $outcome,
+            $reason,
+            $verdict->completion->model ?? '',
+            $propose->model ?? '',
+            $this->families->reviewFamily(),
+            $prompt,
+            $answer,
+            $cost,
+            $note,
+            $editsJson,
+            $diff,
+        );
     }
 
     /**
@@ -318,20 +394,5 @@ final class FixerRunnerService
         $checked = $this->safetyPolicy->apply(new TriageVerdict(TriageClass::Fix, ''), $proposal);
 
         return $checked->class === TriageClass::Fix ? null : $checked->reason;
-    }
-
-    /**
-     * Answer the thread on the not-safe path
-     *
-     * @param string $project      The project ID
-     * @param int    $mrIid        The MR IID
-     * @param string $discussionId The discussion ID
-     * @param string $reason       Why
-     *
-     * @return void
-     */
-    private function needsHuman(string $project, int $mrIid, string $discussionId, string $reason): void
-    {
-        $this->replyService->respond($project, $mrIid, $discussionId, new TriageVerdict(TriageClass::NeedsHuman, $reason));
     }
 }

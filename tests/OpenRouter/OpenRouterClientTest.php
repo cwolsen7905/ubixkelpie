@@ -65,6 +65,42 @@ final class OpenRouterClientTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * `chat()` reports the model, the token counts and the cost, and asks OpenRouter for usage
+     *
+     * @return void
+     */
+    public function testChatReportsUsageAndCost(): void
+    {
+        $body = '{"choices":[{"message":{"content":"{}"}}],"usage":{"prompt_tokens":210,"completion_tokens":18,"cost":0.0042}}';
+
+        $completion = $this->client(new Psr7Response(200, [], $body))->chat('google/gemini-3-flash', 'S', 'U');
+
+        $this->assertNotNull($completion);
+        $this->assertSame('{}', $completion->text);
+        $this->assertSame('google/gemini-3-flash', $completion->model);
+        $this->assertSame(210, $completion->promptTokens);
+        $this->assertSame(18, $completion->completionTokens);
+        $this->assertSame(0.0042, $completion->costUsd);
+        $this->assertNotNull($this->sent);
+        $payload = (new JsonService($this->createStub(Logger::class)))->decode((string) $this->sent->getBody());
+        $this->assertSame(['include' => true], $payload['usage']);
+    }
+
+    /**
+     * A provider that leaves usage out gives zero tokens and no cost
+     *
+     * @return void
+     */
+    public function testChatWithoutUsageHasNoCost(): void
+    {
+        $completion = $this->client(new Psr7Response(200, [], '{"choices":[{"message":{"content":"{}"}}]}'))->chat('m', 'S', 'U');
+
+        $this->assertNotNull($completion);
+        $this->assertSame(0, $completion->promptTokens);
+        $this->assertNull($completion->costUsd);
+    }
+
+    /**
      * No key: null, and nothing is sent
      *
      * @return void

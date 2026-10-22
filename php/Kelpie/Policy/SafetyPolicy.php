@@ -88,7 +88,7 @@ final class SafetyPolicy
 
         $this->logger->info('Triage: fix downgraded to needs_human', ['violation' => $violation]);
 
-        return new TriageVerdict(TriageClass::NeedsHuman, 'Not safe to fix automatically: ' . $violation . '.');
+        return new TriageVerdict(TriageClass::NeedsHuman, 'Not safe to fix automatically: ' . $violation . '.', $verdict->completion);
     }
 
     /**

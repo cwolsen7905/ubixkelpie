@@ -4,18 +4,21 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Console\Command;
 
-use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\FixThreadService;
+use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Autofix\RespondService;
 use Kelpie\Service\Autofix\SweepRunService;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
@@ -66,10 +69,12 @@ final class CommandServices
             new TriagePrompt($this->logger),
             new SafetyPolicy($this->logger),
             $this->json,
+            new LlmFamilyService($this->logger),
         );
         $this->gitlab  = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
-        $runner        = new ScriptedProcessRunner();
-        $this->runners = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, $runner, new ClaudeCliFixerAgent($this->logger, $runner, 'test-key-not-real'), $settings);
+        $open          = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);
+        $propose       = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
+        $this->runners = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), $settings);
     }
 
     /**

@@ -92,6 +92,31 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
     }
 
     /**
+     * The staged diff is what git writes, and it applies to the sha the checkout was made at
+     *
+     * @return void
+     */
+    public function testStagedDiffAppliesToTheSha(): void
+    {
+        $checkout = $this->checkout();
+        $checkout->open($this->remote, 'feat/x', $this->sha);
+        $dir = $checkout->directory();
+        file_put_contents($dir . '/a.txt', "one\ntwo\n");
+        $checkout->stageAndMeasure();
+
+        $diff = $checkout->stagedDiff();
+
+        $this->assertNotNull($diff);
+        $this->assertStringContainsString('diff --git a/a.txt b/a.txt', $diff);
+        $this->assertStringContainsString('+two', $diff);
+        $patch = $this->base . '/staged.patch';
+        file_put_contents($patch, $diff);
+        $this->git($this->base . '/work', ['checkout', '--detach', $this->sha]);
+        $this->assertSame('', $this->git($this->base . '/work', ['apply', '--check', $patch]));
+        $checkout->close();
+    }
+
+    /**
      * Deleted files and skipped tests are flagged
      *
      * @return void

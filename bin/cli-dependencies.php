@@ -13,6 +13,9 @@ use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\Project\ProjectSqlRepository;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\AutofixSettingsService;
@@ -37,6 +40,8 @@ return static function (): Container {
     $container->set(AutofixSettings::class, factory([AutofixSettingsService::class, 'fromEnvironment']));
     $container->set(IssueTriageJobReader::class, autowire(IssueTriageJobSqlRepository::class));
     $container->set(IssueTriageJobWriter::class, autowire(IssueTriageJobSqlRepository::class));
+    $container->set(ThreadOutcomeReader::class, autowire(ThreadOutcomeSqlRepository::class));
+    $container->set(ThreadOutcomeWriter::class, autowire(ThreadOutcomeSqlRepository::class));
     $container->set(ProjectReader::class, autowire(ProjectSqlRepository::class));
     $container->set(ProcessRunner::class, autowire(ProcOpenProcessRunner::class));
     $container->set(

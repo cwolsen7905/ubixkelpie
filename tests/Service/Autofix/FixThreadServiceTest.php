@@ -6,16 +6,19 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use ArrayObject;
 use Generator;
-use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
+use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\FixThreadService;
+use Kelpie\Service\Autofix\ProposeEditsService;
+use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
@@ -218,6 +221,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             new TriagePrompt($logger),
             new SafetyPolicy($logger),
             $json,
+            new LlmFamilyService($logger),
         );
 
         $queries = $this->queries;
@@ -250,10 +254,11 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             }
         });
 
-        $jobs   = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
-        $gitlab = new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings);
-        $agent  = new ClaudeCliFixerAgent($logger, $runner = new ScriptedProcessRunner(), 'test-key-not-real');
+        $jobs    = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
+        $gitlab  = new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings);
+        $open    = new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json);
+        $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
 
-        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, $runner, $agent, $settings), $settings);
+        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), $settings), $settings);
     }
 }

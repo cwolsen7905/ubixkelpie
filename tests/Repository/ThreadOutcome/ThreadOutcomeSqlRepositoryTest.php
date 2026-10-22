@@ -20,6 +20,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A run is one upsert keyed by the thread, so a second run replaces the first row
  * - Empty edits and diff are stored as NULL, and an unknown cost stays NULL
  * - A row reads back as the record it was written from
+ * - A proposal is found by the note that carries it
  * - A later reaction changes only the outcome
  *
  * @coversDefaultClass \Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository
@@ -117,6 +118,47 @@ final class ThreadOutcomeSqlRepositoryTest extends UbixConcreteClassOrEnumTestCa
         $this->assertSame('openai/gpt-5.5', $record->proposeModel);
         $this->assertSame(200, $record->promptTokens);
         $this->assertSame(3, $record->mrIid);
+    }
+
+    /**
+     * A proposal is found by its note, within the project and MR
+     *
+     * @return void
+     */
+    public function testGetByProposalNoteQueriesTheNote(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRows')->with(
+            $this->logicalAnd($this->stringContains('proposal_note_id = :proposal_note_id'), $this->logicalNot($this->stringContains('discussion_id = :discussion_id'))),
+            ['mr_iid' => 3, 'project_path' => 'g/p', 'proposal_note_id' => 105],
+        )->willReturnCallback(static function (): Generator {
+            yield [
+                'completion_tokens' => '0', 'cost_usd'          => null, 'diff'              => null, 'discussion_id'     => 'd1', 'edits_json'        => '[]', 'head_sha'          => str_repeat('a', 40),
+                'mode'              => 'propose', 'mr_iid'            => '3', 'outcome'           => 'proposed', 'project_path'      => 'g/p', 'prompt_tokens'     => '0', 'proposal_note_id'  => '105',
+                'propose_model'     => '', 'reason'            => '', 'review_family'     => '', 'triage_model'      => '', 'verdict'           => 'fix',
+            ];
+        });
+
+        $record = (new ThreadOutcomeSqlRepository($this->createStub(Logger::class), $sql))->getByProposalNote('g/p', 3, 105);
+
+        $this->assertNotNull($record);
+        $this->assertSame('d1', $record->discussionId);
+        $this->assertSame(ThreadOutcome::Proposed, $record->outcome);
+    }
+
+    /**
+     * A note that is nobody's proposal finds nothing
+     *
+     * @return void
+     */
+    public function testGetByProposalNoteWithoutARowIsNull(): void
+    {
+        $sql = $this->createStub(SqlService::class);
+        $sql->method('getRows')->willReturnCallback(static function (): Generator {
+            yield from [];
+        });
+
+        $this->assertNull((new ThreadOutcomeSqlRepository($this->createStub(Logger::class), $sql))->getByProposalNote('g/p', 3, 999));
     }
 
     /**

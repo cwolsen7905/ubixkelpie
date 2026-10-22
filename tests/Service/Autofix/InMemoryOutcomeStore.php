@@ -47,6 +47,20 @@ final class InMemoryOutcomeStore implements ThreadOutcomeReader, ThreadOutcomeWr
     /**
      * {@inheritDoc}
      */
+    public function getByProposalNote(string $projectPath, int $mrIid, int $noteId): ?ThreadOutcomeRecord
+    {
+        foreach ($this->rows as $row) {
+            if ($row->projectPath === $projectPath && $row->mrIid === $mrIid && $row->proposalNoteId === $noteId) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function record(ThreadOutcomeRecord $record): void
     {
         $this->rows[$record->projectPath . '/' . $record->mrIid . '/' . $record->discussionId] = $record;

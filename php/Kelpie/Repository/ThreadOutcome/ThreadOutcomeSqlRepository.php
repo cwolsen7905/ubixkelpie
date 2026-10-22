@@ -42,6 +42,14 @@ final class ThreadOutcomeSqlRepository implements ThreadOutcomeReader, ThreadOut
     /**
      * {@inheritDoc}
      */
+    public function getByProposalNote(string $projectPath, int $mrIid, int $noteId): ?ThreadOutcomeRecord
+    {
+        return $this->query(new ThreadOutcomeOptions($projectPath, $mrIid, proposalNoteId: $noteId))[0] ?? null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function record(ThreadOutcomeRecord $record): void
     {
         $sql = 'INSERT INTO ubixkelpie.thread_outcomes
@@ -98,13 +106,25 @@ final class ThreadOutcomeSqlRepository implements ThreadOutcomeReader, ThreadOut
      */
     private function query(ThreadOutcomeOptions $options): array
     {
-        $sql = 'SELECT project_path, mr_iid, discussion_id, head_sha, verdict, mode, outcome, reason, triage_model, propose_model,
+        $sql        = 'SELECT project_path, mr_iid, discussion_id, head_sha, verdict, mode, outcome, reason, triage_model, propose_model,
                        review_family, prompt_tokens, completion_tokens, cost_usd, proposal_note_id, edits_json, diff
                 FROM ubixkelpie.thread_outcomes
-                WHERE project_path = :project_path AND mr_iid = :mr_iid AND discussion_id = :discussion_id';
+                WHERE project_path = :project_path AND mr_iid = :mr_iid';
+        $parameters = ['mr_iid' => $options->mrIid, 'project_path' => $options->projectPath];
+
+        if ($options->discussionId !== null) {
+            $sql .= ' AND discussion_id = :discussion_id';
+
+            $parameters['discussion_id'] = $options->discussionId;
+        }
+        if ($options->proposalNoteId !== null) {
+            $sql .= ' AND proposal_note_id = :proposal_note_id';
+
+            $parameters['proposal_note_id'] = $options->proposalNoteId;
+        }
 
         $records = [];
-        foreach ($this->sqlService->getRows($sql, ['discussion_id' => $options->discussionId, 'mr_iid' => $options->mrIid, 'project_path' => $options->projectPath]) as $row) {
+        foreach ($this->sqlService->getRows($sql, $parameters) as $row) {
             $outcome = ThreadOutcome::tryFrom((string) $row['outcome']);
             if ($outcome === null) {
                 $this->logger->warning('Unknown thread outcome, row skipped', ['outcome' => $row['outcome']]);

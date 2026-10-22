@@ -24,4 +24,20 @@ final class ThreadOutcomeOptionsTest extends UbixConcreteClassOrEnumTestCase imp
     {
         $this->testClassFollowingUbixStandards(ThreadOutcomeOptions::class);
     }
+
+    /**
+     * A thread lookup sets the discussion and no note; a proposal lookup the reverse
+     *
+     * @return void
+     */
+    public function testLookupByThreadOrByProposalNote(): void
+    {
+        $thread = new ThreadOutcomeOptions('g/p', 3, 'd1');
+        $note   = new ThreadOutcomeOptions('g/p', 3, proposalNoteId: 105);
+
+        $this->assertSame('d1', $thread->discussionId);
+        $this->assertNull($thread->proposalNoteId);
+        $this->assertNull($note->discussionId);
+        $this->assertSame(105, $note->proposalNoteId);
+    }
 }

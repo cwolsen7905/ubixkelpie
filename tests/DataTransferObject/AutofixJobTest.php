@@ -38,5 +38,20 @@ final class AutofixJobTest extends UbixConcreteClassOrEnumTestCase implements IU
         $this->assertSame(7, $job->mrIid);
         $this->assertNull($job->discussionId);
         $this->assertFalse($job->afterAutofix);
+        $this->assertNull($job->steering);
+    }
+
+    /**
+     * Steering and the reaction sources are carried
+     *
+     * @return void
+     */
+    public function testSteeringAndReactionSources(): void
+    {
+        $job = new AutofixJob('org/proj', 7, 'abc', 'note', 'd1', false, 'Look at the null case');
+
+        $this->assertSame('Look at the null case', $job->steering);
+        $this->assertSame('apply', AutofixJob::APPLY);
+        $this->assertSame('decline', AutofixJob::DECLINE);
     }
 }

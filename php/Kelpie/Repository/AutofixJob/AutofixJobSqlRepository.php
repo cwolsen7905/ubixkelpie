@@ -23,7 +23,7 @@ use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWriter
 {
     private const string COLUMNS = 'id, project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix,
-                status, triage_class, attempt, commit_sha, date_created';
+                status, triage_class, attempt, commit_sha, steering, date_created';
 
     /**
      * Constructor
@@ -91,8 +91,8 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
      */
     public function createJob(AutofixJobRecord $job): void
     {
-        $sql = "INSERT INTO ubixkelpie.autofix_jobs (project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix, status)
-                VALUES (:project_path, :mr_iid, :head_sha, :discussion_id, :thread_key, :source, :after_autofix, 'pending')";
+        $sql = "INSERT INTO ubixkelpie.autofix_jobs (project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix, steering, status)
+                VALUES (:project_path, :mr_iid, :head_sha, :discussion_id, :thread_key, :source, :after_autofix, :steering, 'pending')";
 
         $this->sqlService->query($sql, [
             'after_autofix' => $job->getAfterAutofix() === true ? 1 : 0,
@@ -101,6 +101,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
             'mr_iid'        => $job->getMrIid(),
             'project_path'  => $job->getProjectPath(),
             'source'        => $job->getSource(),
+            'steering'      => $job->getSteering(),
             'thread_key'    => $job->getThreadKey() ?? '',
         ]);
 
@@ -301,6 +302,7 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
             triageClass:  is_string($row['triage_class']) ? $row['triage_class'] : null,
             attempt:      (int) $row['attempt'],
             commitSha:    is_string($row['commit_sha']) ? $row['commit_sha'] : null,
+            steering:     is_string($row['steering'] ?? null) ? $row['steering'] : null,
             dateCreated:  is_string($row['date_created']) ? new DateTime($row['date_created']) : null,
         );
     }

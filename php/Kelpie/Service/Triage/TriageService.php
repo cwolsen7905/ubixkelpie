@@ -55,10 +55,11 @@ final class TriageService
      *
      * @param Thread       $thread   The thread
      * @param ?FixProposal $proposal The proposed fix, when one exists (checked by the safety policy)
+     * @param string       $steering What the author or a maintainer asked for with "Triage:", empty when nothing
      *
      * @return TriageVerdict
      */
-    public function triage(Thread $thread, ?FixProposal $proposal = null): TriageVerdict
+    public function triage(Thread $thread, ?FixProposal $proposal = null, string $steering = ''): TriageVerdict
     {
         $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
 
@@ -68,7 +69,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
         }
 
-        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread));
+        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering));
         $answer     = $completion?->text;
 
         if ($answer === null) {

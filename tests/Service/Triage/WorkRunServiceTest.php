@@ -155,6 +155,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             $services->jobs(),
             $services->sweep(),
             $services->runners(),
+            $services->reactions(),
             0,
         );
     }

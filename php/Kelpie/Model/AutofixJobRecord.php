@@ -30,6 +30,7 @@ final class AutofixJobRecord extends Model
      * @param ?int               $attempt      The attempt
      * @param ?string            $commitSha    The commitSha
      * @param ?DateTimeInterface $dateCreated  The dateCreated
+     * @param ?string            $steering     The steering
      */
     public function __construct(
         private ?string $projectPath = null,
@@ -45,6 +46,7 @@ final class AutofixJobRecord extends Model
         private ?int $attempt = null,
         private ?string $commitSha = null,
         private ?DateTimeInterface $dateCreated = null,
+        private ?string $steering = null,
     ) {
     }
 
@@ -156,6 +158,28 @@ final class AutofixJobRecord extends Model
     public function getCommitSha(): ?string
     {
         return $this->commitSha;
+    }
+
+    /**
+     * Get the value of steering
+     *
+     * @return ?string The value of steering
+     */
+    public function getSteering(): ?string
+    {
+        return $this->steering;
+    }
+
+    /**
+     * Set the value of steering
+     *
+     * @param ?string $steering The value of steering
+     *
+     * @return void
+     */
+    public function setSteering(?string $steering): void
+    {
+        $this->steering = $steering;
     }
 
     /**

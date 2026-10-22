@@ -108,6 +108,7 @@ final class WorkCommandTest extends UbixConcreteClassOrEnumTestCase implements I
             $services->jobs(),
             $services->sweep(),
             $services->runners(),
+            $services->reactions(),
             0,
         ));
     }

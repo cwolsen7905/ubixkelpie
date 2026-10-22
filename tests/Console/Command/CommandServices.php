@@ -15,6 +15,7 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\FixThreadService;
+use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Autofix\RespondService;
 use Kelpie\Service\Autofix\SweepRunService;
@@ -46,6 +47,8 @@ final class CommandServices
 
     private FixerRunnerBuilderService $runners;
 
+    private ProposalReactionBuilderService $reactions;
+
     /**
      * Constructor
      *
@@ -60,10 +63,10 @@ final class CommandServices
         SqlService $sql,
         private readonly AutofixSettings $settings,
     ) {
-        $this->json    = new JsonService($this->logger);
-        $factory       = new Psr17Factory();
-        $this->jobs    = new AutofixJobService($this->logger, new AutofixJobSqlRepository($this->logger, $sql));
-        $this->triage  = new TriageService(
+        $this->json      = new JsonService($this->logger);
+        $factory         = new Psr17Factory();
+        $this->jobs      = new AutofixJobService($this->logger, new AutofixJobSqlRepository($this->logger, $sql));
+        $this->triage    = new TriageService(
             $this->logger,
             new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json),
             new TriagePrompt($this->logger),
@@ -71,10 +74,12 @@ final class CommandServices
             $this->json,
             new LlmFamilyService($this->logger),
         );
-        $this->gitlab  = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
-        $open          = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);
-        $propose       = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
-        $this->runners = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), $settings);
+        $this->gitlab    = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
+        $open            = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);
+        $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
+        $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), $settings);
+        $outcomes        = new ThreadOutcomeSqlRepository($this->logger, $sql);
+        $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings);
     }
 
     /**
@@ -83,6 +88,14 @@ final class CommandServices
     public function jobs(): AutofixJobService
     {
         return $this->jobs;
+    }
+
+    /**
+     * @return ProposalReactionBuilderService
+     */
+    public function reactions(): ProposalReactionBuilderService
+    {
+        return $this->reactions;
     }
 
     /**

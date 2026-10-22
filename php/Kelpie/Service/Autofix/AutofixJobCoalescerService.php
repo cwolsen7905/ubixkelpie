@@ -88,6 +88,7 @@ final class AutofixJobCoalescerService
                 threadKey:    $threadKey,
                 source:       $input->source,
                 afterAutofix: $input->afterAutofix,
+                steering:     $input->steering,
             ));
         } catch (PDOException $exception) {
             // The unique index on open jobs lost a race: someone else enqueued first.

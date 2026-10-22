@@ -52,6 +52,36 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * Steering is stored with the job, and NULL when there is none
+     *
+     * @return void
+     */
+    public function testCreateJobStoresTheSteering(): void
+    {
+        $with = $this->createMock(SqlService::class);
+        $with->expects($this->once())->method('query')->with(
+            $this->stringContains('steering'),
+            $this->callback(
+                static function (array $p): bool {
+                    return $p['steering'] === 'Mind the null case';
+                },
+            ),
+        )->willReturn(1);
+        $without = $this->createMock(SqlService::class);
+        $without->expects($this->once())->method('query')->with(
+            $this->stringContains('steering'),
+            $this->callback(
+                static function (array $p): bool {
+                    return $p['steering'] === null;
+                },
+            ),
+        )->willReturn(1);
+
+        (new AutofixJobSqlRepository($this->createStub(Logger::class), $with))->createJob(new AutofixJobRecord(projectPath: 'g/p', mrIid: 5, headSha: 'abc', source: 'note', discussionId: 'd1', threadKey: 'd1', steering: 'Mind the null case'));
+        (new AutofixJobSqlRepository($this->createStub(Logger::class), $without))->createJob(new AutofixJobRecord(projectPath: 'g/p', mrIid: 5, headSha: 'abc', source: 'note', discussionId: 'd1', threadKey: 'd1'));
+    }
+
+    /**
      * The open job is read by the generated open marker
      *
      * @return void

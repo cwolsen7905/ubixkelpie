@@ -7,9 +7,11 @@ namespace Kelpie\Service\Triage;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\OpenIssue;
 use Kelpie\DataTransferObject\RunResult;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriageJobReader;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
 use Throwable;
 
@@ -35,7 +37,8 @@ final class TriageBackfillService
      * @param GitlabClientFactory  $gitlab   Builds the issue client from the settings
      * @param IssueTriageJobReader $reader   Finds an issue's existing job
      * @param IssueTriageJobWriter $writer   Queues a job
-     * @param AutofixSettings      $settings The settings: flags, project list, bot
+     * @param AutofixSettings      $settings The settings: flags, bot
+     * @param ProjectModeService   $modes    Which projects are enrolled
      */
     public function __construct(
         private readonly Logger $logger,
@@ -43,6 +46,7 @@ final class TriageBackfillService
         private readonly IssueTriageJobReader $reader,
         private readonly IssueTriageJobWriter $writer,
         private readonly AutofixSettings $settings,
+        private readonly ProjectModeService $modes,
     ) {
     }
 
@@ -65,8 +69,8 @@ final class TriageBackfillService
         if ($this->settings->apiUrl === '' || $this->settings->botToken === '') {
             return new RunResult(false, ['GITLAB_API_URL and KELPIE_BOT_GITLAB_TOKEN must be set.'], true);
         }
-        if ($project !== null && !in_array($project, $this->settings->projects, true)) {
-            return new RunResult(false, ['The project ' . $project . ' is not in KELPIE_AUTOFIX_PROJECTS.'], true);
+        if ($project !== null && !$this->modes->allows($project, ProjectMode::Propose)) {
+            return new RunResult(false, ['The project ' . $project . ' is not enrolled (its mode in `projects` is off or it has no row).'], true);
         }
         if (!$dryRun && !$this->settings->enabled) {
             return new RunResult(false, ['Autofix is disabled (KELPIE_AUTOFIX_ENABLED is not "true"); nothing queued. A dry run still works.'], true);
@@ -77,7 +81,7 @@ final class TriageBackfillService
         $ok     = true;
         $count  = 0;
 
-        foreach ($project === null ? $this->settings->projects : [$project] as $path) {
+        foreach ($project === null ? $this->modes->enrolledPaths() : [$project] as $path) {
             $issues = $client->openIssues($path);
             if ($issues === null) {
                 $lines[] = $path . ': the open issues could not be read.';

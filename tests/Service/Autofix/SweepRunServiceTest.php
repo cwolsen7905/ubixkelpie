@@ -6,11 +6,13 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use ArrayObject;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\SweepRunService;
 use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -80,6 +82,23 @@ final class SweepRunServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
+     * A project that is off, or has no row, is not swept: no GitLab request is made for it
+     *
+     * @return void
+     */
+    public function testSweepsOnlyEnrolledProjects(): void
+    {
+        $this->gitlab->note('d1abc123', 'Please fix the typo.');
+
+        foreach ([[], ['ubixsys/ubixkelpie' => ProjectMode::Off]] as $modes) {
+            $result = $this->service(null, $modes)->sweep();
+
+            $this->assertSame(['Nothing needs resolution.'], $result->lines);
+        }
+        $this->assertSame([], $this->gitlab->requests());
+    }
+
+    /**
      * An empty sweep says so
      *
      * @return void
@@ -114,12 +133,14 @@ final class SweepRunServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     /**
      * Build the service over the fake GitLab, a scripted process runner and a stubbed SQL service
      *
-     * @param ?AutofixSettings $settings The settings; a configured bot, autofix off, when null
+     * @param ?AutofixSettings            $settings The settings; a configured bot, autofix off, when null
+     * @param ?array<string, ProjectMode> $modes    The projects table; ubixsys/ubixkelpie in propose when null
      *
      * @return SweepRunService
      */
-    private function service(?AutofixSettings $settings = null): SweepRunService
+    private function service(?AutofixSettings $settings = null, ?array $modes = null): SweepRunService
     {
+        $modes    ??= ['ubixsys/ubixkelpie' => ProjectMode::Propose];
         $settings ??= new AutofixSettings('https://gitlab.test/api/v4', 'tok-not-real');
         $logger     = $this->createStub(Logger::class);
         $json       = new JsonService($logger);
@@ -135,6 +156,6 @@ final class SweepRunServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $jobs   = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
         $client = new GitlabClientFactory($logger, $this->gitlab, $factory, $factory, $json, $settings);
 
-        return new SweepRunService($logger, $client, $jobs, $settings);
+        return new SweepRunService($logger, $client, $jobs, $settings, InMemoryProjects::service($modes));
     }
 }

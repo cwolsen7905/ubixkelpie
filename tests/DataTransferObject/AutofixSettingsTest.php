@@ -38,7 +38,6 @@ final class AutofixSettingsTest extends UbixConcreteClassOrEnumTestCase implemen
         $settings = new AutofixSettings();
 
         $this->assertFalse($settings->enabled);
-        $this->assertSame(['ubixsys/ubixkelpie'], $settings->projects);
         $this->assertSame('anthropic/claude-sonnet-5.5', $settings->fixerModel);
         $this->assertSame(1800, $settings->claimTtl);
         $this->assertSame(5, $settings->sweepMaxRuns);

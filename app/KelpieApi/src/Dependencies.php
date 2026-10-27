@@ -25,6 +25,7 @@ use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\ProposalReactionWebhookService;
+use Kelpie\Service\Project\ProjectModeService;
 use Latte\Engine;
 use Latte\Loaders\FileLoader;
 use Monolog\Handler\StreamHandler;
@@ -45,6 +46,7 @@ use Ubix\Service\Sql\MysqlPdoSqlService;
 use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 
 use function DI\autowire;
+use function DI\factory;
 use function DI\get;
 
 /**
@@ -88,6 +90,12 @@ return static function (): Container {
         return $raw === false ? $default : array_values(array_filter(array_map('trim', explode(',', $raw))));
     };
 
+    // The projects Kelpie acts on are the rows of `projects` that are not off, read when the webhook services are built.
+    // A project with no row is off; an unreadable table throws, so the webhook answers with an error and acts on nothing.
+    $enrolled = factory(static function (ProjectModeService $modes): array {
+        return $modes->enrolledPaths();
+    });
+
     $container = new ContainerBuilder();
     $container->addDefinitions([
         Engine::class                         => autowire()->method('setAutoRefresh', true)->method('setTempDirectory', $cacheDir)->method('setLoader', new FileLoader($templateDir)),
@@ -122,7 +130,7 @@ return static function (): Container {
         EventFilter::class                    => autowire()
             ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
-            ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
+            ->constructorParameter('projects', $enrolled)
             ->constructorParameter('skipBranches', $envList('KELPIE_SKIP_BRANCH_PREFIXES'))
             ->constructorParameter('reviewJobs', $envList('KELPIE_REVIEW_JOBS', EventFilter::REVIEW_JOBS)),
         // Issue intake (design sections 2 and 6): classify, and put a 👀 on an accepted issue. The gate label's actor is
@@ -142,7 +150,7 @@ return static function (): Container {
             ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true))
             ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
             ->constructorParameter('skipAuthors', $envList('KELPIE_SKIP_AUTHORS'))
-            ->constructorParameter('projects', $envList('KELPIE_AUTOFIX_PROJECTS', ['ubixsys/ubixkelpie']))
+            ->constructorParameter('projects', $enrolled)
             ->constructorParameter('gateLabel', getenv('KELPIE_AUTOFIX_GATE_LABEL') ?: 'kelpie::fix'),
         // Job state (design section 6): MariaDB, credentials from uBixVault (VAULT_DB_KV_PATH). The
         // connection opens on first query, so an app that never touches a job needs no database.
@@ -152,7 +160,7 @@ return static function (): Container {
         // The triage queue the webhook adds new issues to; the worker (`kelpie:work`) takes them off it.
         IssueTriageJobReader::class           => autowire(IssueTriageJobSqlRepository::class),
         IssueTriageJobWriter::class           => autowire(IssueTriageJobSqlRepository::class),
-        // Per-project modes and settings (K-30); read by the services that move to it in the cutover.
+        // Per-project modes and settings (K-30): the one place that says which projects Kelpie acts on and how far.
         ProjectReader::class                  => autowire(ProjectSqlRepository::class),
         // Thumbs on a proposal and "Triage:" replies (K-32): queued as jobs for `kelpie:work`, never run in the webhook.
         ThreadOutcomeReader::class            => autowire(ThreadOutcomeSqlRepository::class),

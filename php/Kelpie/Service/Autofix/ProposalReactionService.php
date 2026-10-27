@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\ProposedEdit;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
@@ -12,6 +13,7 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcom
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
 use Throwable;
 use Ubix\Service\JsonService;
@@ -44,6 +46,7 @@ final class ProposalReactionService
      * @param ThreadOutcomeWriter $outcomes  Where the proposal's fate is written
      * @param AutofixJobWriter    $jobs      Where the fix commit is noted on the job
      * @param JsonService         $json      JSON service
+     * @param ProjectModeService  $modes     What Kelpie may do on the project: a push needs `push`
      * @param string              $remoteUrl The project's git remote
      */
     public function __construct(
@@ -57,6 +60,7 @@ final class ProposalReactionService
         private readonly ThreadOutcomeWriter $outcomes,
         private readonly AutofixJobWriter $jobs,
         private readonly JsonService $json,
+        private readonly ProjectModeService $modes,
         private readonly string $remoteUrl,
     ) {
     }
@@ -85,6 +89,14 @@ final class ProposalReactionService
         if (!$apply) {
             $this->outcomes->setOutcome($projectPath, $mrIid, $discussionId, ThreadOutcome::Declined);
             $this->replies->notice($project, $mrIid, $discussionId, 'Understood, I have dropped this proposal and changed nothing. The thread is still open; reply with `Triage: <what to do instead>` to have me look again.', 'declined');
+
+            return null;
+        }
+
+        // The one path that pushes: only a project in push mode, whatever the job says. Checked here, next to the push.
+        if (!$this->modes->allows($projectPath, ProjectMode::Push)) {
+            $this->logger->info('Proposal reaction: project is not in push mode, nothing pushed', ['project' => $projectPath, 'mr_iid' => $mrIid]);
+            $this->replies->notice($project, $mrIid, $discussionId, 'This project is not set to let me push, so I did not apply the proposal. The diff above is still there to apply by hand.', 'not-pushed');
 
             return null;
         }

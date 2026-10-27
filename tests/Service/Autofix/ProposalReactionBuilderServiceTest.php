@@ -10,6 +10,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\ProposalReactionBuilderService;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -62,6 +63,7 @@ final class ProposalReactionBuilderServiceTest extends UbixConcreteClassOrEnumTe
             $outcomes,
             $json,
             $settings,
+            InMemoryProjects::service(),
         );
 
         $this->assertNotSame($builder->make('ubixsys/ubixkelpie'), $builder->make('ubixsys/ubixkelpie'));

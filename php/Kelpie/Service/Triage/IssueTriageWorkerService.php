@@ -54,7 +54,7 @@ final class IssueTriageWorkerService
      * Run one step
      *
      * @param bool              $enabled  Whether autofix is on (KELPIE_AUTOFIX_ENABLED)
-     * @param string[]          $projects The enrolled projects (KELPIE_AUTOFIX_PROJECTS)
+     * @param string[]          $projects The enrolled projects (rows of `projects` that are not off)
      * @param DateTimeImmutable $now      The current time
      *
      * @return bool Whether a job was taken, so the caller polls again at once

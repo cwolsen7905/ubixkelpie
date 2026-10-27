@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Per-project mode is enforced (K-30 cutover). New table `projects` (migration `20261022150000_create_projects`,
+  apply it before the new image; it is created empty). The webhook, the worker, `kelpie:sweep`,
+  `kelpie:triage-backfill`, `kelpie:fix` and `kelpie:respond` now read each project's row: no row or `off` means
+  Kelpie does nothing there, `propose` can only comment, label and propose a diff, and only `push` lets a thumbs-up
+  apply a proposal (the one push). `KELPIE_AUTOFIX_PROJECTS` is removed from the code and the manifests, with no
+  fallback; `KELPIE_AUTOFIX_ENABLED` stays as the global kill switch. Until a row is inserted for a project it stays
+  off, so enrol `ubixsys/ubixkelpie` (and any other) with an `INSERT` after the migration.
 - Thumbs and `Triage:` on a proposal (K-32): a 👍 from the MR author or a maintainer on Kelpie's proposed fix makes the
   worker apply the stored edits at the recorded head, run the gate and push `fix(review): ...` to the MR branch (a
   moved head gets a "stale" reply, a red gate pushes nothing); a 👎 declines it. A reply starting `Triage:` runs the

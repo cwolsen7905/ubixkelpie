@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Console\Command;
 
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
@@ -19,9 +20,11 @@ use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Autofix\RespondService;
 use Kelpie\Service\Autofix\SweepRunService;
+use Kelpie\Service\Project\ProjectModeService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -49,20 +52,25 @@ final class CommandServices
 
     private ProposalReactionBuilderService $reactions;
 
+    private ProjectModeService $modes;
+
     /**
      * Constructor
      *
-     * @param Logger          $logger   A logger stub
-     * @param HttpClient      $http     An HTTP client stub; it is told to answer 404 to everything
-     * @param SqlService      $sql      An SQL service stub
-     * @param AutofixSettings $settings The settings
+     * @param Logger                      $logger   A logger stub
+     * @param HttpClient                  $http     An HTTP client stub; it is told to answer 404 to everything
+     * @param SqlService                  $sql      An SQL service stub
+     * @param AutofixSettings             $settings The settings
+     * @param ?array<string, ProjectMode> $modes    The projects table; ubixsys/ubixkelpie and org/proj in propose when null
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly HttpClient $http,
         SqlService $sql,
         private readonly AutofixSettings $settings,
+        ?array $modes = null,
     ) {
+        $this->modes     = InMemoryProjects::service($modes ?? ['ubixsys/ubixkelpie' => ProjectMode::Propose, 'org/proj' => ProjectMode::Propose]);
         $this->json      = new JsonService($this->logger);
         $factory         = new Psr17Factory();
         $this->jobs      = new AutofixJobService($this->logger, new AutofixJobSqlRepository($this->logger, $sql));
@@ -79,7 +87,15 @@ final class CommandServices
         $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
         $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), $settings);
         $outcomes        = new ThreadOutcomeSqlRepository($this->logger, $sql);
-        $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings);
+        $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings, $this->modes);
+    }
+
+    /**
+     * @return ProjectModeService
+     */
+    public function modes(): ProjectModeService
+    {
+        return $this->modes;
     }
 
     /**
@@ -111,7 +127,7 @@ final class CommandServices
      */
     public function fix(): FixThreadService
     {
-        return new FixThreadService($this->logger, $this->gitlab, $this->jobs, $this->runners, $this->settings);
+        return new FixThreadService($this->logger, $this->gitlab, $this->jobs, $this->runners, $this->settings, $this->modes);
     }
 
     /**
@@ -119,7 +135,7 @@ final class CommandServices
      */
     public function respond(): RespondService
     {
-        return new RespondService($this->logger, $this->gitlab, $this->triage, $this->settings);
+        return new RespondService($this->logger, $this->gitlab, $this->triage, $this->settings, $this->modes);
     }
 
     /**
@@ -127,7 +143,7 @@ final class CommandServices
      */
     public function sweep(): SweepRunService
     {
-        return new SweepRunService($this->logger, $this->gitlab, $this->jobs, $this->settings);
+        return new SweepRunService($this->logger, $this->gitlab, $this->jobs, $this->settings, $this->modes);
     }
 
     /**

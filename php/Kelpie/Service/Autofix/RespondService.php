@@ -6,14 +6,16 @@ namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\RunResult;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
+use Kelpie\Service\Project\ProjectModeService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
  * Triage the unresolved threads of an MR and reply or label on GitLab; changes no code
  *
- * Only for allow-listed projects, written as the kelpie-bot user. `kelpie:respond` parses its input
+ * Only for a project whose mode is at least `propose`, written as the kelpie-bot user. `kelpie:respond` parses its input
  * and prints what this returns.
  *
  * @see \Kelpie\Tests\Service\Autofix\RespondServiceTest PHPUnit test case
@@ -27,12 +29,14 @@ final class RespondService
      * @param GitlabClientFactory $gitlab        The GitLab client factory
      * @param TriageService       $triageService The triage service
      * @param AutofixSettings     $settings      The settings
+     * @param ProjectModeService  $modes         What Kelpie may do on a project
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly GitlabClientFactory $gitlab,
         private readonly TriageService $triageService,
         private readonly AutofixSettings $settings,
+        private readonly ProjectModeService $modes,
     ) {
     }
 
@@ -58,8 +62,8 @@ final class RespondService
             return new RunResult(false, ['GITLAB_API_URL and KELPIE_BOT_GITLAB_TOKEN must be set.'], true);
         }
 
-        if (!in_array($path, $this->settings->projects, true)) {
-            return new RunResult(false, ['The project path (--path or CI_PROJECT_PATH) is not in KELPIE_AUTOFIX_PROJECTS.'], true);
+        if (!$this->modes->allows($path, ProjectMode::Propose)) {
+            return new RunResult(false, ['The project path (--path or CI_PROJECT_PATH) is not enrolled (its mode in `projects` is off or it has no row).'], true);
         }
 
         $writer = $this->gitlab->writer();

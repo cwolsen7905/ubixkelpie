@@ -1,4 +1,4 @@
-# Autofix sweep (dev): every 15 minutes, `kelpie:sweep` over the open MRs of KELPIE_AUTOFIX_PROJECTS
+# Autofix sweep (dev): every 15 minutes, `kelpie:sweep` over the open MRs of the enrolled projects (rows of `projects` that are not off)
 # and the failed-pipeline source. The backstop for webhook deliveries that were lost: it only queues jobs
 # in the autofix_jobs table, and the kelpie-worker Deployment (`kelpie:work`) runs them. Same image, namespace, Vault role and KV path as the
 # kelpie-api Deployment; nothing here is new infrastructure.

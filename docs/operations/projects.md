@@ -1,7 +1,7 @@
 # Projects and modes
 
 Which projects Kelpie acts on, and how far, is a row per project in `ubixkelpie.projects`. This
-replaces the `KELPIE_AUTOFIX_PROJECTS` list; `KELPIE_AUTOFIX_ENABLED` stays as the global kill
+replaced the `KELPIE_AUTOFIX_PROJECTS` list, which nothing reads any more; `KELPIE_AUTOFIX_ENABLED` stays as the global kill
 switch (it can only stop things, never turn a project on).
 
 ## Modes
@@ -36,11 +36,22 @@ While triage works on a merge request it shows `triage: working`, and a finished
 `triage: pushed`, `triage: proposed` or `triage: needs you` (see "Where triage is with a merge
 request" in `docs/design/issue-autofix.md`). Kelpie creates these labels on the project if missing.
 
+## Where the mode is enforced
+
+| Where | Needs |
+| --- | --- |
+| Webhook: merge request notes, pipelines and review jobs (`EventFilter`), issue intake (`IssueOpenWebhookService`) | not `off` |
+| Worker (`kelpie:work`) and `kelpie:sweep`: only jobs of enrolled projects are claimed or queued; the table is read again on every pass, so a change applies without a restart | not `off` |
+| `kelpie:triage-backfill`, `kelpie:fix`, `kelpie:respond` | not `off` |
+| Applying a proposal on a thumbs-up (`ProposalReactionService`): the only code that pushes | `push` |
+
+In `propose` the fixer posts a diff and nothing else; a thumbs-up on it gets a reply that the project
+is not set to push, and no commit. If the table cannot be read, the worker claims nothing for that
+pass and the webhook answers with an error and acts on nothing.
+
 ## Rollout
 
-1. The table and its reads (`ProjectReader`, `ProjectModeService`) are in place; nothing consults
-   them yet, so `KELPIE_AUTOFIX_PROJECTS` still decides.
-2. The cutover makes triage and autofix read the table. Before it deploys, the migration and a
-   row for each project in the old list (mode `push` keeps today's behaviour) must be applied on
-   that environment, or the project goes quiet.
-3. The per-project gate, protected paths, models and caps follow, one at a time.
+The migration `20261022150000_create_projects` creates the table empty. Until an operator inserts a
+row for a project, Kelpie does nothing on it, in every environment. Apply the migration, then enrol a
+project with an `INSERT` (for example `ubixsys/ubixkelpie` as `propose`); that is an operator step and
+no migration inserts rows. The per-project gate, protected paths, models and caps follow, one at a time.

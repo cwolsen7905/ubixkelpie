@@ -23,7 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - needs_human replies and labels the MR; not_an_issue replies without a label
  * - already_fixed replies and then resolves the thread only when the code near the finding changed since the review; otherwise the thread stays open; if the resolve fails the reply stays
  * - fix is silent here; fixed() replies with the commit link, leaves the thread open, and resolves it only when told to
- * - Only a thread an AI-review finding or a pipeline log opened, answered by the same account, counts as Kelpie's
+ * - Only a thread an AI-review finding or a pipeline log opened, written and answered by the bot account itself, counts as Kelpie's; a person typing both markers does not
  * - Model text cannot plant a Kelpie marker or a mention
  * - A thread is answered once, until someone writes in it again
  *
@@ -258,7 +258,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * Only a finding or pipeline thread answered by its own author is Kelpie's
+     * Only a finding or pipeline thread written and answered by the bot account is Kelpie's
      *
      * @return void
      */
@@ -277,6 +277,16 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now)], 'd1'));
         $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now), $reply], 'd2'));
         $this->assertFalse($this->service()->openedByKelpie([], 'd1'));
+
+        // A person who types both markers is still a person
+        $typed = new DiscussionNote(2, 'Proposal. ' . $marker, 'alice', $now);
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'alice', $now), $typed], 'd1'));
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now), $typed], 'd1'));
+
+        // The bot account is the one given, not a default
+        $other = new ReplyService($this->createStub(Logger::class), $this->gitlab->writer($this->createStub(Logger::class)), 'review-bot');
+        $this->assertFalse($other->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now), $reply], 'd1'));
+        $this->assertTrue($other->openedByKelpie([new DiscussionNote(1, $review, 'review-bot', $now), new DiscussionNote(2, $marker, 'review-bot', $now)], 'd1'));
     }
 
     /**

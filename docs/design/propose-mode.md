@@ -26,9 +26,9 @@ answers on the proposal note:
   the `Kelpie-Autofix` trailer, looks at the head once more, and pushes to the source branch, never forced. The
   outcome becomes `applied`; a red gate pushes nothing and the outcome becomes `failed`, with the step named in the
   reply. After the push the reply says `Kelpie fixed this in <sha>`. When Kelpie opened the thread itself (an
-  AI-review finding or a pipeline-log thread, written by the same account that answered it) the thread is then
+  AI-review finding or a pipeline-log thread, written by the bot account, which also answered it) the thread is then
   resolved, and the reply says so; a failed resolve keeps the reply. A person's thread, or a note that merely
-  copies the finding marker under another account, stays open for the reviewer to confirm.
+  copies the finding and reply markers under another account, stays open for the reviewer to confirm.
 - **👎** sets the outcome to `declined` (a `decline` job), replies once and leaves the thread open.
 - **A reply starting `Triage:`** in a thread Kelpie has already looked at runs the thread again. What follows the colon is
   steering, passed to both model calls as its own fenced block that cannot change the rules or the answer format.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
@@ -33,12 +34,14 @@ final class ReplyService
     /**
      * Constructor
      *
-     * @param Logger           $logger Logger
-     * @param DiscussionWriter $writer The GitLab writer
+     * @param Logger           $logger      Logger
+     * @param DiscussionWriter $writer      The GitLab writer
+     * @param string           $botUsername The account that writes Kelpie's replies; only its notes prove a thread is Kelpie's
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly DiscussionWriter $writer,
+        private readonly string $botUsername = AutofixSettings::DEFAULT_BOT,
     ) {
     }
 
@@ -67,10 +70,11 @@ final class ReplyService
     }
 
     /**
-     * Whether Kelpie opened the thread: an AI-review finding or a pipeline-log thread written by the same account that
-     * has answered it
+     * Whether Kelpie opened the thread: an AI-review finding or a pipeline-log thread whose first note was written by the
+     * bot account, and which the bot account has answered
      *
-     * A person's thread, or one whose first note carries a marker but was written by someone else, is not Kelpie's.
+     * Markers are text anyone can type, so both the first note and the marker-bearing reply must be the bot's own. A
+     * person's thread, or one that copies the markers under another account, is not Kelpie's.
      *
      * @param DiscussionNote[] $notes        The thread's notes, oldest first
      * @param string           $discussionId The discussion ID
@@ -80,7 +84,7 @@ final class ReplyService
     public function openedByKelpie(array $notes, string $discussionId): bool
     {
         $first = $notes[0] ?? null;
-        if ($first === null || $first->author === '') {
+        if ($first === null || $first->author === '' || $first->author !== $this->botUsername) {
             return false;
         }
         if (!str_contains($first->body, '<!-- ai-review:fp=') && !str_contains($first->body, '<!-- kelpie:pipeline job=')) {
@@ -88,7 +92,7 @@ final class ReplyService
         }
 
         foreach ($notes as $note) {
-            if ($note->author === $first->author && str_contains($note->body, self::MARKER . 'reply thread=' . $discussionId . ' ')) {
+            if ($note->author === $this->botUsername && str_contains($note->body, self::MARKER . 'reply thread=' . $discussionId . ' ')) {
                 return true;
             }
         }

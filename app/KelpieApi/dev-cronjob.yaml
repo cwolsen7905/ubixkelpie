@@ -87,9 +87,12 @@ spec:
               value: "false"
             - name: IS_STAGING
               value: "false"
-            # Off until propose mode (K-30) exists: set here so Vault does not decide.
+            # On, in propose mode: what Kelpie may do on a project is its row in `projects` (no row, off); this flag is the kill switch.
             - name: KELPIE_AUTOFIX_ENABLED
-              value: "false"
+              value: "true"
+            # The bot account whose notes mark a thread as Kelpie's own (the code default is not the real account).
+            - name: KELPIE_BOT_USERNAME
+              value: "group_223_bot_b747917a6c6e1334faf2e8ca743faae9"
             - name: LOG_LEVEL
               value: "debug"
             resources:

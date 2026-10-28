@@ -128,6 +128,33 @@ final class DiscussionWriter
     }
 
     /**
+     * Read the per-file diffs between two commits
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param string $from    The older commit
+     * @param string $to      The newer commit
+     *
+     * @return ?list<array{old_path: string, new_path: string, diff: string}> Null when the comparison could not be read
+     */
+    public function compare(string $project, string $from, string $to): ?array
+    {
+        $url  = sprintf('%s/projects/%s/repository/compare?from=%s&to=%s&straight=true', $this->apiUrl, rawurlencode($project), rawurlencode($from), rawurlencode($to));
+        $data = $this->send('GET', $url, null);
+        if ($data === null || !is_array($data['diffs'] ?? null)) {
+            return null;
+        }
+
+        $files = [];
+        foreach ($data['diffs'] as $raw) {
+            if (is_array($raw) && is_string($raw['old_path'] ?? null) && is_string($raw['new_path'] ?? null) && is_string($raw['diff'] ?? null)) {
+                $files[] = ['diff' => $raw['diff'], 'new_path' => $raw['new_path'], 'old_path' => $raw['old_path']];
+            }
+        }
+
+        return $files;
+    }
+
+    /**
      * Reply in a thread
      *
      * @param string $project      The project ID or URL-encodable path

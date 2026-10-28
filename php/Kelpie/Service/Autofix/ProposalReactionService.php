@@ -196,7 +196,10 @@ final class ProposalReactionService
 
         $this->outcomes->setOutcome($projectPath, $mrIid, $discussionId, ThreadOutcome::Applied);
         $this->jobs->markFinished($jobId, 'done', 'fix', $commit);
-        $this->replies->fixed($project, $mrIid, $discussionId, $commit, '', $summary);
+
+        // Pushed, gate green: resolve only a thread Kelpie opened itself, never a person's.
+        $notes = $this->writer->notes($project, $mrIid, $discussionId);
+        $this->replies->fixed($project, $mrIid, $discussionId, $commit, '', $summary, $notes !== null && $this->replies->openedByKelpie($notes, $discussionId));
 
         return null;
     }

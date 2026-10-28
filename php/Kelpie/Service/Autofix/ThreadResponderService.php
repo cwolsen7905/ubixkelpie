@@ -104,7 +104,7 @@ final class ThreadResponderService
 
                 try {
                     $verdict       = $this->triageService->triage($thread);
-                    $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $verdict);
+                    $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $verdict, $thread);
                     $results[$id]  = $this->status->resultFor($verdict, $outcomes[$id]);
                 } finally {
                     $this->claimService->release($project, $mrIid, $id, $claims[$id], $sha);

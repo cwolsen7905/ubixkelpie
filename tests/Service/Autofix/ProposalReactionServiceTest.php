@@ -28,6 +28,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - A thumbs-up applies the stored edits at the recorded head, runs the gate, commits with a Thread line and the loop-guard trailer, pushes to the source branch, marks the proposal applied and says so
+ * - The thread is resolved after the push only when Kelpie opened it (an AI-review finding Kelpie answered); a person's thread stays open
  * - A red gate pushes nothing, marks the proposal failed and says which step
  * - A head that moved gets a "stale" reply and changes nothing, before and after the checkout
  * - Edits that no longer apply push nothing and mark the proposal failed
@@ -89,6 +90,44 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $this->assertStringContainsString('Kelpie fixed this in `' . substr($pushed, 0, 12) . '`', $this->lastNote());
         $this->assertCount(4, $this->gateRunner->calls());
         $this->assertSame([], $this->gitlab->awards());
+    }
+
+    /**
+     * A thread Kelpie opened (an AI-review finding it proposed on) is resolved after the push and the green gate
+     *
+     * @return void
+     */
+    public function testAFindingThreadIsResolvedAfterTheFixIsPushed(): void
+    {
+        $gitlab = new FakeGitlab();
+        $gitlab->note('d1', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', author: 'kelpie-bot');
+        $gitlab->note('d1', 'Kelpie proposes this change.<!-- kelpie:reply thread=d1 class=fix head=' . $this->sha . ' -->', id: 105, author: 'kelpie-bot');
+        $gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $this->gitlab = $gitlab;
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, 'd1', true, 1));
+
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $this->assertStringContainsString('Resolving this thread', $this->lastNote());
+    }
+
+    /**
+     * A finding-shaped first note written by a person is not Kelpie's: pushed, replied, left open
+     *
+     * @return void
+     */
+    public function testAPersonsLookalikeThreadStaysOpen(): void
+    {
+        $gitlab = new FakeGitlab();
+        $gitlab->note('d1', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', author: 'alice');
+        $gitlab->note('d1', 'Kelpie proposes this change.<!-- kelpie:reply thread=d1 class=fix head=' . $this->sha . ' -->', id: 105, author: 'kelpie-bot');
+        $gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $this->gitlab = $gitlab;
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, 'd1', true, 1));
+
+        $this->assertSame([], $this->gitlab->resolved());
+        $this->assertStringContainsString('Leaving this thread open', $this->lastNote());
     }
 
     /**

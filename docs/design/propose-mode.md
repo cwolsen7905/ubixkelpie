@@ -11,7 +11,8 @@ How Kelpie answers a review thread without changing the branch. The runner is
 3. `not_an_issue` and `defer` are replies with a reason, as proposals to dismiss or to defer.
 4. One `thread_outcomes` row records verdict, mode, outcome, models, tokens and cost.
 
-Nothing is pushed until someone says so, and a proposal never resolves a thread.
+Nothing is pushed until someone says so, and a proposal never resolves a thread. Only a pushed fix
+does, and only one for a thread Kelpie opened (see below).
 
 ## What a person does with a proposal
 
@@ -24,7 +25,10 @@ answers on the proposal note:
   runs the gate (`composer install`, phpcs, phpstan, phpunit), commits `fix(review): ...` with a `Thread:` line and
   the `Kelpie-Autofix` trailer, looks at the head once more, and pushes to the source branch, never forced. The
   outcome becomes `applied`; a red gate pushes nothing and the outcome becomes `failed`, with the step named in the
-  reply. The thread stays open for the reviewer to confirm.
+  reply. After the push the reply says `Kelpie fixed this in <sha>`. When Kelpie opened the thread itself (an
+  AI-review finding or a pipeline-log thread, written by the same account that answered it) the thread is then
+  resolved, and the reply says so; a failed resolve keeps the reply. A person's thread, or a note that merely
+  copies the finding marker under another account, stays open for the reviewer to confirm.
 - **👎** sets the outcome to `declined` (a `decline` job), replies once and leaves the thread open.
 - **A reply starting `Triage:`** in a thread Kelpie has already looked at runs the thread again. What follows the colon is
   steering, passed to both model calls as its own fenced block that cannot change the rules or the answer format.
@@ -76,3 +80,11 @@ A proposal is found by its note id (`proposal_note_id`), so only a reaction on t
   reactor reacts again after the run.
 - Choosing the mode per project; the allow-list still decides which projects the worker touches.
 - A budget on spend; cost is recorded, not capped.
+
+## When Kelpie resolves a thread
+
+- After a gated push, for a thread it opened (above). Never for a person's thread, a proposal, or a push that failed.
+- For `already_fixed`, only when the code near the finding changed since the review raised it: the thread's file and
+  line, and the review's commit from the finding marker, are compared with the MR head, and a change within three
+  lines of the finding counts. Without a file, a line or a review commit on the thread, an unreadable comparison or
+  nothing changed there, Kelpie still replies but leaves the thread open for the reviewer.

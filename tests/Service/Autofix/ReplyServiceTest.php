@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\DiscussionNote;
+use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
@@ -20,8 +21,9 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - needs_human replies and labels the MR; not_an_issue replies without a label
- * - already_fixed replies and then resolves the thread; if the resolve fails the reply stays
- * - fix is silent here; fixed() replies with the commit link and never resolves
+ * - already_fixed replies and then resolves the thread only when the code near the finding changed since the review; otherwise the thread stays open; if the resolve fails the reply stays
+ * - fix is silent here; fixed() replies with the commit link, leaves the thread open, and resolves it only when told to
+ * - Only a thread an AI-review finding or a pipeline log opened, answered by the same account, counts as Kelpie's
  * - Model text cannot plant a Kelpie marker or a mention
  * - A thread is answered once, until someone writes in it again
  *
@@ -96,15 +98,16 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * An already_fixed verdict replies, then resolves
+     * An already_fixed verdict whose finding's code changed since the review replies, then resolves
      *
      * @return void
      */
     public function testAlreadyFixedRepliesAndResolves(): void
     {
         $this->gitlab->note('d1', 'Typo.');
+        $this->gitlab->compareDiffs([['diff' => "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n", 'new_path' => 'a.txt', 'old_path' => 'a.txt']]);
 
-        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'Fixed in a1b2c3d already.'));
+        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'Fixed in a1b2c3d already.'), $this->finding());
 
         $this->assertSame(ResponseOutcome::Replied, $outcome);
         $body = $this->gitlab->notes()['d1'][1]['body'];
@@ -117,6 +120,48 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * Already fixed, but nothing near the finding changed, or that cannot be shown: replied, left open
+     *
+     * @return void
+     */
+    public function testAlreadyFixedStaysOpenWithoutAChangeNearTheFinding(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+        $verdict = new TriageVerdict(TriageClass::AlreadyFixed, 'r');
+        $far     = [['diff' => "@@ -40,2 +40,2 @@\n-old\n+new\n keep\n", 'new_path' => 'a.txt', 'old_path' => 'a.txt']];
+        $other   = [['diff' => "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n", 'new_path' => 'b.txt', 'old_path' => 'b.txt']];
+        $cases   = [[$far, $this->finding()], [$other, $this->finding()], [[], $this->finding()], [null, $this->finding()], [[], null]];
+
+        foreach ($cases as [$diffs, $thread]) {
+            $this->gitlab->compareDiffs($diffs);
+
+            $this->assertSame(ResponseOutcome::Replied, $this->service()->respond('1', 3, 'd1', $verdict, $thread));
+        }
+
+        $this->assertSame([], $this->gitlab->resolved());
+        $this->assertStringContainsString('Leaving this open', $this->gitlab->notes()['d1'][1]['body']);
+    }
+
+    /**
+     * A thread with no review sha in it, or a head still at the review's sha, cannot show a change
+     *
+     * @return void
+     */
+    public function testAlreadyFixedStaysOpenWithoutAReviewShaOrWithTheHeadUnmoved(): void
+    {
+        $this->gitlab->note('d1', 'Typo.');
+        $this->gitlab->compareDiffs([['diff' => "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n", 'new_path' => 'a.txt', 'old_path' => 'a.txt']]);
+        $verdict = new TriageVerdict(TriageClass::AlreadyFixed, 'r');
+        $now     = new DateTimeImmutable();
+
+        $this->service()->respond('1', 3, 'd1', $verdict, new Thread('d1', 1, 'kelpie-bot', 'A finding with no marker.', false, 1, $now, $now, 'a.txt', 1));
+        $this->gitlab->mergeRequestFields(['sha' => str_repeat('c', 40)]);
+        $this->service()->respond('1', 3, 'd1', $verdict, $this->finding());
+
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
      * A failed reply resolves nothing
      *
      * @return void
@@ -125,7 +170,9 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     {
         $this->gitlab->note('d1', 'x');
 
-        $outcome = $this->service()->respond('1', 4, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'));
+        $this->gitlab->compareDiffs([['diff' => "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n", 'new_path' => 'a.txt', 'old_path' => 'a.txt']]);
+
+        $outcome = $this->service()->respond('1', 4, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'), $this->finding());
 
         $this->assertSame(ResponseOutcome::Failed, $outcome);
         $this->assertSame([], $this->gitlab->resolved());
@@ -141,7 +188,9 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->gitlab->note('d1', 'x');
         $this->gitlab->failResolve();
 
-        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'));
+        $this->gitlab->compareDiffs([['diff' => "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n", 'new_path' => 'a.txt', 'old_path' => 'a.txt']]);
+
+        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::AlreadyFixed, 'r'), $this->finding());
 
         $this->assertSame(ResponseOutcome::Replied, $outcome);
         $this->assertCount(2, $this->gitlab->notes()['d1']);
@@ -169,6 +218,65 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=fix -->', $body);
         $this->assertSame([], $this->gitlab->resolved());
         $this->assertTrue($this->service()->isAnswered([new DiscussionNote(1, 'Typo.', 'alice', new DateTimeImmutable()), new DiscussionNote(2, $body, 'kelpie-bot', new DateTimeImmutable())], 'd1'));
+    }
+
+    /**
+     * Told to resolve, fixed() replies first and then resolves; if the resolve fails the reply stays
+     *
+     * @return void
+     */
+    public function testFixedResolvesWhenToldTo(): void
+    {
+        $this->gitlab->note('d1', 'Finding.');
+
+        $this->assertSame(ResponseOutcome::Replied, $this->service()->fixed('1', 3, 'd1', str_repeat('b', 40), '', 'Rename.', true));
+
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringContainsString('Resolving this thread', $body);
+        $this->assertStringNotContainsString('Leaving this thread open', $body);
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $requests = $this->gitlab->requests();
+        $this->assertLessThan(array_search('PUT /projects/1/merge_requests/3/discussions/d1', $requests, true), array_search('POST /projects/1/merge_requests/3/discussions/d1/notes', $requests, true));
+
+        $this->gitlab->failResolve();
+        $this->assertSame(ResponseOutcome::Replied, $this->service()->fixed('1', 3, 'd1', str_repeat('b', 40), '', 'Rename.', true));
+        $this->assertCount(3, $this->gitlab->notes()['d1']);
+        $this->assertSame(['d1'], $this->gitlab->resolved());
+    }
+
+    /**
+     * A failed fixed reply resolves nothing
+     *
+     * @return void
+     */
+    public function testFixedThatCannotReplyDoesNotResolve(): void
+    {
+        $this->gitlab->note('d1', 'Finding.');
+
+        $this->assertSame(ResponseOutcome::Failed, $this->service()->fixed('1', 4, 'd1', str_repeat('b', 40), '', 'Rename.', true));
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * Only a finding or pipeline thread answered by its own author is Kelpie's
+     *
+     * @return void
+     */
+    public function testOpenedByKelpie(): void
+    {
+        $now    = new DateTimeImmutable();
+        $marker = '<!-- kelpie:reply thread=d1 class=fix head=abc -->';
+        $reply  = new DiscussionNote(2, 'Proposal. ' . $marker, 'kelpie-bot', $now);
+        $review = 'Finding.\n<!-- ai-review:fp=ab12 sha=cd34 -->';
+        $pipe   = 'Failed.\n<!-- kelpie:pipeline job=7 sha=cd34 -->';
+
+        $this->assertTrue($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now), $reply], 'd1'));
+        $this->assertTrue($this->service()->openedByKelpie([new DiscussionNote(1, $pipe, 'kelpie-bot', $now), $reply], 'd1'));
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, 'Please fix the typo.', 'kelpie-bot', $now), $reply], 'd1'));
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'alice', $now), $reply], 'd1'));
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now)], 'd1'));
+        $this->assertFalse($this->service()->openedByKelpie([new DiscussionNote(1, $review, 'kelpie-bot', $now), $reply], 'd2'));
+        $this->assertFalse($this->service()->openedByKelpie([], 'd1'));
     }
 
     /**
@@ -331,6 +439,18 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     protected function setUp(): void
     {
         $this->gitlab = new FakeGitlab();
+    }
+
+    /**
+     * An AI-review finding on a.txt line 1, raised at a commit that is not the MR's head
+     *
+     * @return Thread
+     */
+    private function finding(): Thread
+    {
+        $now = new DateTimeImmutable();
+
+        return new Thread('d1', 1, 'kelpie-bot', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', false, 1, $now, $now, 'a.txt', 1);
     }
 
     /**

@@ -244,16 +244,16 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * An already_fixed verdict is answered and the thread resolved, with no checkout and no propose call
+     * An already_fixed verdict on a thread with no changed code to show is answered and left open, with no checkout and no propose call
      *
      * @return void
      */
-    public function testAlreadyFixedIsResolvedAndRecordedAsAnswered(): void
+    public function testAlreadyFixedWithoutAChangeIsAnsweredAndLeftOpen(): void
     {
         $this->triageClass = 'already_fixed';
 
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
-        $this->assertSame(['d1'], $this->gitlab->resolved());
+        $this->assertSame([], $this->gitlab->resolved());
         $this->assertSame(['google/gemini-3-flash'], $this->calls());
         $this->assertSame(ThreadOutcome::Answered, $this->row()->outcome);
         $this->assertSame('done', $this->jobs->status());

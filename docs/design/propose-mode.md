@@ -86,5 +86,5 @@ A proposal is found by its note id (`proposal_note_id`), so only a reaction on t
 - After a gated push, for a thread it opened (above). Never for a person's thread, a proposal, or a push that failed.
 - For `already_fixed`, only when the code near the finding changed since the review raised it: the thread's file and
   line, and the review's commit from the finding marker, are compared with the MR head, and a change within three
-  lines of the finding counts. Without a file, a line or a review commit on the thread, an unreadable comparison or
+  lines of the finding counts. Only a thread the bot account wrote is considered: a person's thread is never resolved this way. Without a file, a line or a review commit on the thread, an unreadable comparison or
   nothing changed there, Kelpie still replies but leaves the thread open for the reviewer.

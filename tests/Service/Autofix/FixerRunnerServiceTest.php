@@ -646,7 +646,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $enabled,
             $writer,
             new ClaimService($logger, $writer, 1800),
-            new ReplyService($logger, $writer),
+            new ReplyService($logger, $writer, 'kelpie-bot'),
             new TriageService($logger, $open, new TriagePrompt($logger), new SafetyPolicy($logger), $json, $families),
             new ProposeEditsService($logger, $open, new ProposePrompt($logger), $families, $json),
             new EditApplyService($logger),

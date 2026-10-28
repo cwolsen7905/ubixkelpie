@@ -143,7 +143,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
-     * A thread with no review sha in it, or a head still at the review's sha, cannot show a change
+     * A thread with no review sha in it, one a person wrote, or a head still at the review's sha, cannot show a change
      *
      * @return void
      */
@@ -155,6 +155,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $now     = new DateTimeImmutable();
 
         $this->service()->respond('1', 3, 'd1', $verdict, new Thread('d1', 1, 'kelpie-bot', 'A finding with no marker.', false, 1, $now, $now, 'a.txt', 1));
+        $this->service()->respond('1', 3, 'd1', $verdict, new Thread('d1', 1, 'alice', "Typed by a person.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', false, 1, $now, $now, 'a.txt', 1));
         $this->gitlab->mergeRequestFields(['sha' => str_repeat('c', 40)]);
         $this->service()->respond('1', 3, 'd1', $verdict, $this->finding());
 
@@ -470,6 +471,6 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     {
         $logger = $this->createStub(Logger::class);
 
-        return new ReplyService($logger, $this->gitlab->writer($logger));
+        return new ReplyService($logger, $this->gitlab->writer($logger), 'kelpie-bot');
     }
 }

@@ -236,7 +236,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
             $logger,
             $writer,
             new ClaimService($logger, $writer),
-            new ReplyService($logger, $writer),
+            new ReplyService($logger, $writer, 'kelpie-bot'),
             new TriageService(
                 $logger,
                 new OpenRouterClient($logger, $model, new Psr17Factory(), new Psr17Factory(), $json),

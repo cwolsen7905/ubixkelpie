@@ -77,7 +77,7 @@ final class RespondService
             $this->logger,
             $writer,
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
-            new ReplyService($this->logger, $writer),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername),
             $this->triageService,
             new TriageStatusService($this->logger, $writer),
         );

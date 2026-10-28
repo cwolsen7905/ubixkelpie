@@ -405,7 +405,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         return new ProposalReactionService(
             $logger,
             $writer,
-            new ReplyService($logger, $writer),
+            new ReplyService($logger, $writer, 'kelpie-bot'),
             new EditApplyService($logger),
             new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
             new GateRunner($logger, $gate ?? $this->gateRunner),

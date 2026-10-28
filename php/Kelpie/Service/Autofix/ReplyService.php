@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
-use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
@@ -41,7 +40,7 @@ final class ReplyService
     public function __construct(
         private readonly Logger $logger,
         private readonly DiscussionWriter $writer,
-        private readonly string $botUsername = AutofixSettings::DEFAULT_BOT,
+        private readonly string $botUsername,
     ) {
     }
 
@@ -257,7 +256,8 @@ final class ReplyService
     /**
      * Whether the code near the finding changed between the review that raised it and the MR's head
      *
-     * False when that cannot be shown: no file, line or review sha on the thread, an unreadable MR or comparison.
+     * False when that cannot be shown: the thread was not opened by the bot account (a person's thread is never
+     * resolved), no file, line or review sha on it, an unreadable MR or comparison.
      *
      * @param string $project The project ID or URL-encodable path
      * @param int    $mrIid   The MR IID
@@ -267,7 +267,7 @@ final class ReplyService
      */
     private function codeChangedNear(string $project, int $mrIid, Thread $thread): bool
     {
-        if ($thread->filePath === null || $thread->line === null || preg_match('~ai-review:fp=[0-9a-f]+ sha=([0-9a-f]+)~', $thread->body, $m) !== 1) {
+        if ($thread->author !== $this->botUsername || $thread->filePath === null || $thread->line === null || preg_match('~ai-review:fp=[0-9a-f]+ sha=([0-9a-f]+)~', $thread->body, $m) !== 1) {
             return false;
         }
 

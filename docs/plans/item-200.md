@@ -18,7 +18,7 @@ propose-mode fixer (all present).
 ## Current state (dev, 3d820e9)
 Not built. There is no issue-fixing path: the only fixer that runs is the MR-thread propose/apply path
 (`ProposalReactionService`, `MrJobWorkerService`). No code opens an issue fix branch or an MR from an
-issue. The design (this item's section in the prior `docs/design/issue-autofix.md`, in git history)
+issue. The design (this item's section in `docs/design/issue-autofix.md`)
 covers the flow, the in-pod sandbox and the limits.
 
 ## Steps

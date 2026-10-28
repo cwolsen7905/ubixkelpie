@@ -1,5 +1,43 @@
 # Go-live plan: enrolling the whole `ubixsys` group
 
+## 0. Autofix go-live, done 2026-10-28 (Kelpie and Shepherd, `propose` mode)
+
+What was done, in the order it has to be done. Redo it in this order for any new tier.
+
+| # | Step | Result |
+| --- | --- | --- |
+| 1 | Bot account exists, is active, and is a member of `ubixsys/ubixkelpie` and `ubixsys/ubixshepherd` | Yes (Developer on both) |
+| 2 | Vault `kelpie/<env>/app` holds `KELPIE_BOT_GITLAB_TOKEN`, `OPENROUTER_API_KEY`, `GITLAB_API_URL` (key names only; never print values) | `OPENROUTER_API_KEY` was missing on dev and prod and was added with the rest left as they were |
+| 3 | Code reaches `main` through the pipeline: a green `dev` pipeline fast-forwards `staging`, a green `staging` pipeline fast-forwards `main` | Done; `main` = `dev` = `0a5964d`. First the dev pipeline had to be fixed (an `AlterAck:` header on an ALTER migration, then Vault/DNS reachability for `migrate-verify-dev`) |
+| 4 | `migrate-apply-prod` (manual) on main's pipeline, leave `migrate-apply-prod-destructive` alone | Applied `20261021124000_autofix_jobs_worker_columns`, `20261022100000_create_thread_outcomes`, `20261022140000_autofix_jobs_steering`, `20261022150000_create_projects` on prod; dev applied them by pipeline |
+| 5 | Insert `projects` rows (`ubixsys/ubixkelpie`, `ubixsys/ubixshepherd`, mode `propose`) on dev and prod | Done with an idempotent `INSERT IGNORE` run from a pod, read back. There is no CLI or seed for this |
+| 6 | `deploy-prod` | It started by itself when `migrate-apply-prod` finished, so it ran **before** step 5; harmless, because a project with no row is off |
+| 7 | Apply the worker manifests by hand: `kubectl apply -f app/KelpieApi/dev-worker.yaml` and `main-worker.yaml` | Both Deployments created at one replica; see "Open problem" |
+
+Do steps 4 to 6 in this order, and insert the rows before any traffic you care about arrives.
+
+### The `deploy.sh` gap
+
+uBixCore's `deploy.sh` applies `<tier>-deploy`, `-service`, `-ingress` and `-cronjob` but not
+`<tier>-worker.yaml`. A green pipeline therefore never creates or updates the worker Deployment: apply
+`dev-worker.yaml` and `main-worker.yaml` with kubectl after each change to them, and bump the image
+yourself if the worker needs a new one (the worker's tag is `:main` or `:dev`). The fix belongs upstream
+in uBixCore (apply `*-worker.yaml`), then a pin bump here.
+
+### Open problem found at go-live
+
+The workers do not run cleanly. The CLI logger writes `/UbixCli.log`, and the container user (`www`)
+cannot write to `/`. The dev worker (debug logging) crash-loops on its first log line. The prod worker (info
+logging) is `Running` but silent, and will fail the first time it logs at `info`. The API pods are unaffected.
+This needs a code or manifest change (a writable log path or logging to stderr); it is not fixed by this
+page. Until then do not count the worker as polling.
+
+The dev sweep CronJob stays suspended. No spend caps or code were changed.
+
+---
+
+# Go-live plan: enrolling the whole `ubixsys` group
+
 State checked on 2026-10-20 (evening) against `origin/dev` = `origin/staging` = `origin/main` at
 `788c941`, the GitLab group `ubixsys`, and the three Kelpie namespaces on the cluster (read only: `glab api`,
 `kubectl get`, job logs). Nothing was changed. Re-check before acting on it: this file is a snapshot.

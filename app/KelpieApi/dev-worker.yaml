@@ -99,6 +99,8 @@ spec:
         - name: LOG_LEVEL
           value: "debug"
         # uBixCore's CLI logger writes $LOGGER_PATH/<app>.log; unset it resolves to /UbixCli.log, which the container user cannot create.
+        # (php/Ubix/Bootstrap/cli-dependencies.php, uBixCore v0.47.0.) The dir is an emptyDir on purpose: it survives container
+        # restarts, including a crash loop, and is dropped only when the pod is deleted or rescheduled. No persistent volume.
         - name: LOGGER_PATH
           value: "/tmp/logs"
         resources:

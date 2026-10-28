@@ -111,7 +111,7 @@ spec:
               mountPath: /tmp/logs
           volumes:
           - name: logs
-            emptyDir: {}
+            emptyDir: {sizeLimit: 1Gi}
           imagePullSecrets:
           - name: regcred
           restartPolicy: Never

@@ -6,6 +6,9 @@
 --              last_error is why the last attempt failed. issue_iid is set on issue
 --              triage rows only (they use mr_iid 0), so uq_issue_job never touches MR rows.
 -- Author: Christopher W. Olsen
+-- AlterAck: autofix_jobs holds 0 rows on dev, staging and prod (checked 2026-10-28) and the
+--           migration is applied nowhere yet; the ALTER adds nullable columns with no
+--           default, one unique key and one index, which is instant on an empty table.
 
 ALTER TABLE ubixkelpie.autofix_jobs
     ADD COLUMN issue_iid       INT UNSIGNED NULL AFTER mr_iid,

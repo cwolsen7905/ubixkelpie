@@ -7,7 +7,7 @@
 # The dev webhook is not wired (GitLab hooks point at prod), so on dev the queue stays empty: this proves the
 # command override gets its Vault secrets and database, and that the loop starts and idles. The worker exits
 # with an error line when KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY or GITLAB_API_URL is missing, which shows
-# as a restarting pod. Applied by uBixCore ci/bin/deploy.sh; {{DATE_STAMP}} forces a roll.
+# as a restarting pod. Not yet applied by uBixCore ci/bin/deploy.sh (it skips *-worker.yaml): apply by hand until that is added upstream; {{DATE_STAMP}} forces a roll.
 # Kill switch: KELPIE_AUTOFIX_ENABLED not "true" makes the worker idle and claim nothing; replicas: 0 stops it.
 apiVersion: apps/v1
 kind: Deployment
@@ -98,12 +98,23 @@ spec:
           value: "group_223_bot_b747917a6c6e1334faf2e8ca743faae9"
         - name: LOG_LEVEL
           value: "debug"
+        # uBixCore's CLI logger writes $LOGGER_PATH/<app>.log; unset it resolves to /UbixCli.log, which the container user cannot create.
+        # (php/Ubix/Bootstrap/cli-dependencies.php, uBixCore v0.47.0.) The dir is an emptyDir on purpose: it survives container
+        # restarts, including a crash loop, and is dropped only when the pod is deleted or rescheduled. No persistent volume.
+        - name: LOGGER_PATH
+          value: "/tmp/logs"
         resources:
           requests: {cpu: 50m, memory: 128Mi}
           limits: {cpu: 500m, memory: 256Mi}
         securityContext:
           allowPrivilegeEscalation: false
           privileged: false
+        volumeMounts:
+        - name: logs
+          mountPath: /tmp/logs
+      volumes:
+      - name: logs
+        emptyDir: {sizeLimit: 1Gi}
       imagePullSecrets:
       - name: regcred
       restartPolicy: Always

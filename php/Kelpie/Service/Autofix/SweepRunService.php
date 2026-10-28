@@ -91,7 +91,7 @@ final class SweepRunService
             $writer,
             $this->gitlab->jobLogReader(),
             $this->jobs,
-            new ReplyService($this->logger, $writer),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername),
         );
     }
 }

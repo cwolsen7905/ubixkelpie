@@ -366,7 +366,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             $writer,
             new JobLogReader($logger, $http, $factory, $apiUrl, $json),
             $jobs,
-            new ReplyService($logger, $writer),
+            new ReplyService($logger, $writer, 'kelpie-bot'),
         );
     }
 }

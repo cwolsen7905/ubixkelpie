@@ -57,6 +57,13 @@ final class FakeGitlab implements HttpClient
     private bool $resolveFails = false;
 
     /**
+     * The per-file diffs a commit comparison answers with, null for a comparison that fails
+     *
+     * @var ?list<array{old_path: string, new_path: string, diff: string}>
+     */
+    private ?array $compareDiffs = [];
+
+    /**
      * Discussion IDs resolved through the API
      *
      * @var list<string>
@@ -107,6 +114,18 @@ final class FakeGitlab implements HttpClient
      * Next note ID to hand out
      */
     private int $nextId = 100;
+
+    /**
+     * Set what a commit comparison answers with
+     *
+     * @param ?list<array{old_path: string, new_path: string, diff: string}> $files The changed files, null to make the comparison fail
+     *
+     * @return void
+     */
+    public function compareDiffs(?array $files): void
+    {
+        $this->compareDiffs = $files;
+    }
 
     /**
      * Override fields of the MR as GitLab returns it
@@ -307,6 +326,9 @@ final class FakeGitlab implements HttpClient
                     ...$this->mrFields,
                 ],
             ]));
+        }
+        if (preg_match('#^/projects/[^/]+/repository/compare$#', $path) === 1 && $method === 'GET') {
+            return $this->compareDiffs === null ? $this->fakeJson(['message' => '404 Not found'], 404) : $this->fakeJson(['diffs' => $this->compareDiffs]);
         }
         if (preg_match('#^/projects/\d+/repository/commits/\w+$#', $path) === 1 && $method === 'GET') {
             return $this->fakeJson($this->commit);

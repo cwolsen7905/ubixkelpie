@@ -62,7 +62,7 @@ final class ProposalReactionBuilderService
         return new ProposalReactionService(
             $this->logger,
             $writer,
-            new ReplyService($this->logger, $writer),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername),
             new EditApplyService($this->logger),
             new Checkout($this->logger, $this->processRunner, $this->settings->botToken),
             new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth),

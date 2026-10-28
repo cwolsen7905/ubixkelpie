@@ -285,7 +285,7 @@ final class FixerRunnerService
      */
     private function answer(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, TriageVerdict $verdict): array
     {
-        $replied = $this->replyService->respond($project, $mrIid, $thread->discussionId, $verdict);
+        $replied = $this->replyService->respond($project, $mrIid, $thread->discussionId, $verdict, $thread);
         $outcome = $replied === ResponseOutcome::Failed ? ThreadOutcome::Failed : ThreadOutcome::Answered;
 
         return [FixOutcome::NotAFix, $this->status->resultFor($verdict, $replied), $this->record($projectPath, $mrIid, $thread->discussionId, $sha, $verdict, $outcome, $verdict->reason)];

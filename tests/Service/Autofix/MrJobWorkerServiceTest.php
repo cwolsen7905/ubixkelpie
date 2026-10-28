@@ -444,7 +444,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $gitlab->writer(),
             $gitlab->jobLogReader(),
             $jobs,
-            new ReplyService($logger, $gitlab->writer()),
+            new ReplyService($logger, $gitlab->writer(), 'kelpie-bot'),
         );
 
         return new MrJobWorkerService(

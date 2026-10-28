@@ -62,7 +62,7 @@ final class FixerRunnerBuilderService
             $enabled,
             $writer,
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
-            new ReplyService($this->logger, $writer),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername),
             $this->triageService,
             $this->propose,
             new EditApplyService($this->logger),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\DiscussionNote;
+use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
@@ -15,9 +16,10 @@ use Psr\Log\LoggerInterface as Logger;
  * Answers a triaged thread: the not-safe path (design section 5) and the resolution comment (section 4)
  *
  * `needs_human` gets a reply and the `kelpie::needs-human` label on the MR; `not_an_issue` gets a
- * reply; `already_fixed` gets a reply and the thread is resolved. A `fix` verdict is left silent here:
- * the fixer runner calls `fixed()` once the commit is pushed, and that reply never resolves the thread
- * (the reviewer confirms). `propose()` posts a proposal and leaves the thread open: a diff for a fix, a reason for a
+ * reply; `already_fixed` gets a reply and the thread is resolved only when the code near the finding changed
+ * since the review raised it (otherwise the thread stays open). A `fix` verdict is left silent here:
+ * once the commit is pushed and the gate passed, `fixed()` replies, and resolves the thread only when
+ * asked to, which the caller does only for a thread Kelpie opened (`openedByKelpie()`). `propose()` posts a proposal and leaves the thread open: a diff for a fix, a reason for a
  * dismissal or a deferral. Never pushes.
  *
  * @see \Kelpie\Tests\Service\Autofix\ReplyServiceTest PHPUnit test case
@@ -31,12 +33,14 @@ final class ReplyService
     /**
      * Constructor
      *
-     * @param Logger           $logger Logger
-     * @param DiscussionWriter $writer The GitLab writer
+     * @param Logger           $logger      Logger
+     * @param DiscussionWriter $writer      The GitLab writer
+     * @param string           $botUsername The account that writes Kelpie's replies; only its notes prove a thread is Kelpie's
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly DiscussionWriter $writer,
+        private readonly string $botUsername,
     ) {
     }
 
@@ -65,21 +69,54 @@ final class ReplyService
     }
 
     /**
+     * Whether Kelpie opened the thread: an AI-review finding or a pipeline-log thread whose first note was written by the
+     * bot account, and which the bot account has answered
+     *
+     * Markers are text anyone can type, so both the first note and the marker-bearing reply must be the bot's own. A
+     * person's thread, or one that copies the markers under another account, is not Kelpie's.
+     *
+     * @param DiscussionNote[] $notes        The thread's notes, oldest first
+     * @param string           $discussionId The discussion ID
+     *
+     * @return bool
+     */
+    public function openedByKelpie(array $notes, string $discussionId): bool
+    {
+        $first = $notes[0] ?? null;
+        if ($first === null || $first->author === '' || $first->author !== $this->botUsername) {
+            return false;
+        }
+        if (!str_contains($first->body, '<!-- ai-review:fp=') && !str_contains($first->body, '<!-- kelpie:pipeline job=')) {
+            return false;
+        }
+
+        foreach ($notes as $note) {
+            if ($note->author === $this->botUsername && str_contains($note->body, self::MARKER . 'reply thread=' . $discussionId . ' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Act on a verdict
      *
      * @param string        $project      The project ID or URL-encodable path
      * @param int           $mrIid        The MR IID
      * @param string        $discussionId The discussion ID
      * @param TriageVerdict $verdict      The verdict
+     * @param ?Thread       $thread       The thread, needed to resolve an already-fixed one (without it the thread stays open)
      *
      * @return ResponseOutcome Replied, Silent or Failed
      */
-    public function respond(string $project, int $mrIid, string $discussionId, TriageVerdict $verdict): ResponseOutcome
+    public function respond(string $project, int $mrIid, string $discussionId, TriageVerdict $verdict, ?Thread $thread = null): ResponseOutcome
     {
-        $text = match ($verdict->class) {
+        $resolve = $verdict->class === TriageClass::AlreadyFixed && $thread !== null && $this->codeChangedNear($project, $mrIid, $thread);
+        $text    = match ($verdict->class) {
             TriageClass::NeedsHuman   => 'needs human** — %s' . "\n\nI did not change any code.",
             TriageClass::NotAnIssue   => 'not an issue** — %s' . "\n\nLeaving this open for the reviewer.",
-            TriageClass::AlreadyFixed => 'already fixed** — %s' . "\n\nResolving this thread; reopen it if I got it wrong.",
+            TriageClass::AlreadyFixed => 'already fixed** — %s' . ($resolve ? "\n\nResolving this thread; reopen it if I got it wrong." : "\n\nLeaving this open: I could not see the code near it change since the review raised it."),
             TriageClass::Defer        => 'defer** — %s' . "\n\nLeaving this open for the reviewer.",
             TriageClass::Fix          => null,
         };
@@ -107,7 +144,7 @@ final class ReplyService
         $this->logger->info('Autofix reply posted', ['class' => $verdict->class->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
 
         // The reply stays if the resolve fails; its marker stops a second reply on the next run.
-        if ($verdict->class === TriageClass::AlreadyFixed && !$this->writer->resolve($project, $mrIid, $discussionId)) {
+        if ($resolve && !$this->writer->resolve($project, $mrIid, $discussionId)) {
             $this->logger->warning('Autofix thread could not be resolved', ['discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
         }
 
@@ -115,7 +152,10 @@ final class ReplyService
     }
 
     /**
-     * Say a pushed fix is in the thread, with a link to the commit. The thread is left open.
+     * Say a pushed fix is in the thread, with a link to the commit; resolve the thread when told to
+     *
+     * The caller passes `$resolve` only for a thread Kelpie opened, after the push and the green gate. The reply comes
+     * first, and a failed resolve leaves the reply in place.
      *
      * @param string $project      The project ID or URL-encodable path
      * @param int    $mrIid        The MR IID
@@ -123,18 +163,20 @@ final class ReplyService
      * @param string $commit       The pushed commit sha
      * @param string $commitUrl    The commit's web URL, empty when unknown
      * @param string $summary      One line on what changed
+     * @param bool   $resolve      Whether to resolve the thread after the reply
      *
      * @return ResponseOutcome Replied or Failed
      */
-    public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary): ResponseOutcome
+    public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary, bool $resolve = false): ResponseOutcome
     {
         $where   = $commitUrl === '' ? '`' . mb_substr($commit, 0, 12) . '`' : $this->clean($commitUrl);
         $summary = $this->oneLine($summary);
 
         $body = sprintf(
-            "Kelpie fixed this in %s: %s\n\nGate: phpcs, phpstan and phpunit passed. Leaving this thread open for you to confirm.\n\n<!-- kelpie:reply thread=%s class=%s -->",
+            "Kelpie fixed this in %s: %s\n\nGate: phpcs, phpstan and phpunit passed. %s\n\n<!-- kelpie:reply thread=%s class=%s -->",
             $where,
             $summary === '' ? 'see the commit.' : $summary,
+            $resolve ? 'Resolving this thread; reopen it if I got it wrong.' : 'Leaving this thread open for you to confirm.',
             $discussionId,
             TriageClass::Fix->value,
         );
@@ -144,6 +186,10 @@ final class ReplyService
         }
 
         $this->logger->info('Autofix fix reply posted', ['commit' => $commit, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
+
+        if ($resolve && !$this->writer->resolve($project, $mrIid, $discussionId)) {
+            $this->logger->warning('Autofix thread could not be resolved', ['discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
+        }
 
         return ResponseOutcome::Replied;
     }
@@ -205,6 +251,47 @@ final class ReplyService
         $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s -->", $this->clean($text), $discussionId, $kind);
 
         return $this->writer->reply($project, $mrIid, $discussionId, $body) !== null;
+    }
+
+    /**
+     * Whether the code near the finding changed between the review that raised it and the MR's head
+     *
+     * False when that cannot be shown: the thread was not opened by the bot account (a person's thread is never
+     * resolved), no file, line or review sha on it, an unreadable MR or comparison.
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     * @param Thread $thread  The thread
+     *
+     * @return bool
+     */
+    private function codeChangedNear(string $project, int $mrIid, Thread $thread): bool
+    {
+        if ($thread->author !== $this->botUsername || $thread->filePath === null || $thread->line === null || preg_match('~ai-review:fp=[0-9a-f]+ sha=([0-9a-f]+)~', $thread->body, $m) !== 1) {
+            return false;
+        }
+
+        $head = $this->writer->headSha($project, $mrIid);
+        if ($head === null) {
+            return false;
+        }
+        if ($head === $m[1]) {
+            return false;
+        }
+
+        $files = $this->writer->compare($project, $m[1], $head);
+        if ($files === null) {
+            return false;
+        }
+
+        $lines = new DiffLineService($this->logger);
+        foreach ($files as $file) {
+            if (($file['old_path'] === $thread->filePath || $file['new_path'] === $thread->filePath) && $lines->touches($file['diff'], $thread->line)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

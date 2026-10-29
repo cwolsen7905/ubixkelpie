@@ -137,9 +137,9 @@ final class DiscussionWriter
      * @param string $project The project ID or URL-encodable path
      * @param int    $mrIid   The MR IID
      *
-     * @return ?list<string> Null when the files could not be read, or there are too many to be a small change
+     * @return list<string>|false|null Null when the files could not be read (worth a retry); false when there are more than the page limit allows (a refusal, not a retry)
      */
-    public function changedPaths(string $project, int $mrIid): ?array
+    public function changedPaths(string $project, int $mrIid): array|false|null
     {
         $paths = [];
         for ($page = 1; $page <= self::MAX_DIFF_PAGES; ++$page) {
@@ -159,7 +159,7 @@ final class DiscussionWriter
             }
         }
 
-        return null;
+        return false;
     }
 
     /**

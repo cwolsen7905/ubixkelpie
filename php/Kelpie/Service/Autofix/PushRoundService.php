@@ -111,6 +111,11 @@ final class PushRoundService
         if ($changed === null) {
             return 'could not read the files the merge request changes';
         }
+        if ($changed === false) {
+            $this->failAll($project, $projectPath, $mrIid, $fixes, 'This merge request changes too many files for me to check which ones, so I did not push. Nothing was changed.');
+
+            return null;
+        }
         if (!$this->checkout->open($this->remoteUrl, $mr->sourceBranch, $sha)) {
             return 'the scratch checkout could not be made';
         }

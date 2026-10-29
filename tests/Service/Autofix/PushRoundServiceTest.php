@@ -29,6 +29,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Each fixed thread gets a `Fixed:` reply linking the commit; only a thread Kelpie opened is resolved
  * - A fix that edits a file the MR does not change is left out and its thread told; the rest still go in the one commit
  * - A fix whose edits no longer apply is left out; if none is left nothing is pushed and no gate runs
+ * - An MR with too many files to check is refused (threads failed and told), not retried; unreadable files are retried
  * - A red gate pushes nothing and fails every thread of the round
  * - A moved head, a closed MR, a fork and a protected branch push nothing
  * - A rejected push or an unreadable MR is returned for a retry and sets nothing
@@ -212,6 +213,40 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $this->gitlab->mergeRequestFields(['sha' => $this->sha, 'source_project_id' => 1]);
         $this->assertSame('could not read the merge request', $this->service()->run('1', '9', 4, $this->sha, $this->fixes(), 1));
+    }
+
+    /**
+     * An MR with too many files to check is refused for good, not retried: every thread told, nothing pushed
+     *
+     * @return void
+     */
+    public function testTooManyChangedFilesAreRefusedNotRetried(): void
+    {
+        $this->gitlab->changedFiles(array_map(static function (int $n): string {
+            return 'f' . $n . '.php';
+        }, range(1, 500)));
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1));
+
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertSame([], $this->gateRunner->calls());
+        foreach (['d1', 'd2'] as $id) {
+            $this->assertSame(ThreadOutcome::Failed, $this->row($id)->outcome);
+            $this->assertStringContainsString('too many files', $this->lastNote($id));
+        }
+    }
+
+    /**
+     * An MR whose changed files cannot be read is retried
+     *
+     * @return void
+     */
+    public function testUnreadableChangedFilesAreRetried(): void
+    {
+        $this->gitlab->changedFiles(null);
+
+        $this->assertSame('could not read the files the merge request changes', $this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1));
+        $this->assertSame(ThreadOutcome::Proposed, $this->row('d1')->outcome);
     }
 
     /**

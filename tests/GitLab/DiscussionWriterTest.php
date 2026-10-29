@@ -139,7 +139,7 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * The paths an MR changes are read across pages, and a listing that fails or is too long is refused
+     * The paths an MR changes are read across pages, and a listing that fails is null and one that is too long is false
      *
      * @return void
      */
@@ -159,7 +159,7 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->gitlab->changedFiles(array_map(static function (int $n): string {
             return 'f' . $n . '.php';
         }, range(1, 500)));
-        $this->assertNull($writer->changedPaths('1', 3));
+        $this->assertFalse($writer->changedPaths('1', 3));
 
         $this->gitlab->changedFiles(null);
         $this->assertNull($writer->changedPaths('1', 3));

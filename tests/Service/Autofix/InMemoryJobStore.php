@@ -228,6 +228,14 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     /**
      * {@inheritDoc}
      */
+    public function markDeferred(int $id, DateTimeImmutable $until, string $why): void
+    {
+        $this->log[] = __FUNCTION__ . ':' . $id . ',' . $until->format('c') . ',' . $why;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function markFailed(int $id, string $error): void
     {
         $this->log[] = __FUNCTION__ . ':' . $id . ',' . $error;

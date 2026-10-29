@@ -15,8 +15,10 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\ProposeEditsService;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -69,6 +71,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
             $runner,
             new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json),
             new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class)),
+            new SpendCapService($logger, new InMemoryProjects(), new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class))),
             $settings,
         );
 

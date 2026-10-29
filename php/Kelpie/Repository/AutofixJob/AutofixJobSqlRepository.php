@@ -221,6 +221,17 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
     /**
      * {@inheritDoc}
      */
+    public function markDeferred(int $id, DateTimeImmutable $until, string $why): void
+    {
+        $sql = "UPDATE ubixkelpie.autofix_jobs SET status = 'pending', attempt = GREATEST(attempt - 1, 0), next_attempt_at = :next_attempt_at, locked_by = NULL, locked_until = NULL, last_error = :last_error
+                WHERE id = :id AND status = 'running'";
+
+        $this->sqlService->query($sql, ['id' => $id, 'last_error' => mb_substr($why, 0, 255), 'next_attempt_at' => $this->stamp($until)]);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function markFailed(int $id, string $error): void
     {
         $sql = "UPDATE ubixkelpie.autofix_jobs SET status = 'failed', locked_by = NULL, locked_until = NULL, last_error = :last_error WHERE id = :id AND status = 'running'";

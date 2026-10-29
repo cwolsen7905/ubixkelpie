@@ -19,5 +19,6 @@ enum FixOutcome: string
     case NoChange      = 'no_change';
     case EditsRejected = 'edits_rejected';
     case Proposed      = 'proposed';
+    case OverCap       = 'over_cap';
     case Failed        = 'failed';
 }

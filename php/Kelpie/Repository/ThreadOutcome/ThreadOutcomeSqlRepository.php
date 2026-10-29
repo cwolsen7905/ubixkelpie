@@ -49,6 +49,11 @@ final class ThreadOutcomeSqlRepository implements ThreadOutcomeReader, ThreadOut
 
     /**
      * {@inheritDoc}
+     *
+     * A run on a thread that has a row replaces everything but the cost. The cost adds up over one day (by the
+     * database's clock, the one that stamps `date_last_updated`), so the
+     * spend caps count every run on the thread; a row last written on an earlier day starts again from this run's
+     * cost, so yesterday's spend is not carried into today.
      */
     public function record(ThreadOutcomeRecord $record): void
     {
@@ -62,7 +67,9 @@ final class ThreadOutcomeSqlRepository implements ThreadOutcomeReader, ThreadOut
                     head_sha = VALUES(head_sha), verdict = VALUES(verdict), mode = VALUES(mode), outcome = VALUES(outcome),
                     reason = VALUES(reason), triage_model = VALUES(triage_model), propose_model = VALUES(propose_model),
                     review_family = VALUES(review_family), prompt_tokens = VALUES(prompt_tokens),
-                    completion_tokens = VALUES(completion_tokens), cost_usd = VALUES(cost_usd),
+                    completion_tokens = VALUES(completion_tokens),
+                    cost_usd = IF(VALUES(cost_usd) IS NULL, IF(date_last_updated >= CURDATE(), cost_usd, NULL),
+                                  IF(date_last_updated >= CURDATE(), COALESCE(cost_usd, 0), 0) + VALUES(cost_usd)),
                     proposal_note_id = VALUES(proposal_note_id), edits_json = VALUES(edits_json), diff = VALUES(diff)';
 
         $this->sqlService->query($sql, [
@@ -91,10 +98,32 @@ final class ThreadOutcomeSqlRepository implements ThreadOutcomeReader, ThreadOut
      */
     public function setOutcome(string $projectPath, int $mrIid, string $discussionId, ThreadOutcome $outcome): void
     {
-        $sql = 'UPDATE ubixkelpie.thread_outcomes SET outcome = :outcome
+        // The column is set to itself so a reaction does not move the row into today's spend
+        $sql = 'UPDATE ubixkelpie.thread_outcomes SET outcome = :outcome, date_last_updated = date_last_updated
                 WHERE project_path = :project_path AND mr_iid = :mr_iid AND discussion_id = :discussion_id';
 
         $this->sqlService->query($sql, ['discussion_id' => $discussionId, 'mr_iid' => $mrIid, 'outcome' => $outcome->value, 'project_path' => $projectPath]);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function costToday(?string $projectPath): float
+    {
+        $sql        = 'SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM ubixkelpie.thread_outcomes WHERE date_last_updated >= CURDATE()';
+        $parameters = [];
+
+        if ($projectPath !== null) {
+            $sql .= ' AND project_path = :project_path';
+
+            $parameters['project_path'] = $projectPath;
+        }
+
+        foreach ($this->sqlService->getRows($sql, $parameters) as $row) {
+            return (float) $row['spent'];
+        }
+
+        return 0.0;
     }
 
     /**

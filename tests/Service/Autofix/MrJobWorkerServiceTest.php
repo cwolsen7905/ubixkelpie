@@ -204,6 +204,23 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A job held by the daily spend cap goes back until midnight and the held attempt is not counted
+     *
+     * @return void
+     */
+    public function testJobHeldByTheSpendCapWaitsForTomorrow(): void
+    {
+        $this->gitlab->note('d1abc123', 'Please fix the typo.');
+        $now    = new DateTimeImmutable('2026-10-21 12:00:00');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDeferred')->with(7, new DateTimeImmutable('2026-10-22 00:00:00'), $this->stringContains('spend cap'));
+        $writer->expects($this->never())->method('markRetry');
+        $writer->expects($this->never())->method('markFailed');
+
+        $this->service($this->readerOf($this->job('d1abc123', 2, 3, self::HEAD), 'running'), $writer, false, ProjectMode::Propose, 50.0)->step(true, ['ubixsys/ubixkelpie'], $now);
+    }
+
+    /**
      * A throw is retried after one minute, then five, and the third is final
      *
      * @return void
@@ -267,7 +284,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'decline')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
 
-        $this->assertContains('UPDATE ubixkelpie.thread_outcomes SET outcome = :outcome
+        $this->assertContains('UPDATE ubixkelpie.thread_outcomes SET outcome = :outcome, date_last_updated = date_last_updated
                 WHERE project_path = :project_path AND mr_iid = :mr_iid AND discussion_id = :discussion_id', $this->queries->getArrayCopy());
         $notes = $this->gitlab->notes()['d1abc123'];
         $this->assertStringContainsString('class=declined', $notes[count($notes) - 1]['body']);
@@ -389,10 +406,11 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
      * @param AutofixJobWriter $writer           The job writer
      * @param bool             $proposalOnRecord Whether thread d1abc123 has an open proposal on record, made at HEAD
      * @param ProjectMode      $mode             The mode of ubixsys/ubixkelpie; push by default
+     * @param float            $spentToday       What the day's runs have cost, in USD
      *
      * @return MrJobWorkerService
      */
-    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false, ProjectMode $mode = ProjectMode::Push): MrJobWorkerService
+    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false, ProjectMode $mode = ProjectMode::Push, float $spentToday = 0.0): MrJobWorkerService
     {
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
@@ -408,7 +426,12 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         });
         $sql->method('lastInsertId')->willReturn('7');
         $sql->method('getColumn')->willReturn('0');
-        $sql->method('getRows')->willReturnCallback(static function (string $statement) use ($proposalOnRecord): Generator {
+        $sql->method('getRows')->willReturnCallback(static function (string $statement) use ($proposalOnRecord, $spentToday): Generator {
+            if (str_contains($statement, 'SUM(cost_usd)')) {
+                yield ['spent' => (string) $spentToday];
+
+                return;
+            }
             if ($proposalOnRecord && str_contains($statement, 'thread_outcomes')) {
                 yield [
                     'completion_tokens' => '0',

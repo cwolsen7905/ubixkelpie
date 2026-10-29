@@ -17,11 +17,12 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository
  *
  * What must hold:
- * - A run is one upsert keyed by the thread, so a second run replaces the first row
+ * - A run is one upsert keyed by the thread, so a second run replaces the first row but adds its cost to it
  * - Empty edits and diff are stored as NULL, and an unknown cost stays NULL
  * - A row reads back as the record it was written from
  * - A proposal is found by the note that carries it
  * - A later reaction changes only the outcome
+ * - The day's cost is summed from the database's midnight, for one project or for all
  *
  * @coversDefaultClass \Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository
  */
@@ -46,7 +47,7 @@ final class ThreadOutcomeSqlRepositoryTest extends UbixConcreteClassOrEnumTestCa
     {
         $sql = $this->createMock(SqlService::class);
         $sql->expects($this->once())->method('query')->with(
-            $this->logicalAnd($this->stringContains('INSERT INTO ubixkelpie.thread_outcomes'), $this->stringContains('ON DUPLICATE KEY UPDATE')),
+            $this->logicalAnd($this->stringContains('INSERT INTO ubixkelpie.thread_outcomes'), $this->stringContains('ON DUPLICATE KEY UPDATE'), $this->stringContains('COALESCE(cost_usd, 0)'), $this->stringContains('CURDATE()')),
             $this->callback(
                 static function (array $p): bool {
                     return $p['project_path'] === 'g/p' && $p['mr_iid'] === 3 && $p['discussion_id'] === 'd1' && $p['outcome'] === 'proposed'
@@ -190,6 +191,46 @@ final class ThreadOutcomeSqlRepositoryTest extends UbixConcreteClassOrEnumTestCa
         )->willReturn(1);
 
         (new ThreadOutcomeSqlRepository($this->createStub(Logger::class), $sql))->setOutcome('g/p', 3, 'd1', ThreadOutcome::Applied);
+    }
+
+    /**
+     * The cost of one project today, by the database's clock, is a bound sum, 0 when no row says
+     *
+     * @return void
+     */
+    public function testCostTodaySumsOneProject(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRows')->with(
+            $this->logicalAnd($this->stringContains('SUM(cost_usd)'), $this->stringContains('project_path = :project_path')),
+            ['project_path' => 'g/p'],
+        )->willReturnCallback(static function (): Generator {
+            yield ['spent' => '1.250000'];
+        });
+
+        $repository = new ThreadOutcomeSqlRepository($this->createStub(Logger::class), $sql);
+
+        $this->assertSame(1.25, $repository->costToday('g/p'));
+    }
+
+    /**
+     * Without a project the sum covers every project
+     *
+     * @return void
+     */
+    public function testCostTodayWithoutAProjectSumsAll(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRows')->with(
+            $this->logicalNot($this->stringContains('project_path')),
+            [],
+        )->willReturnCallback(static function (): Generator {
+            yield from [];
+        });
+
+        $repository = new ThreadOutcomeSqlRepository($this->createStub(Logger::class), $sql);
+
+        $this->assertSame(0.0, $repository->costToday(null));
     }
 
     /**

@@ -32,4 +32,13 @@ interface ThreadOutcomeReaderInterface
      * @return ?ThreadOutcomeRecord Null when no proposal of Kelpie's is that note
      */
     public function getByProposalNote(string $projectPath, int $mrIid, int $noteId): ?ThreadOutcomeRecord;
+
+    /**
+     * What the runs recorded today cost, by the database's clock
+     *
+     * @param ?string $projectPath The project path, or null for every project
+     *
+     * @return float US dollars; runs with no cost reported count as 0
+     */
+    public function costToday(?string $projectPath): float;
 }

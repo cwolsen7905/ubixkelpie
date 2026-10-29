@@ -7,6 +7,7 @@ namespace Kelpie\Service\Autofix;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
+use Kelpie\DataTransferObject\SpendCheck;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\DataTransferObject\ThreadResult;
@@ -22,6 +23,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
@@ -45,6 +47,11 @@ final class FixerRunnerService
     private const string MODE = 'propose';
 
     /**
+     * The propose model call of the run in hand, set as soon as it is made so a crash after it keeps its cost
+     */
+    private ?Completion $paid = null;
+
+    /**
      * Constructor
      *
      * @param Logger              $logger        Logger
@@ -62,6 +69,7 @@ final class FixerRunnerService
      * @param AutofixJobReader    $jobReader     The job reader
      * @param AutofixJobWriter    $jobWriter     The job writer
      * @param ThreadOutcomeWriter $outcomes      The outcome record
+     * @param SpendCapService     $spendCaps     The daily spend caps
      * @param string              $remoteUrl     The git URL of the project
      */
     public function __construct(
@@ -80,6 +88,7 @@ final class FixerRunnerService
         private readonly AutofixJobReader $jobReader,
         private readonly AutofixJobWriter $jobWriter,
         private readonly ThreadOutcomeWriter $outcomes,
+        private readonly SpendCapService $spendCaps,
         private readonly string $remoteUrl,
     ) {
     }
@@ -136,15 +145,31 @@ final class FixerRunnerService
             return FixOutcome::Skipped;
         }
 
+        $spend = $this->spendCaps->check($projectPath);
+        if ($spend->cap === SpendCheck::NOT_ENROLLED) {
+            $this->logger->info('Autofix run skipped: the project is not enrolled', ['project_path' => $projectPath, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
+            $this->jobWriter->supersedeJob($jobId);
+
+            return FixOutcome::Skipped;
+        }
+        if ($spend->cap !== null) {
+            // Left pending and unanswered, so the job runs once the day rolls over
+            $this->logger->warning('Autofix run held: daily spend cap reached', ['cap' => $spend->cap, 'spent_usd' => $spend->spent, 'limit_usd' => $spend->limit, 'project_path' => $projectPath, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
+
+            return FixOutcome::OverCap;
+        }
+
         $claim = $this->claimService->claim($project, $mrIid, $id, $sha);
         if ($claim instanceof ResponseOutcome) {
             return FixOutcome::Skipped; // Left pending: whoever holds the claim is on it
         }
 
         $this->jobWriter->markRunning($jobId);
-        $statusRun = $this->status->start($project, $mrIid, [$thread]);
-        $class     = null;
-        $result    = null;
+        $statusRun  = $this->status->start($project, $mrIid, [$thread]);
+        $class      = null;
+        $result     = null;
+        $verdict    = null;
+        $this->paid = null;
 
         try {
             $verdict = $this->triageService->triage($thread, null, $steering);
@@ -159,6 +184,10 @@ final class FixerRunnerService
         } catch (Throwable $e) {
             $this->logger->error('Autofix runner crashed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
             $outcome = FixOutcome::Failed;
+
+            if ($verdict !== null) {
+                $this->recordCrash($projectPath, $mrIid, $id, $sha, $verdict, $this->paid);
+            }
         } finally {
             $this->checkout->close();
             $this->claimService->release($project, $mrIid, $id, $claim, $sha);
@@ -170,6 +199,27 @@ final class FixerRunnerService
         $this->logger->info('Autofix run finished', ['outcome' => $outcome->value, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
 
         return $outcome;
+    }
+
+    /**
+     * Record a run that crashed after its model calls, so the cap still counts what they cost
+     *
+     * @param string        $projectPath The project path
+     * @param int           $mrIid       The MR IID
+     * @param string        $id          The discussion ID
+     * @param string        $sha         The triaged sha
+     * @param TriageVerdict $verdict     Triage's verdict, whose call was paid
+     * @param ?Completion   $paid        The propose model call, when it was made
+     *
+     * @return void
+     */
+    private function recordCrash(string $projectPath, int $mrIid, string $id, string $sha, TriageVerdict $verdict, ?Completion $paid): void
+    {
+        try {
+            $this->outcomes->record($this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The run crashed after its model calls.', $paid));
+        } catch (Throwable $e) {
+            $this->logger->error('Autofix runner could not record the cost of a crashed run', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
+        }
     }
 
     /**
@@ -196,7 +246,8 @@ final class FixerRunnerService
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The scratch checkout could not be made.')];
         }
 
-        $edits = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering);
+        $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering);
+        $this->paid = $edits->completion;
         if ($edits->failure !== '') {
             return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $edits->failure, $edits->completion);
         }

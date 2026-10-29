@@ -7,6 +7,7 @@ namespace Kelpie\Service\Autofix;
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
+use Kelpie\Enum\FixOutcome;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\MergeRequestLister;
 use Kelpie\Model\AutofixJobRecord;
@@ -161,7 +162,7 @@ final class MrJobWorkerService
         $mrs  = $this->lister->open($path);
 
         if ($job->getDiscussionId() !== null) {
-            return $this->work($job, $path, $mrs);
+            return $this->work($job, $path, $mrs, $now);
         }
 
         $this->fanOut($job, $path, $mrs, $now);
@@ -196,10 +197,11 @@ final class MrJobWorkerService
      * @param AutofixJobRecord      $job  The job
      * @param string                $path The project path
      * @param MergeRequestSummary[] $mrs  The project's open MRs
+     * @param DateTimeImmutable     $now  The current time
      *
      * @return ?string
      */
-    private function work(AutofixJobRecord $job, string $path, array $mrs): ?string
+    private function work(AutofixJobRecord $job, string $path, array $mrs, DateTimeImmutable $now): ?string
     {
         $id  = $job->getId() ?? 0;
         $iid = $job->getMrIid() ?? 0;
@@ -242,9 +244,15 @@ final class MrJobWorkerService
         }
 
         $outcome = $this->runners->make(true, $path)->run((string) $mr->projectId, $path, $iid, $thread, $sha, $id, $job->getSteering() ?? '');
-        $now     = $this->reader->getJobById($id);
+        if ($outcome === FixOutcome::OverCap) {
+            // Held by a daily spend cap: back until the day rolls over, and the held attempt does not count
+            $this->writer->markDeferred($id, $now->modify('tomorrow'), 'daily spend cap reached');
+
+            return null;
+        }
+        $left = $this->reader->getJobById($id);
 
         // The runner ends the job itself when it has an answer; one left running is waiting (another run holds the MR)
-        return $now !== null && $now->getStatus() === 'running' ? 'not run yet (' . $outcome->value . ')' : null;
+        return $left !== null && $left->getStatus() === 'running' ? 'not run yet (' . $outcome->value . ')' : null;
     }
 }

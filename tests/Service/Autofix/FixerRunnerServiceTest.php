@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\Enum\FixOutcome;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
@@ -22,9 +23,11 @@ use Kelpie\Service\Autofix\FixerRunnerService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\TriageStatusService;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -108,6 +111,55 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame([], $this->gitlab->requests());
         $this->assertSame([], $this->calls());
         $this->assertSame('pending', $this->jobs->status());
+    }
+
+    /**
+     * At the daily cap: no GitLab write, no model call, the job left pending
+     *
+     * @return void
+     */
+    public function testOverTheDailyCapHoldsTheRunWithoutCallingAModel(): void
+    {
+        $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
+
+        $outcome = $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+
+        $this->assertSame(FixOutcome::OverCap, $outcome);
+        $this->assertSame([], $this->calls());
+        $this->assertSame('pending', $this->jobs->status());
+        $this->assertNull($this->outcomes->getByThread('g/p', 3, 'd1'));
+    }
+
+    /**
+     * A run that crashes after its model calls still records what they cost, so the cap counts it
+     *
+     * @return void
+     */
+    public function testCrashAfterPaidCallsRecordsTheirCost(): void
+    {
+        $this->outcomes->failNextRecord();
+
+        $outcome = $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+
+        $this->assertSame(FixOutcome::Failed, $outcome);
+        $row = $this->row();
+        $this->assertSame(ThreadOutcome::Failed, $row->outcome);
+        $this->assertEqualsWithDelta(0.002, (float) $row->costUsd, 0.0000001);
+        $this->assertEqualsWithDelta(0.002, $this->outcomes->costToday('g/p'), 0.0000001);
+    }
+
+    /**
+     * A project with no row is not enrolled: the job is superseded and no model is asked, nothing is called a cap
+     *
+     * @return void
+     */
+    public function testUnenrolledProjectIsSkippedNotCapped(): void
+    {
+        $outcome = $this->service()->run('1', 'g/none', 3, $this->thread(), $this->sha, 1);
+
+        $this->assertSame(FixOutcome::Skipped, $outcome);
+        $this->assertSame([], $this->calls());
+        $this->assertSame('superseded', $this->jobs->status());
     }
 
     /**
@@ -657,6 +709,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $this->jobs,
             $this->jobs,
             $this->outcomes,
+            new SpendCapService($logger, new InMemoryProjects(['g/p' => ProjectMode::Propose]), $this->outcomes),
             $this->remote,
         );
     }

@@ -10,6 +10,7 @@ use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
@@ -31,6 +32,7 @@ final class FixerRunnerBuilderService
      * @param ProcessRunner       $processRunner The process runner
      * @param ProposeEditsService $propose       Asks the propose model for edits
      * @param ThreadOutcomeWriter $outcomes      The outcome record
+     * @param SpendCapService     $spendCaps     The daily spend caps
      * @param AutofixSettings     $settings      The settings
      */
     public function __construct(
@@ -41,6 +43,7 @@ final class FixerRunnerBuilderService
         private readonly ProcessRunner $processRunner,
         private readonly ProposeEditsService $propose,
         private readonly ThreadOutcomeWriter $outcomes,
+        private readonly SpendCapService $spendCaps,
         private readonly AutofixSettings $settings,
     ) {
     }
@@ -73,6 +76,7 @@ final class FixerRunnerBuilderService
             $this->jobs->reader(),
             $this->jobs->writer(),
             $this->outcomes,
+            $this->spendCaps,
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
         );
     }

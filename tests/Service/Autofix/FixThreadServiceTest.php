@@ -19,6 +19,7 @@ use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\FixThreadService;
 use Kelpie\Service\Autofix\ProposeEditsService;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -286,6 +287,6 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $open    = new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json);
         $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
 
-        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), $settings), $settings, InMemoryProjects::service($modes));
+        return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), new SpendCapService($logger, new InMemoryProjects($modes), new ThreadOutcomeSqlRepository($logger, $sql)), $settings), $settings, InMemoryProjects::service($modes));
     }
 }

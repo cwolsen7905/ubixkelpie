@@ -85,6 +85,17 @@ interface AutofixJobWriterInterface
     public function markRetry(int $id, DateTimeImmutable $nextAttemptAt, string $error): void;
 
     /**
+     * Put a job back until a later time without counting the attempt that was held
+     *
+     * @param int               $id    The job id
+     * @param DateTimeImmutable $until When it is next due
+     * @param string            $why   Why it waits
+     *
+     * @return void
+     */
+    public function markDeferred(int $id, DateTimeImmutable $until, string $why): void;
+
+    /**
      * Give up on a job
      *
      * @param int    $id    The job id

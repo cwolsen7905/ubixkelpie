@@ -21,6 +21,7 @@ use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Autofix\RespondService;
 use Kelpie\Service\Autofix\SweepRunService;
 use Kelpie\Service\Project\ProjectModeService;
+use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
@@ -70,7 +71,8 @@ final class CommandServices
         private readonly AutofixSettings $settings,
         ?array $modes = null,
     ) {
-        $this->modes     = InMemoryProjects::service($modes ?? ['ubixsys/ubixkelpie' => ProjectMode::Propose, 'org/proj' => ProjectMode::Propose]);
+        $modes         ??= ['ubixsys/ubixkelpie' => ProjectMode::Propose, 'org/proj' => ProjectMode::Propose];
+        $this->modes     = InMemoryProjects::service($modes);
         $this->json      = new JsonService($this->logger);
         $factory         = new Psr17Factory();
         $this->jobs      = new AutofixJobService($this->logger, new AutofixJobSqlRepository($this->logger, $sql));
@@ -85,7 +87,7 @@ final class CommandServices
         $this->gitlab    = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
         $open            = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);
         $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
-        $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), $settings);
+        $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), new SpendCapService($this->logger, new InMemoryProjects($modes), new ThreadOutcomeSqlRepository($this->logger, $sql)), $settings);
         $outcomes        = new ThreadOutcomeSqlRepository($this->logger, $sql);
         $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings, $this->modes);
     }

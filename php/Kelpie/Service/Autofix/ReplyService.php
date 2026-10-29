@@ -169,11 +169,12 @@ final class ReplyService
      */
     public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary, bool $resolve = false): ResponseOutcome
     {
-        $where   = $commitUrl === '' ? '`' . mb_substr($commit, 0, 12) . '`' : $this->clean($commitUrl);
+        $short   = '`' . mb_substr($commit, 0, 12) . '`';
+        $where   = $commitUrl === '' ? $short : '[' . $short . '](' . $this->clean($commitUrl) . ')';
         $summary = $this->oneLine($summary);
 
         $body = sprintf(
-            "Kelpie fixed this in %s: %s\n\nGate: phpcs, phpstan and phpunit passed. %s\n\n<!-- kelpie:reply thread=%s class=%s -->",
+            "Fixed: %s — %s\n\nGate: phpcs, phpstan and phpunit passed. %s\n\n<!-- kelpie:reply thread=%s class=%s -->",
             $where,
             $summary === '' ? 'see the commit.' : $summary,
             $resolve ? 'Resolving this thread; reopen it if I got it wrong.' : 'Leaving this thread open for you to confirm.',

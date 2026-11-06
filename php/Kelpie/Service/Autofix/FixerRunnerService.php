@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use DateTimeImmutable;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
@@ -153,7 +154,8 @@ final class FixerRunnerService
             return FixOutcome::Skipped;
         }
         if ($spend->cap !== null) {
-            // Left pending and unanswered, so the job runs once the day rolls over
+            // Left pending and unanswered, so the job runs once the day rolls over; the notice has its own marker and does not answer the thread
+            $this->replyService->capNotice($project, $mrIid, $id, $notes, $spend, new DateTimeImmutable());
             $this->logger->warning('Autofix run held: daily spend cap reached', ['cap' => $spend->cap, 'spent_usd' => $spend->spent, 'limit_usd' => $spend->limit, 'project_path' => $projectPath, 'mr_iid' => $mrIid, 'job_id' => $jobId]);
 
             return FixOutcome::OverCap;

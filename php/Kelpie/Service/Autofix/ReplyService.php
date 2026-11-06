@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use DateTimeImmutable;
 use Kelpie\DataTransferObject\DiscussionNote;
+use Kelpie\DataTransferObject\SpendCheck;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
@@ -29,6 +31,8 @@ final class ReplyService
     public const string LABEL = 'kelpie::needs-human';
 
     private const string MARKER = '<!-- kelpie:';
+
+    private const string CAP_MARKER = '<!-- kelpie:cap-held ';
 
     /**
      * Constructor
@@ -60,12 +64,53 @@ final class ReplyService
         foreach ($notes as $note) {
             if (str_contains($note->body, $marker)) {
                 $answered = true;
-            } elseif ($answered && !str_contains($note->body, self::MARKER)) {
+            } elseif ($answered && !$this->isKelpieBookkeeping($note)) {
                 $answered = false; // A new note arrived: the thread is triaged again
             }
         }
 
         return $answered;
+    }
+
+    /**
+     * Say once per day that the spend cap is holding this thread's job
+     *
+     * The notice carries its own marker, never the `reply` one, so it does not make the thread answered: the job stays pending and
+     * runs when the cap resets. It is not posted again while the bot's own note for the same day is on the thread (the day is the application's, so near midnight a second notice is possible if the database's day differs; it names no reset time for that reason). Two sweeps of one thread that overlap can both post, since the claim is only taken after the cap check; that duplicate is tolerated, as one job per thread runs at a time.
+     *
+     * @param string            $project      The project ID or URL-encodable path
+     * @param int               $mrIid        The MR IID
+     * @param string            $discussionId The discussion ID
+     * @param DiscussionNote[]  $notes        The thread's notes, oldest first
+     * @param SpendCheck        $spend        The cap that was reached
+     * @param DateTimeImmutable $now          Now
+     *
+     * @return bool Whether a notice was posted now
+     */
+    public function capNotice(string $project, int $mrIid, string $discussionId, array $notes, SpendCheck $spend, DateTimeImmutable $now): bool
+    {
+        $marker = self::CAP_MARKER . 'thread=' . $discussionId . ' day=' . $now->format('Y-m-d') . ' -->';
+        foreach ($notes as $note) {
+            if ($note->author === $this->botUsername && str_contains($note->body, $marker)) {
+                return false;
+            }
+        }
+
+        $body = sprintf(
+            "Kelpie spend cap reached: the %s daily cap (\$%.2f of \$%.2f spent today). I have not worked on this thread yet; it stays queued and I will pick it up again when the daily cap resets, which follows the database's day, not a time I can promise here. No action needed.\n\n%s",
+            $spend->cap === 'global' ? 'Kelpie-wide' : 'project',
+            $spend->spent,
+            $spend->limit,
+            $marker,
+        );
+
+        if ($this->writer->reply($project, $mrIid, $discussionId, $body) === null) {
+            return false;
+        }
+
+        $this->logger->info('Autofix cap notice posted', ['cap' => $spend->cap, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
+
+        return true;
     }
 
     /**
@@ -252,6 +297,24 @@ final class ReplyService
         $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s -->", $this->clean($text), $discussionId, $kind);
 
         return $this->writer->reply($project, $mrIid, $discussionId, $body) !== null;
+    }
+
+    /**
+     * Whether a note is Kelpie's own bookkeeping (claims, releases, replies, cap notices) rather than someone writing to it
+     *
+     * A cap notice only counts when the bot account wrote it; anyone else typing its marker has written a note.
+     *
+     * @param DiscussionNote $note The note
+     *
+     * @return bool
+     */
+    private function isKelpieBookkeeping(DiscussionNote $note): bool
+    {
+        if (str_contains($note->body, self::CAP_MARKER)) {
+            return $note->author === $this->botUsername;
+        }
+
+        return str_contains($note->body, self::MARKER);
     }
 
     /**

@@ -14,7 +14,7 @@ and `docs/operations/worker.md`.
 | Kill switch | `KELPIE_AUTOFIX_ENABLED=true` in the dev deploy, worker and sweep manifests. |
 | Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, un-suspended by this change. |
 | Worker | `app/KelpieApi/dev-worker.yaml`; deploy.sh skips `*-worker.yaml`, so it is applied by hand. |
-| `projects` row | Not there until an operator inserts it (below). |
+| `projects` row | Done on dev: `ubixsys/ubixshepherd`, mode `propose`, defaults for the rest (step 4). Staging and prod have none. |
 | Dev webhook on ubixshepherd | Done 2026-11-05: hook 5 now points at dev (step 2). |
 
 ## Steps (each outside the repo, done by a person or Shepherd)
@@ -58,6 +58,12 @@ and `docs/operations/worker.md`.
    VALUES ('ubixsys/ubixshepherd', 'propose');
    SELECT path, mode FROM ubixkelpie.projects WHERE path = 'ubixsys/ubixshepherd';
    ```
+
+   Status 2026-11-05: **done on dev.** The `INSERT IGNORE`, run from the kelpie-dev API pod with the
+   hydrated dev credentials (host and database checked first), inserted nothing because the row was already
+   there (id 2, created 2026-10-28). Read back: `ubixsys/ubixshepherd`, `propose`, 30 issues a day, 10 per
+   author, 2.00 USD a day, 3 fix commits per MR. `ubixsys/ubixkelpie` (id 1) is also `propose`. Staging and
+   prod were not touched.
 
    The other columns take their defaults (30 issues a day, 10 per author, 2.00 USD a day, 3 fix
    commits per MR). There is deliberately no migration: a migration would run on staging and prod too.

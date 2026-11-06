@@ -4,7 +4,7 @@
 
 - Visible reply when the spend cap holds a job (K-14 follow-up). When a daily cap stops an
   autofix job, Kelpie posts one reply on the thread: which cap (project or Kelpie-wide), the
-  spend against it and roughly when work resumes. At most one per thread per day. The notice has
+  spend against it and that work resumes when the cap resets (no clock time: the cap's day follows the database's time zone). At most one per thread per day. The notice has
   its own hidden marker and never the `reply` one, and only counts as Kelpie's bookkeeping when
   the bot account wrote it, so it does not mark the thread answered: the job stays pending and
   runs after the reset, and a person's note after it still counts.

@@ -462,7 +462,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $body = $this->gitlab->notes()['d1'][1]['body'];
         $this->assertStringContainsString('spend cap reached', $body);
         $this->assertStringContainsString('project daily cap', $body);
-        $this->assertStringContainsString('2026-11-06 00:00', $body);
+        $this->assertStringContainsString('when the daily cap resets', $body);
         $this->assertStringNotContainsString('kelpie:reply', $body);
         $this->assertFalse($service->isAnswered($this->notes('d1'), 'd1'));
 

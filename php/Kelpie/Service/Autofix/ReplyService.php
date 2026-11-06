@@ -76,7 +76,7 @@ final class ReplyService
      * Say once per day that the spend cap is holding this thread's job
      *
      * The notice carries its own marker, never the `reply` one, so it does not make the thread answered: the job stays pending and
-     * runs when the cap resets. It is not posted again while the bot's own note for the same day is on the thread.
+     * runs when the cap resets. It is not posted again while the bot's own note for the same day is on the thread (the day is the application's, so near midnight a second notice is possible if the database's day differs; it names no reset time for that reason).
      *
      * @param string            $project      The project ID or URL-encodable path
      * @param int               $mrIid        The MR IID
@@ -97,11 +97,10 @@ final class ReplyService
         }
 
         $body = sprintf(
-            "Kelpie spend cap reached: the %s daily cap (\$%.2f of \$%.2f spent today). I have not worked on this thread yet; it stays queued and I will pick it up again after the daily reset, around %s. No action needed.\n\n%s",
+            "Kelpie spend cap reached: the %s daily cap (\$%.2f of \$%.2f spent today). I have not worked on this thread yet; it stays queued and I will pick it up again when the daily cap resets, which follows the database's day, not a time I can promise here. No action needed.\n\n%s",
             $spend->cap === 'global' ? 'Kelpie-wide' : 'project',
             $spend->spent,
             $spend->limit,
-            $now->modify('tomorrow')->format('Y-m-d H:i T'),
             $marker,
         );
 

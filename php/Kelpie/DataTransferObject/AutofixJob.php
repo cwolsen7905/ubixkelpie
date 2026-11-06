@@ -26,12 +26,17 @@ final readonly class AutofixJob implements Dto
     public const string DECLINE = 'decline';
 
     /**
+     * The push round of one MR at one head: every fix proposed there goes in one commit and one push
+     */
+    public const string ROUND = 'round';
+
+    /**
      * Constructor
      *
      * @param string  $projectPath  Project path with namespace
      * @param int     $mrIid        Merge request IID
      * @param string  $headSha      Head commit sha of the MR source branch
-     * @param string  $source       What raised it: 'note', 'pipeline', 'review', 'apply' or 'decline'
+     * @param string  $source       What raised it: 'note', 'pipeline', 'review', 'apply', 'decline' or 'round'
      * @param ?string $discussionId The thread the note belongs to (note jobs)
      * @param bool    $afterAutofix Whether the head commit is a Kelpie-Autofix commit, so only new threads by someone else may be acted on
      * @param ?string $steering     What the MR author or a maintainer wrote after "Triage:", for the run's prompts

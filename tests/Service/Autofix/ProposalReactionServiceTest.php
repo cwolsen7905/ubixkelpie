@@ -16,6 +16,7 @@ use Kelpie\Service\Autofix\EditApplyService;
 use Kelpie\Service\Autofix\ProposalReactionService;
 use Kelpie\Service\Autofix\PushRoundService;
 use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\StoredEditsService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
@@ -456,7 +457,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
             ),
             $this->outcomes,
             $this->outcomes,
-            new JsonService($logger),
+            new StoredEditsService($logger, new JsonService($logger)),
             InMemoryProjects::service($mode === null ? [] : ['g/p' => $mode]),
         );
     }

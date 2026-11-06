@@ -139,6 +139,26 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
     }
 
     /**
+     * A round job is one per MR, keyed `round`, and takes no thread
+     *
+     * @return void
+     */
+    public function testARoundJobIsKeyedRound(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('createJob')->with($this->callback(
+            static function (AutofixJobRecord $job): bool {
+                return $job->getThreadKey() === 'round' && $job->getDiscussionId() === null && $job->getSource() === AutofixJob::ROUND;
+            },
+        ));
+
+        $input = new AutofixJob('g/p', 3, 'abc', AutofixJob::ROUND);
+
+        $this->assertSame('round', $this->coalescer(null, $writer, 99)->threadKey($input));
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->coalescer(null, $writer, 99)->enqueue($input, new DateTimeImmutable()));
+    }
+
+    /**
      * A fan-out job runs nothing, so the caps (here the commits per MR) do not bind it, and a review job is keyed by its head
      *
      * @return void

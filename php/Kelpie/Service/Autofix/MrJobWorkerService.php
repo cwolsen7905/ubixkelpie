@@ -24,7 +24,8 @@ use Throwable;
  * one minute, then five, and the third failure is final. A job either works on one thread (the fixer runner:
  * triage, reply or fix, every step guarded by GitLab markers and the head sha, so a rerun is harmless) or
  * fans out: a finished review job or a failed pipeline has no thread yet, so the sweep's per-MR logic queues one
- * job for each thread that needs resolution.
+ * job for each thread that needs resolution. A thread job that ends with a fix on a push-mode project queues the MR's
+ * `round` job, which pushes every fix proposed there in one commit.
  *
  * @see \Kelpie\Tests\Service\Autofix\MrJobWorkerServiceTest PHPUnit test case
  */
@@ -36,6 +37,13 @@ final class MrJobWorkerService
     public const int LOCK_SECONDS = 1800;
 
     public const int MAX_ATTEMPTS = 3;
+
+    /**
+     * How long a round waits for the MR's other thread jobs before it goes with the fixes it has
+     */
+    public const int ROUND_WAIT_SECONDS = 900;
+
+    private const int ROUND_RECHECK_SECONDS = 60;
 
     private const array BACKOFF = [60, 300];
 
@@ -161,6 +169,10 @@ final class MrJobWorkerService
         $path = $job->getProjectPath() ?? '';
         $mrs  = $this->lister->open($path);
 
+        if ($job->getSource() === AutofixJob::ROUND) {
+            return $this->round($job, $path, $mrs, $now);
+        }
+
         if ($job->getDiscussionId() !== null) {
             return $this->work($job, $path, $mrs, $now);
         }
@@ -189,6 +201,46 @@ final class MrJobWorkerService
 
             $this->sweep->sweepMr($path, $mr, $now, $this->maxQueue);
         }
+    }
+
+    /**
+     * Push the round of the MR: wait for its other thread jobs (a while), then one commit and one push
+     *
+     * @param AutofixJobRecord      $job  The round job
+     * @param string                $path The project path
+     * @param MergeRequestSummary[] $mrs  The project's open MRs
+     * @param DateTimeImmutable     $now  The current time
+     *
+     * @return ?string
+     */
+    private function round(AutofixJobRecord $job, string $path, array $mrs, DateTimeImmutable $now): ?string
+    {
+        $id  = $job->getId() ?? 0;
+        $iid = $job->getMrIid() ?? 0;
+        foreach ($mrs as $mr) {
+            if ($mr->iid !== $iid) {
+                continue;
+            }
+            if ($mr->sha !== $job->getHeadSha()) {
+                return null; // The head moved: that push raised its own events
+            }
+
+            $batch   = $this->reactions->batch($path);
+            $threads = $this->threads->read($mr->projectId, $iid);
+            $created = $job->getDateCreated();
+            $waited  = $created === null ? self::ROUND_WAIT_SECONDS : $now->getTimestamp() - $created->getTimestamp();
+            if ($waited < self::ROUND_WAIT_SECONDS && $batch->waiting($path, $iid, $threads, $id)) {
+                $this->writer->markDeferred($id, $now->modify('+' . self::ROUND_RECHECK_SECONDS . ' seconds'), 'threads of this MR are still being triaged');
+
+                return null;
+            }
+
+            return $batch->run((string) $mr->projectId, $path, $iid, $mr->sha, $threads, $id);
+        }
+
+        $this->logger->info('Autofix worker: MR no longer open', ['job_id' => $id]);
+
+        return null;
     }
 
     /**
@@ -251,6 +303,15 @@ final class MrJobWorkerService
             return null;
         }
         $left = $this->reader->getJobById($id);
+        if ($outcome === FixOutcome::Proposed) {
+            // In a push-mode project the fixes proposed on this MR go together in one automatic round
+            try {
+                $this->reactions->batch($path)->queue($path, $iid, $sha, $thread->discussionId, $now);
+            } catch (Throwable $e) {
+                // The thread's own work is done; a round that could not be queued is picked up by the next trigger
+                $this->logger->error('Autofix worker: push round could not be queued', ['error' => $e->getMessage(), 'job_id' => $id]);
+            }
+        }
 
         // The runner ends the job itself when it has an answer; one left running is waiting (another run holds the MR)
         return $left !== null && $left->getStatus() === 'running' ? 'not run yet (' . $outcome->value . ')' : null;

@@ -62,7 +62,7 @@ final class AutofixJobCoalescerService
             }
         }
 
-        // A fan-out job runs nothing itself; the caps bind the thread jobs it creates
+        // A fan-out or round job takes no thread; the caps bind the thread jobs, and the round's own caps are the push round's
         $exceeded = $input->discussionId === null ? null : $this->exceededCap(
             $this->reader->countFixCommitsForMr($input->projectPath, $input->mrIid),
             $this->reader->countAttemptsForThread($input->projectPath, $input->mrIid, $threadKey),
@@ -107,7 +107,8 @@ final class AutofixJobCoalescerService
     /**
      * The key of the one open job a job coalesces with
      *
-     * The discussion id; '' for an MR-level job; for a review job, which does not know its MR yet, the head sha.
+     * The discussion id; '' for an MR-level job; for a review job, which does not know its MR yet, the head sha;
+     * 'round' for the push round, of which an MR has one open at a time.
      *
      * @param AutofixJob $job The job
      *
@@ -115,7 +116,11 @@ final class AutofixJobCoalescerService
      */
     public function threadKey(AutofixJob $job): string
     {
-        return $job->discussionId ?? ($job->source === AutofixJob::REVIEW ? 'review-' . $job->headSha : '');
+        return $job->discussionId ?? match ($job->source) {
+            AutofixJob::REVIEW => 'review-' . $job->headSha,
+            AutofixJob::ROUND  => 'round',
+            default            => '',
+        };
     }
 
     /**

@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
-use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
-use Throwable;
-use Ubix\Service\JsonService;
 
 /**
  * Acts on a thumbs-up or thumbs-down that the webhook accepted for one of Kelpie's proposals
@@ -34,7 +31,7 @@ final class ProposalReactionService
      * @param PushRoundService    $round    Pushes the fix
      * @param ThreadOutcomeReader $reader   The record of what Kelpie proposed
      * @param ThreadOutcomeWriter $outcomes Where the proposal's fate is written
-     * @param JsonService         $json     JSON service
+     * @param StoredEditsService  $stored   Reads the edits a proposal stored
      * @param ProjectModeService  $modes    What Kelpie may do on the project: a push needs `push`
      */
     public function __construct(
@@ -43,7 +40,7 @@ final class ProposalReactionService
         private readonly PushRoundService $round,
         private readonly ThreadOutcomeReader $reader,
         private readonly ThreadOutcomeWriter $outcomes,
-        private readonly JsonService $json,
+        private readonly StoredEditsService $stored,
         private readonly ProjectModeService $modes,
     ) {
     }
@@ -85,38 +82,9 @@ final class ProposalReactionService
         }
 
         // Unreadable edits go in as none: the round says so after its checks on the MR, as for any other fix.
-        $edits = $this->edits($row->editsJson);
+        $edits = $this->stored->decode($row->editsJson);
 
         // A round of one: the same rules as any push (files the MR changes, the gate, one commit).
         return $this->round->run($project, $projectPath, $mrIid, $row->headSha, [['discussionId' => $discussionId, 'edits' => $edits, 'summary' => $row->reason]], $jobId);
-    }
-
-    /**
-     * The stored edits
-     *
-     * @param string $editsJson The JSON the proposal stored
-     *
-     * @return list<ProposedEdit> Empty when the JSON is not a list of edits
-     */
-    private function edits(string $editsJson): array
-    {
-        try {
-            $rows = $this->json->decode($editsJson);
-        } catch (Throwable $e) {
-            $this->logger->warning('Proposal reaction: stored edits are not JSON', ['error' => $e->getMessage()]);
-
-            return [];
-        }
-
-        $edits = [];
-        foreach ($rows as $row) {
-            if (!is_array($row) || !is_string($row['file'] ?? null) || !is_string($row['old'] ?? null) || !is_string($row['new'] ?? null)) {
-                return [];
-            }
-
-            $edits[] = new ProposedEdit($row['file'], $row['old'], $row['new']);
-        }
-
-        return $edits;
     }
 }

@@ -21,7 +21,8 @@ use Throwable;
  * already change is left out, and so is one whose edits no longer apply; the rest go through the project gate together.
  * A green gate gives one `fix(review)` commit with a `Thread:` line for each thread, pushed once and never forced. Each
  * fixed thread then gets a `Fixed:` reply with the commit, and is resolved only when Kelpie opened it. A red gate, a
- * moved head or a rejected push leaves every thread as it was.
+ * moved head or a rejected push leaves every thread as it was. An automatic round also has a size cap: one that changes
+ * too many lines is not pushed, and its threads are told.
  *
  * @see \Kelpie\Tests\Service\Autofix\PushRoundServiceTest PHPUnit test case
  */
@@ -64,20 +65,46 @@ final class PushRoundService
      * @param string                                                                        $sha         The head every fix was made at
      * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes, one per thread; a fix with no edits is one whose stored edits could not be read
      * @param int                                                                           $jobId       The job this runs under
+     * @param ThreadOutcome                                                                 $outcome     What each pushed thread is recorded as: `Applied` after a thumbs-up, `Pushed` for an automatic round
+     * @param ?PushRoundCapService                                                          $cap         The round's size cap, for an automatic round; null holds nothing to one (a person asked for it)
      *
      * @return ?string Null when handled (even if refused with a reply); why, when the worker should try again
      */
-    public function run(string $project, string $projectPath, int $mrIid, string $sha, array $fixes, int $jobId): ?string
+    public function run(string $project, string $projectPath, int $mrIid, string $sha, array $fixes, int $jobId, ThreadOutcome $outcome = ThreadOutcome::Applied, ?PushRoundCapService $cap = null): ?string
     {
         if ($fixes === []) {
             return null;
         }
 
         try {
-            return $this->push($project, $projectPath, $mrIid, $sha, $fixes, $jobId);
+            return $this->push($project, $projectPath, $mrIid, $sha, $fixes, $jobId, $outcome, $cap);
         } finally {
             $this->checkout->close();
         }
+    }
+
+    /**
+     * Tell a thread its round was too big, once: the proposal stays open and the notice is not repeated by a later round
+     *
+     * @param string $project      The project ID
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The thread
+     * @param string $text         What to say
+     *
+     * @return void
+     */
+    public function overCap(string $project, int $mrIid, string $discussionId, string $text): void
+    {
+        $notes = $this->writer->notes($project, $mrIid, $discussionId);
+        if ($notes !== null) {
+            foreach ($notes as $note) {
+                if (str_contains($note->body, 'class=over-cap')) {
+                    return;
+                }
+            }
+        }
+
+        $this->replies->notice($project, $mrIid, $discussionId, $text, 'over-cap');
     }
 
     /**
@@ -87,10 +114,12 @@ final class PushRoundService
      * @param string                                                                        $sha         The head the fixes were made at
      * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes
      * @param int                                                                           $jobId       The job
+     * @param ThreadOutcome                                                                 $outcome     What each pushed thread is recorded as
+     * @param ?PushRoundCapService                                                          $cap         The round's size cap, when it has one
      *
      * @return ?string Null when handled, why when to retry
      */
-    private function push(string $project, string $projectPath, int $mrIid, string $sha, array $fixes, int $jobId): ?string
+    private function push(string $project, string $projectPath, int $mrIid, string $sha, array $fixes, int $jobId, ThreadOutcome $outcome, ?PushRoundCapService $cap): ?string
     {
         $mr = $this->writer->mergeRequest($project, $mrIid);
         if ($mr === null) {
@@ -158,6 +187,14 @@ final class PushRoundService
 
             return null;
         }
+        if ($cap !== null && $cap->linesOver($changes->changedLines)) {
+            // Too big for me to push unasked: the proposals stay open, each for its own thumbs-up
+            foreach ($pushing as $fix) {
+                $this->overCap($project, $mrIid, $fix['discussionId'], $cap->notice(count($pushing), $changes->changedLines));
+            }
+
+            return null;
+        }
 
         try {
             $gate = $this->gate->run($this->checkout->directory());
@@ -194,7 +231,7 @@ final class PushRoundService
         $url = $this->commitUrl($mr->webUrl, $commit);
         foreach ($pushing as $fix) {
             $id = $fix['discussionId'];
-            $this->outcomes->setOutcome($projectPath, $mrIid, $id, ThreadOutcome::Applied);
+            $this->outcomes->setOutcome($projectPath, $mrIid, $id, $outcome);
 
             // Pushed, gate green: resolve only a thread Kelpie opened itself, never a person's.
             $notes = $this->writer->notes($project, $mrIid, $id);

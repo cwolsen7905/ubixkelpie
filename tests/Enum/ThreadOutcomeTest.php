@@ -37,6 +37,6 @@ final class ThreadOutcomeTest extends UbixConcreteClassOrEnumTestCase implements
             $values[] = $outcome->value;
         }
 
-        $this->assertSame(['proposed', 'answered', 'applied', 'declined', 'overridden', 'reverted', 'reopened', 'failed'], $values);
+        $this->assertSame(['proposed', 'answered', 'applied', 'pushed', 'declined', 'overridden', 'reverted', 'reopened', 'failed'], $values);
     }
 }

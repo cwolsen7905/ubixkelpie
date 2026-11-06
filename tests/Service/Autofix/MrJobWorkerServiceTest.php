@@ -328,12 +328,77 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A round job for an MR whose head has moved does nothing: that push raised its own events
+     *
+     * @return void
+     */
+    public function testARoundJobForAMovedHeadIsDone(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markDeferred');
+
+        $this->service($this->readerOf($this->job(null, 1, 3, str_repeat('b', 40), 'round')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertSame([], $this->pushedQueries());
+    }
+
+    /**
+     * A round job in a project that is not in push mode pushes nothing and is done, not retried
+     *
+     * @return void
+     */
+    public function testARoundJobInProposeModeIsDoneWithoutAPush(): void
+    {
+        $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markRetry');
+        $writer->expects($this->never())->method('markFinished');
+
+        $this->service($this->readerOf($this->job(null, 1, 3, self::HEAD, 'round')), $writer, true, ProjectMode::Propose)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertSame([], $this->pushedQueries());
+    }
+
+    /**
+     * A round job for an MR that is no longer open is done
+     *
+     * @return void
+     */
+    public function testARoundJobForAClosedMrIsDone(): void
+    {
+        $this->gitlab->mergeRequestFields(['state' => 'closed']);
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+
+        $this->service($this->readerOf($this->job(null, 1, 9, self::HEAD, 'round')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+    }
+
+    /**
      * @return void
      */
     protected function setUp(): void
     {
         $this->gitlab  = new FakeGitlab();
         $this->queries = new ArrayObject();
+    }
+
+    /**
+     * Outcome rows the worker's round marked pushed
+     *
+     * @return list<string>
+     */
+    private function pushedQueries(): array
+    {
+        $found = [];
+        foreach ($this->queries->getArrayCopy() as $query) {
+            if (str_contains($query, 'thread_outcomes SET outcome')) {
+                $found[] = $query;
+            }
+        }
+
+        return $found;
     }
 
     /**

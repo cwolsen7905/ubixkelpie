@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\DiscussionNote;
+use Kelpie\DataTransferObject\SpendCheck;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
@@ -443,6 +444,51 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * A cap notice is posted once a day, carries no reply marker, and never answers the thread
+     *
+     * @return void
+     */
+    public function testCapNoticeIsPostedOncePerDayAndDoesNotAnswerTheThread(): void
+    {
+        $this->gitlab->note('d1', 'Please fix.');
+        $service = $this->service();
+        $now     = new DateTimeImmutable('2026-11-05 10:00:00 UTC');
+        $spend   = new SpendCheck('project', 2.5, 2.0);
+
+        $this->assertTrue($service->capNotice('1', 3, 'd1', $this->notes('d1'), $spend, $now));
+        $this->assertFalse($service->capNotice('1', 3, 'd1', $this->notes('d1'), $spend, $now->modify('+3 hours')));
+        $this->assertCount(2, $this->gitlab->notes()['d1']);
+
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringContainsString('spend cap reached', $body);
+        $this->assertStringContainsString('project daily cap', $body);
+        $this->assertStringContainsString('2026-11-06 00:00', $body);
+        $this->assertStringNotContainsString('kelpie:reply', $body);
+        $this->assertFalse($service->isAnswered($this->notes('d1'), 'd1'));
+
+        $this->assertTrue($service->capNotice('1', 3, 'd1', $this->notes('d1'), $spend, $now->modify('+1 day')), 'a new day is a new window');
+    }
+
+    /**
+     * The cap notice does not reopen an answered thread, but a human note after it, even one copying its marker, does
+     *
+     * @return void
+     */
+    public function testCapNoticeIsNotAHumanReplyButAHumanNoteIs(): void
+    {
+        $now     = new DateTimeImmutable();
+        $reply   = new DiscussionNote(2, "r\n<!-- kelpie:reply thread=d1 class=needs_human -->", 'kelpie-bot', $now);
+        $cap     = new DiscussionNote(3, "cap\n<!-- kelpie:cap-held thread=d1 day=2026-11-05 -->", 'kelpie-bot', $now);
+        $human   = new DiscussionNote(4, 'But why?', 'alice', $now);
+        $copy    = new DiscussionNote(5, '<!-- kelpie:cap-held thread=d1 day=2026-11-05 -->', 'alice', $now);
+        $service = $this->service();
+
+        $this->assertTrue($service->isAnswered([$reply, $cap], 'd1'));
+        $this->assertFalse($service->isAnswered([$reply, $cap, $human], 'd1'));
+        $this->assertFalse($service->isAnswered([$reply, $copy], 'd1'));
+    }
+
+    /**
      * Start every test with an empty GitLab
      *
      * @return void
@@ -462,6 +508,23 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $now = new DateTimeImmutable();
 
         return new Thread('d1', 1, 'kelpie-bot', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', false, 1, $now, $now, 'a.txt', 1);
+    }
+
+    /**
+     * The fake's notes on a thread, as DTOs
+     *
+     * @param string $discussionId The discussion
+     *
+     * @return DiscussionNote[]
+     */
+    private function notes(string $discussionId): array
+    {
+        $notes = [];
+        foreach ($this->gitlab->notes()[$discussionId] ?? [] as $note) {
+            $notes[] = new DiscussionNote($note['id'], $note['body'], $note['author'], new DateTimeImmutable());
+        }
+
+        return $notes;
     }
 
     /**

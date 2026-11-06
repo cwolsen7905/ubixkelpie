@@ -131,7 +131,56 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * A run that crashes after its model calls still records what they cost, so the cap counts it
+     * The cap holds the job and says so on the thread once, without answering it; after the reset the job runs
+     *
+     * @return void
+     */
+    public function testCapNoticeIsPostedOnceAndTheJobRunsAfterTheReset(): void
+    {
+        $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
+        $service = $this->service();
+
+        $held = [];
+        foreach ([1, 2] as $sweep) {
+            $held[$sweep] = $service->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+        }
+        $this->assertSame([1 => FixOutcome::OverCap, 2 => FixOutcome::OverCap], $held);
+
+        $notes = $this->gitlab->notes()['d1'];
+        $this->assertCount(2, $notes, 'one notice, not one per sweep');
+        $this->assertSame('kelpie-bot', $notes[1]['author']);
+        $this->assertStringContainsString('spend cap reached', $notes[1]['body']);
+        $this->assertStringContainsString('project daily cap', $notes[1]['body']);
+        $this->assertStringContainsString('<!-- kelpie:cap-held thread=d1 day=' . (new DateTimeImmutable())->format('Y-m-d') . ' -->', $notes[1]['body']);
+        $this->assertSame('pending', $this->jobs->status());
+        $this->assertSame([], $this->calls());
+
+        $this->outcomes->backdate('g/p', 9, 'old', new DateTimeImmutable('yesterday'));
+
+        $this->assertNotSame(FixOutcome::OverCap, $service->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertNotSame([], $this->calls(), 'the model ran once the cap reset');
+    }
+
+    /**
+     * A human reply after the cap notice is still a new note: it does not count as Kelpie's answer
+     *
+     * @return void
+     */
+    public function testHumanReplyAfterTheCapNoticeStillCounts(): void
+    {
+        $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
+        $service = $this->service();
+        $service->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+        $this->gitlab->note('d1', 'Actually, leave it.');
+
+        $this->assertSame(FixOutcome::OverCap, $service->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame('pending', $this->jobs->status());
+        $this->assertCount(3, $this->gitlab->notes()['d1'], 'the notice is not repeated for the same day');
+    }
+
+    /**
+     * A run that crashes after its model calls
+ still records what they cost, so the cap counts it
      *
      * @return void
      */

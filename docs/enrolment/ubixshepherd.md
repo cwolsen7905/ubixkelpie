@@ -12,7 +12,7 @@ and `docs/operations/worker.md`.
 | Note Hook enqueues the thread | In code: one job per (project, MR, thread), source `note`. |
 | Gate | The `projects` table, not an env list. `KELPIE_AUTOFIX_PROJECTS` is gone. No row means off. |
 | Kill switch | `KELPIE_AUTOFIX_ENABLED=true` in the dev deploy, worker and sweep manifests. |
-| Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, un-suspended by this change. |
+| Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, suspended until the token is in (see step 1). |
 | Worker | `app/KelpieApi/dev-worker.yaml`; deploy.sh skips `*-worker.yaml`, so it is applied by hand. |
 | `projects` row | Done on dev: `ubixsys/ubixshepherd`, mode `propose`, defaults for the rest (step 4). Staging and prod have none. |
 | Dev webhook on ubixshepherd | Done 2026-11-05: hook 5 now points at dev (step 2). |
@@ -24,7 +24,9 @@ and `docs/operations/worker.md`.
    `KELPIE_BOT_GITLAB_TOKEN` is missing from uBixVault `kelpie/dev/app` (`GITLAB_API_URL` and
    `OPENROUTER_API_KEY` are there). Add it on vault.dev, then
    `kubectl -n kelpie-dev rollout restart deploy/kelpie-worker` and watch that it idles. The sweep needs the
-   same token, so until it is added each sweep run fails (three failed jobs are kept) and queues nothing.
+   same token, so `dev-cronjob.yaml` stays `suspend: true`. Un-suspend it (a separate change) once the token is in
+   and the worker idles, and confirm the image has the `claude` CLI and that Vault hydration runs for the
+   command override.
    `dev-worker.yaml` is applied by hand: deploy.sh skips it until kelpie's ubixcore pin (v0.47.0) is bumped
    past ubixcore !227, so a later change to the file needs another by-hand apply.
 2. **Repoint hook 5 to dev (decided; one hook, never two).** Hook 5 on `ubixsys/ubixshepherd` sent every
@@ -40,6 +42,9 @@ and `docs/operations/worker.md`.
    Rollback: write the original back to `sys/policies/acl/ubixcore-ci-ro` on vault.dev, which was exactly
    `{"path":{"secret/data/ubixcore/*":{"capabilities":["read"]}}}`. The write used the dev root token for that
    one call; nothing else was written to Vault and prod Vault was not touched.
+   The person chose this over a new policy. Consequence: whatever uses the dev CI token can now read the
+   dev Kelpie app secrets. A dedicated read-only policy and token for the Kelpie path, bound to the deploy
+   job, is the narrower follow-up if that is wanted.
 3. **The hook's new shape.** URL `https://kelpie.dev.ubixsys.com/gitlab/webhook`, the dev secret as token,
    SSL verification on, events: comments (note), emoji, pipeline, job, and merge request kept on. Issue events
    stay on as they were.

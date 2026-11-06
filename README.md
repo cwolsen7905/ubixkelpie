@@ -72,6 +72,10 @@ Manifests are in `app/KelpieApi/`; secrets come from uBixVault (`kelpie/<env>/ap
 [`docs/merge-signoff.md`](docs/merge-signoff.md#outside-this-repo-kubernetes-repo--gitlab-before-the-first-deploy)
 and, for the database, [`docs/operations/database.md`](docs/operations/database.md).
 
+Each environment has its own GitLab bot token and webhook secret (`KELPIE_BOT_GITLAB_TOKEN`,
+`GITLAB_WEBHOOK_SECRET`). Prod's live only in `kelpie/prod/app` on vault.prod and are never shared
+with dev or staging; see [`docs/operations/prod-secrets.md`](docs/operations/prod-secrets.md).
+
 CI pulls uBixCore with the job token, so `ubixsys/ubixkelpie` must be on ubixcore's CI job-token
 allowlist.
 

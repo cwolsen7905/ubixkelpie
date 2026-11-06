@@ -162,11 +162,13 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * A human reply after the cap notice is still a new note: it does not count as Kelpie's answer
+     * A person's note after the cap notice leaves the job pending and does not bring a second notice the same day
+     *
+     * That a person's note is not Kelpie's bookkeeping is covered in ReplyServiceTest; this thread was never answered.
      *
      * @return void
      */
-    public function testHumanReplyAfterTheCapNoticeStillCounts(): void
+    public function testHumanNoteAfterTheCapNoticeKeepsTheJobPendingWithoutASecondNotice(): void
     {
         $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
         $service = $this->service();
@@ -179,8 +181,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * A run that crashes after its model calls
- still records what they cost, so the cap counts it
+     * A run that crashes after its model calls still records what they cost, so the cap counts it
      *
      * @return void
      */

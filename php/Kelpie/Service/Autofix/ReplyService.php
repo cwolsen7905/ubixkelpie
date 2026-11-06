@@ -76,7 +76,7 @@ final class ReplyService
      * Say once per day that the spend cap is holding this thread's job
      *
      * The notice carries its own marker, never the `reply` one, so it does not make the thread answered: the job stays pending and
-     * runs when the cap resets. It is not posted again while the bot's own note for the same day is on the thread (the day is the application's, so near midnight a second notice is possible if the database's day differs; it names no reset time for that reason).
+     * runs when the cap resets. It is not posted again while the bot's own note for the same day is on the thread (the day is the application's, so near midnight a second notice is possible if the database's day differs; it names no reset time for that reason). Two sweeps of one thread that overlap can both post, since the claim is only taken after the cap check; that duplicate is tolerated, as one job per thread runs at a time.
      *
      * @param string            $project      The project ID or URL-encodable path
      * @param int               $mrIid        The MR IID

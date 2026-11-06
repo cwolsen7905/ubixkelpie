@@ -73,6 +73,9 @@ spec:
           value: "ubixkelpie"
         # GITLAB_WEBHOOK_SECRET, GITLAB_API_URL, GITLAB_PROJECT_TOKENS, GITLAB_API_TOKEN,
         # KELPIE_BOT_GITLAB_TOKEN (fallback), APPROVAL_JOB_NAMES.
+        # Prod's bot token (KELPIE_BOT_GITLAB_TOKEN) and webhook secret (GITLAB_WEBHOOK_SECRET)
+        # come only from kelpie/prod/app on vault.prod and must differ from dev's and staging's
+        # (those live on vault.dev). See docs/operations/prod-secrets.md.
         # uBixVault fails closed on a missing path or key, so the pod never goes
         # ready without them and the deploy's rollout wait fails.
         - name: VAULT_APP_KV_PATH

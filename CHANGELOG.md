@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Prod gets its own GitLab bot token and webhook secret (K-12). Docs and comments only: prod
+  already reads `kelpie/prod/app` on vault.prod, apart from dev and staging. New runbook
+  `docs/operations/prod-secrets.md` covers the bot and its least scope, creating, storing,
+  rotating and verifying the token and the secret. Creating the token and loading it into Vault
+  are manual steps, and `KELPIE_BOT_USERNAME` in `main-deploy.yaml` follows in a later MR.
+
 - Push rules for a pushed fix (K-33, part 1). A push now goes through one round service: it
   edits only files the MR already changes (a fix outside them is not pushed and its thread is
   told), runs the gate once, and makes one `fix(review)` commit with a `Thread:` line per

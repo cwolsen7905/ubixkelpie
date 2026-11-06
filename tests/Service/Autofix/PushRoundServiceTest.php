@@ -30,6 +30,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A fix that edits a file the MR does not change is left out and its thread told; the rest still go in the one commit
  * - A fix whose edits no longer apply is left out; if none is left nothing is pushed and no gate runs
  * - An MR with too many files to check is refused (threads failed and told), not retried; unreadable files are retried
+ * - An edit through a symlink is held to the file it lands on: not one the MR leaves unchanged, nor one outside the checkout
+ * - Unreadable stored edits fail the thread only once the MR is known to be pushable
  * - A red gate pushes nothing and fails every thread of the round
  * - A moved head, a closed MR, a fork and a protected branch push nothing
  * - A rejected push or an unreadable MR is returned for a retry and sets nothing
@@ -250,6 +252,52 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * An edit through a symlink the MR changes is refused when it lands on a file the MR does not change, or outside the checkout
+     *
+     * @return void
+     */
+    public function testASymlinkCannotReachAFileTheMrDoesNotChange(): void
+    {
+        $this->gitlab->changedFiles(['a.txt', 'link-in', 'link-out']);
+        $fixes = [
+            ['discussionId' => 'd1', 'edits' => [new ProposedEdit('link-in', 'alpha', 'beta')], 'summary' => 'Through a link.'],
+            ['discussionId' => 'd2', 'edits' => [new ProposedEdit('link-out', 'secret', 'public')], 'summary' => 'Out of the tree.'],
+        ];
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $fixes, 1));
+
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertSame("secret\n", file_get_contents($this->base . '/outside.txt'));
+        $this->assertSame([], $this->gateRunner->calls());
+        foreach (['d1', 'd2'] as $id) {
+            $this->assertSame(ThreadOutcome::Failed, $this->row($id)->outcome);
+            $this->assertStringContainsString('which this merge request does not change', $this->lastNote($id));
+        }
+    }
+
+    /**
+     * Unreadable stored edits are told only after the MR checks: a moved head says stale, not failed
+     *
+     * @return void
+     */
+    public function testUnreadableEditsAreOnlyAnsweredOnAPushableMr(): void
+    {
+        $this->gitlab->mergeRequestFields(['sha' => str_repeat('c', 40)]);
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, [['discussionId' => 'd1', 'edits' => [], 'summary' => 'x']], 1));
+        $this->assertSame(ThreadOutcome::Proposed, $this->row('d1')->outcome);
+        $this->assertStringContainsString('Stale', $this->lastNote('d1'));
+
+        $this->gitlab->mergeRequestFields(['sha' => $this->sha, 'state' => 'closed']);
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, [['discussionId' => 'd1', 'edits' => [], 'summary' => 'x']], 1));
+        $this->assertSame(ThreadOutcome::Proposed, $this->row('d1')->outcome);
+
+        $this->gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, [['discussionId' => 'd1', 'edits' => [], 'summary' => 'x']], 1));
+        $this->assertSame(ThreadOutcome::Failed, $this->row('d1')->outcome);
+        $this->assertStringContainsString('could not be read', $this->lastNote('d1'));
+    }
+
+    /**
      * No fixes is no work
      *
      * @return void
@@ -276,6 +324,9 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->git($this->base . '/work', ['config', 'user.email', 't@example.com']);
         file_put_contents($this->base . '/work/a.txt', "one\n");
         file_put_contents($this->base . '/work/b.txt', "alpha\n");
+        file_put_contents($this->base . '/outside.txt', "secret\n");
+        symlink('b.txt', $this->base . '/work/link-in');
+        symlink($this->base . '/outside.txt', $this->base . '/work/link-out');
         $this->git($this->base . '/work', ['add', '.']);
         $this->git($this->base . '/work', ['commit', '-m', 'init']);
         $this->git($this->base . '/work', ['remote', 'add', 'origin', $this->remote]);

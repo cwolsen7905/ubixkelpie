@@ -62,7 +62,7 @@ final class PushRoundService
      * @param string                                                                        $projectPath The project path with namespace
      * @param int                                                                           $mrIid       The MR IID
      * @param string                                                                        $sha         The head every fix was made at
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes, one per thread
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes, one per thread; a fix with no edits is one whose stored edits could not be read
      * @param int                                                                           $jobId       The job this runs under
      *
      * @return ?string Null when handled (even if refused with a reply); why, when the worker should try again
@@ -121,8 +121,15 @@ final class PushRoundService
         }
 
         $pushing = [];
+        $root    = realpath($this->checkout->directory());
         foreach ($fixes as $fix) {
-            $outside = $this->outside($changed, $fix['edits']);
+            if ($fix['edits'] === []) {
+                $this->fail($project, $projectPath, $mrIid, $fix['discussionId'], 'The stored edits could not be read, so I cannot apply them. Reply with `Triage:` to have me propose again.');
+
+                continue;
+            }
+
+            $outside = $root === false ? $fix['edits'][0]->file : $this->outside($root, $changed, $fix['edits']);
             if ($outside !== null) {
                 $this->fail($project, $projectPath, $mrIid, $fix['discussionId'], 'This fix edits `' . $outside . '`, which this merge request does not change, so I did not push it. Nothing was changed; apply the diff above by hand if you want it.');
 
@@ -199,15 +206,26 @@ final class PushRoundService
     /**
      * The first edited file the MR does not already change
      *
+     * The path is checked as written and again where it really lands: an edit to a symlink the MR changes would
+     * rewrite the file it points at, which the MR may not change, or one outside the checkout.
+     *
+     * @param string         $root    The checkout's real path
      * @param string[]       $changed The paths the MR changes
      * @param ProposedEdit[] $edits   One fix's edits
      *
-     * @return ?string Null when every edit is in a changed file
+     * @return ?string Null when every edit lands in a changed file
      */
-    private function outside(array $changed, array $edits): ?string
+    private function outside(string $root, array $changed, array $edits): ?string
     {
         foreach ($edits as $edit) {
-            if (!in_array(preg_replace('#^(\./)+#', '', $edit->file), $changed, true)) {
+            $file = (string) preg_replace('#^(\./)+#', '', $edit->file);
+            if (!in_array($file, $changed, true)) {
+                return $edit->file;
+            }
+
+            // A file that does not exist is refused later by the edit step
+            $real = realpath($root . '/' . $file);
+            if ($real !== false && (!str_starts_with($real, $root . '/') || !in_array(substr($real, strlen($root) + 1), $changed, true))) {
                 return $edit->file;
             }
         }

@@ -84,13 +84,8 @@ final class ProposalReactionService
             return null;
         }
 
+        // Unreadable edits go in as none: the round says so after its checks on the MR, as for any other fix.
         $edits = $this->edits($row->editsJson);
-        if ($edits === []) {
-            $this->outcomes->setOutcome($projectPath, $mrIid, $discussionId, ThreadOutcome::Failed);
-            $this->replies->notice($project, $mrIid, $discussionId, 'The stored edits could not be read, so I cannot apply them. Reply with `Triage:` to have me propose again.', 'failed');
-
-            return null;
-        }
 
         // A round of one: the same rules as any push (files the MR changes, the gate, one commit).
         return $this->round->run($project, $projectPath, $mrIid, $row->headSha, [['discussionId' => $discussionId, 'edits' => $edits, 'summary' => $row->reason]], $jobId);

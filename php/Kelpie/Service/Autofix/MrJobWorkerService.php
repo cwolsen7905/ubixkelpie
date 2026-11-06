@@ -136,6 +136,33 @@ final class MrJobWorkerService
     }
 
     /**
+     * What follows a finished thread job: a proposal in a push-mode project queues the MR's round
+     *
+     * Never throws: the thread's own work is done, and a round that could not be queued is picked up by the next trigger.
+     *
+     * @param FixOutcome        $outcome      What the runner did with the thread
+     * @param string            $path         The project path
+     * @param int               $iid          The MR IID
+     * @param string            $sha          The head the thread was triaged at
+     * @param string            $discussionId The thread
+     * @param DateTimeImmutable $now          The current time
+     *
+     * @return void
+     */
+    public function afterThread(FixOutcome $outcome, string $path, int $iid, string $sha, string $discussionId, DateTimeImmutable $now): void
+    {
+        if ($outcome !== FixOutcome::Proposed) {
+            return;
+        }
+
+        try {
+            $this->reactions->batch($path)->queue($path, $iid, $sha, $discussionId, $now);
+        } catch (Throwable $e) {
+            $this->logger->error('Autofix worker: push round could not be queued', ['error' => $e->getMessage(), 'mr_iid' => $iid]);
+        }
+    }
+
+    /**
      * Lease the oldest due job
      *
      * @param string[]          $projects Allow-listed project paths
@@ -303,15 +330,7 @@ final class MrJobWorkerService
             return null;
         }
         $left = $this->reader->getJobById($id);
-        if ($outcome === FixOutcome::Proposed) {
-            // In a push-mode project the fixes proposed on this MR go together in one automatic round
-            try {
-                $this->reactions->batch($path)->queue($path, $iid, $sha, $thread->discussionId, $now);
-            } catch (Throwable $e) {
-                // The thread's own work is done; a round that could not be queued is picked up by the next trigger
-                $this->logger->error('Autofix worker: push round could not be queued', ['error' => $e->getMessage(), 'job_id' => $id]);
-            }
-        }
+        $this->afterThread($outcome, $path, $iid, $sha, $thread->discussionId, $now);
 
         // The runner ends the job itself when it has an answer; one left running is waiting (another run holds the MR)
         return $left !== null && $left->getStatus() === 'running' ? 'not run yet (' . $outcome->value . ')' : null;

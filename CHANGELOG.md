@@ -9,7 +9,8 @@
   the new `pushed` outcome (a thumbs-up push stays `applied`), and the MR gets `triage: pushed`.
   A round is capped at 5 threads and 80 changed lines: over either, nothing is pushed, each
   thread is told once, and its proposal stays open for a thumbs-up. Push mode stays off by
-  default and is switched per project; propose and off projects behave as before. The stored-edit
+  default and is switched per project; a fix that lands while a round is running makes an idle round
+  run again (after a push the head moved, so it is triaged afresh); propose and off projects behave as before. The stored-edit
   reader moved into its own service.
 
 - Visible reply when the spend cap holds a job (K-14 follow-up). When a daily cap stops an

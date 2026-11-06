@@ -73,6 +73,11 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
     private ?string $openThread = null;
 
     /**
+     * The status the job table reports for that open job
+     */
+    private string $openStatus = 'pending';
+
+    /**
      * Test that the class is following uBix standards
      *
      * @return void
@@ -89,7 +94,7 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
      */
     public function testAStoredFixQueuesTheRound(): void
     {
-        $this->assertTrue($this->service()->queue('g/p', 3, $this->sha, 'd1', new DateTimeImmutable()));
+        $this->service()->queue('g/p', 3, $this->sha, 'd1', new DateTimeImmutable());
 
         $this->assertStringContainsString('INSERT INTO ubixkelpie.autofix_jobs', implode("\n", $this->queries->getArrayCopy()));
     }
@@ -113,6 +118,44 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
         $this->assertFalse($service->queue('g/p', 3, $this->sha, 'unknown', new DateTimeImmutable()));
         $this->assertFalse($service->queue('g/p', 3, str_repeat('c', 40), 'd1', new DateTimeImmutable()));
         $this->assertCount(0, $this->queries);
+    }
+
+    /**
+     * A round already running is not joined: queue() says so, and the running round re-checks when it ends
+     *
+     * @return void
+     */
+    public function testARunningRoundIsNotJoined(): void
+    {
+        $this->openThread = 'round';
+        $this->openStatus = 'running';
+        $this->assertFalse($this->service()->queue('g/p', 3, $this->sha, 'd1', new DateTimeImmutable()));
+
+        $this->openStatus = 'pending';
+        $this->assertTrue($this->service()->queue('g/p', 3, $this->sha, 'd1', new DateTimeImmutable()));
+    }
+
+    /**
+     * A proposal that lands while a round that pushed nothing runs sends the round round again
+     *
+     * @return void
+     */
+    public function testALateProposalMakesAnIdleRoundTryAgain(): void
+    {
+        $this->outcomes->record(new ThreadOutcomeRecord('g/p', 3, 'd1', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, 'Bad.', editsJson: '[{"file":"a.txt","old":"absent","new":"x"}]'));
+        $outcomes = $this->outcomes;
+        $sha      = $this->sha;
+        $this->gitlab->onPost(static function () use ($outcomes, $sha): void {
+            $outcomes->record(new ThreadOutcomeRecord('g/p', 3, 'd2', $sha, 'fix', 'propose', ThreadOutcome::Proposed, 'Late.', editsJson: '[{"file":"b.txt","old":"alpha","new":"beta"}]'));
+        });
+        $this->outcomes->setOutcome('g/p', 3, 'd2', ThreadOutcome::Answered);
+
+        $error = $this->service()->run('1', 'g/p', 3, $this->sha, $this->threads('d1', 'd2'), 5);
+
+        $this->assertSame('a proposal arrived while this round ran', $error);
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertSame(ThreadOutcome::Failed, $this->outcomes->getByThread('g/p', 3, 'd1')?->outcome);
+        $this->assertSame(ThreadOutcome::Proposed, $this->outcomes->getByThread('g/p', 3, 'd2')?->outcome);
     }
 
     /**
@@ -301,6 +344,8 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
 
         $queries = $this->queries;
         $open    = $this->openThread;
+        $status  = $this->openStatus;
+        $head    = $this->sha;
         $sql     = $this->createStub(SqlService::class);
         $sql->method('query')->willReturnCallback(static function (string $statement) use ($queries): int {
             $queries[] = $statement;
@@ -309,7 +354,7 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
         });
         $sql->method('lastInsertId')->willReturn('7');
         $sql->method('getColumn')->willReturn('0');
-        $sql->method('getRows')->willReturnCallback(static function (string $statement, array $parameters = []) use ($open): Generator {
+        $sql->method('getRows')->willReturnCallback(static function (string $statement, array $parameters = []) use ($open, $status, $head): Generator {
             if ($open !== null && str_contains($statement, 'autofix_jobs') && ($parameters['thread_key'] ?? null) === $open) {
                 yield [
                     'after_autofix' => '0',
@@ -317,12 +362,12 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
                     'commit_sha'    => null,
                     'date_created'  => '2026-11-05 10:00:00',
                     'discussion_id' => $open,
-                    'head_sha'      => 'x',
+                    'head_sha'      => $head,
                     'id'            => '50',
                     'mr_iid'        => '3',
                     'project_path'  => 'g/p',
                     'source'        => 'note',
-                    'status'        => 'pending',
+                    'status'        => $status,
                     'steering'      => null,
                     'thread_key'    => $open,
                     'triage_class'  => null,

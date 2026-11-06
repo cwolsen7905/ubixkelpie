@@ -6,6 +6,7 @@ namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\AutofixJob;
+use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
@@ -61,7 +62,7 @@ final class PushRoundBatchService
      * @param string            $discussionId The thread whose job just ended
      * @param DateTimeImmutable $now          The current time
      *
-     * @return bool Whether a round is queued (or was already)
+     * @return bool Whether a round is waiting to run at this head
      */
     public function queue(string $projectPath, int $mrIid, string $sha, string $discussionId, DateTimeImmutable $now): bool
     {
@@ -74,9 +75,10 @@ final class PushRoundBatchService
             return false;
         }
 
-        $this->jobs->pendingJob(new AutofixJob($projectPath, $mrIid, $sha, AutofixJob::ROUND), $now);
+        // A round already running has read its proposals and is not joined: it re-checks when it ends (see run())
+        [, $job] = $this->jobs->pendingJob(new AutofixJob($projectPath, $mrIid, $sha, AutofixJob::ROUND), $now);
 
-        return true;
+        return $job !== null;
     }
 
     /**
@@ -122,15 +124,7 @@ final class PushRoundBatchService
             return null;
         }
 
-        $fixes = [];
-        foreach ($threads as $thread) {
-            $row = $this->reader->getByThread($projectPath, $mrIid, $thread->discussionId);
-            if ($row === null || $row->outcome !== ThreadOutcome::Proposed || $row->verdict !== 'fix' || $row->headSha !== $sha || $row->editsJson === '') {
-                continue;
-            }
-
-            $fixes[] = ['discussionId' => $thread->discussionId, 'summary' => $row->reason, 'edits' => $this->stored->decode($row->editsJson)];
-        }
+        $fixes = $this->proposals($projectPath, $mrIid, $sha, $threads);
         if ($fixes === []) {
             return null;
         }
@@ -148,15 +142,71 @@ final class PushRoundBatchService
             return $error;
         }
 
+        $pushed = false;
         foreach ($fixes as $fix) {
             if ($this->reader->getByThread($projectPath, $mrIid, $fix['discussionId'])?->outcome === ThreadOutcome::Pushed) {
                 // Some thread went: the MR says so (a failed one has its own reply)
                 $this->writer->changeLabels($project, $mrIid, [TriageStatus::Pushed->value], [TriageStatus::Working->value, TriageStatus::Proposed->value]);
+                $pushed = true;
 
                 break;
             }
         }
 
+        // Nothing went and a thread job ended while this round ran (its queue() found this round running): go again.
+        // After a push the head moved, so a late proposal is stale and its thread is triaged afresh at the new head.
+        if (!$pushed && $this->late($projectPath, $mrIid, $sha, $threads, $fixes)) {
+            return 'a proposal arrived while this round ran';
+        }
+
         return null;
+    }
+
+    /**
+     * Whether a proposal at the head came in that the round did not take
+     *
+     * @param string                                                                        $projectPath The project path
+     * @param int                                                                           $mrIid       The MR IID
+     * @param string                                                                        $sha         The head
+     * @param Thread[]                                                                      $threads     The MR's unresolved threads
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $taken       The fixes the round took
+     *
+     * @return bool
+     */
+    private function late(string $projectPath, int $mrIid, string $sha, array $threads, array $taken): bool
+    {
+        $ids = array_column($taken, 'discussionId');
+        foreach ($this->proposals($projectPath, $mrIid, $sha, $threads) as $fix) {
+            if (!in_array($fix['discussionId'], $ids, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The open proposals of the MR at the head: a fix, still `proposed`, with edits stored
+     *
+     * @param string   $projectPath The project path
+     * @param int      $mrIid       The MR IID
+     * @param string   $sha         The head
+     * @param Thread[] $threads     The MR's unresolved threads
+     *
+     * @return list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}>
+     */
+    private function proposals(string $projectPath, int $mrIid, string $sha, array $threads): array
+    {
+        $fixes = [];
+        foreach ($threads as $thread) {
+            $row = $this->reader->getByThread($projectPath, $mrIid, $thread->discussionId);
+            if ($row === null || $row->outcome !== ThreadOutcome::Proposed || $row->verdict !== 'fix' || $row->headSha !== $sha || $row->editsJson === '') {
+                continue;
+            }
+
+            $fixes[] = ['discussionId' => $thread->discussionId, 'summary' => $row->reason, 'edits' => $this->stored->decode($row->editsJson)];
+        }
+
+        return $fixes;
     }
 }

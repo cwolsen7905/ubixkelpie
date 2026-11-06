@@ -59,19 +59,19 @@ final class ProposalReactionBuilderService
     {
         $writer = $this->gitlab->writer();
 
-        return new ProposalReactionService(
+        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername);
+        $round   = new PushRoundService(
             $this->logger,
             $writer,
-            new ReplyService($this->logger, $writer, $this->settings->botUsername),
+            $replies,
             new EditApplyService($this->logger),
             new Checkout($this->logger, $this->processRunner, $this->settings->botToken),
             new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth),
-            $this->reader,
             $this->outcomes,
             $this->jobs->writer(),
-            $this->json,
-            $this->modes,
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
         );
+
+        return new ProposalReactionService($this->logger, $replies, $round, $this->reader, $this->outcomes, $this->json, $this->modes);
     }
 }

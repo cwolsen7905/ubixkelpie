@@ -15,6 +15,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - Notes come back oldest first, system notes left out
  * - A reply, a note edit and label changes reach the right GitLab endpoint
+ * - The paths an MR changes are read across pages
  * - A failure is reported as null/false and logged, never thrown
  *
  * @coversDefaultClass \Kelpie\GitLab\DiscussionWriter
@@ -135,6 +136,33 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertNotSame($mr->sourceProjectId, $mr->targetProjectId);
 
         $this->assertNull($writer->mergeRequest('1', 4));
+    }
+
+    /**
+     * The paths an MR changes are read across pages, and a listing that fails is null and one that is too long is false
+     *
+     * @return void
+     */
+    public function testChangedPaths(): void
+    {
+        $writer = $this->gitlab->writer($this->createStub(Logger::class));
+
+        $this->gitlab->changedFiles(['a.txt', 'src/b.php']);
+        $this->assertSame(['a.txt', 'src/b.php'], $writer->changedPaths('1', 3));
+
+        $many = array_map(static function (int $n): string {
+            return 'f' . $n . '.php';
+        }, range(1, 130));
+        $this->gitlab->changedFiles($many);
+        $this->assertSame($many, $writer->changedPaths('1', 3));
+
+        $this->gitlab->changedFiles(array_map(static function (int $n): string {
+            return 'f' . $n . '.php';
+        }, range(1, 500)));
+        $this->assertFalse($writer->changedPaths('1', 3));
+
+        $this->gitlab->changedFiles(null);
+        $this->assertNull($writer->changedPaths('1', 3));
     }
 
     /**

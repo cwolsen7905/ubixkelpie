@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Push rules for a pushed fix (K-33, part 1). A push now goes through one round service: it
+  edits only files the MR already changes (a fix outside them is not pushed and its thread is
+  told), runs the gate once, and makes one `fix(review)` commit with a `Thread:` line per
+  thread and one plain push. Each fixed thread gets a `Fixed: <commit>` reply and is resolved
+  only if Kelpie opened it. The thumbs-up path is a round of one. A round is gated as a whole: a
+  red gate pushes nothing and fails every thread in it, and each reply says so and offers
+  `Triage:` to retry one alone. Not yet: push mode taking
+  fixes without a thumbs-up, and the round and changed-code limits in the safety policy.
+
 ## v0.1.0-beta.2
 
 Second beta. Issue intake and triage, the propose workflow with per-project modes, plus

@@ -212,7 +212,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
 
         $this->assertSame(ResponseOutcome::Replied, $outcome);
         $body = $this->gitlab->notes()['d1'][1]['body'];
-        $this->assertStringStartsWith('Kelpie fixed this in https://gitlab.test/g/p/-/commit/' . $sha . ': Rename the var', $body);
+        $this->assertStringStartsWith('Fixed: [`' . substr($sha, 0, 12) . '`](https://gitlab.test/g/p/-/commit/' . $sha . ') — Rename the var', $body);
         $this->assertStringContainsString('Leaving this thread open for you to confirm.', $body);
         $this->assertStringNotContainsString('@bob', $body);
         $this->assertSame(1, substr_count($body, '<!--'));
@@ -320,7 +320,7 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->service()->fixed('1', 3, 'd1', str_repeat('c', 40), '', str_repeat('word ', 80));
 
         $body = $this->gitlab->notes()['d1'][1]['body'];
-        $this->assertStringStartsWith('Kelpie fixed this in `cccccccccccc`: word word', $body);
+        $this->assertStringStartsWith('Fixed: `cccccccccccc` — word word', $body);
         $this->assertStringContainsString('…', $body);
         $this->assertLessThan(450, strlen($body));
     }

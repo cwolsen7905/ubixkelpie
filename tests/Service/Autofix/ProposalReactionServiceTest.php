@@ -14,6 +14,7 @@ use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\EditApplyService;
 use Kelpie\Service\Autofix\ProposalReactionService;
+use Kelpie\Service\Autofix\PushRoundService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
@@ -31,6 +32,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - The thread is resolved after the push only when Kelpie opened it (an AI-review finding Kelpie answered); a person's thread stays open
  * - A red gate pushes nothing, marks the proposal failed and says which step
  * - A head that moved gets a "stale" reply and changes nothing, before and after the checkout
+ * - A fix that edits a file the MR does not change pushes nothing and fails the proposal
  * - Edits that no longer apply push nothing and mark the proposal failed
  * - A thumbs-down marks the proposal declined and leaves the thread open, without a checkout or a gate
  * - A proposal that is not open any more, a closed MR and a protected source branch do nothing
@@ -87,7 +89,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $this->assertSame(ThreadOutcome::Applied, $this->row()->outcome);
         $this->assertSame($pushed, $this->jobs->commitSha());
         $this->assertSame('done', $this->jobs->status());
-        $this->assertStringContainsString('Kelpie fixed this in `' . substr($pushed, 0, 12) . '`', $this->lastNote());
+        $this->assertStringContainsString('Fixed: [`' . substr($pushed, 0, 12) . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote());
         $this->assertCount(4, $this->gateRunner->calls());
         $this->assertSame([], $this->gitlab->awards());
     }
@@ -103,6 +105,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $gitlab->note('d1', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', author: 'kelpie-bot');
         $gitlab->note('d1', 'Kelpie proposes this change.<!-- kelpie:reply thread=d1 class=fix head=' . $this->sha . ' -->', id: 105, author: 'kelpie-bot');
         $gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $gitlab->changedFiles(['a.txt']);
         $this->gitlab = $gitlab;
 
         $this->assertNull($this->service()->run('1', 'g/p', 3, 'd1', true, 1));
@@ -122,6 +125,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $gitlab->note('d1', "Finding.\n<!-- ai-review:fp=ab12 sha=" . str_repeat('c', 40) . ' -->', author: 'alice');
         $gitlab->note('d1', 'Kelpie proposes this change.<!-- kelpie:reply thread=d1 class=fix head=' . $this->sha . ' -->', id: 105, author: 'kelpie-bot');
         $gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $gitlab->changedFiles(['a.txt']);
         $this->gitlab = $gitlab;
 
         $this->assertNull($this->service()->run('1', 'g/p', 3, 'd1', true, 1));
@@ -321,6 +325,37 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * A fix that edits a file the MR does not change is not pushed: no gate, the proposal failed, the thread told
+     *
+     * @return void
+     */
+    public function testAFileTheMrDoesNotChangeIsNotPushed(): void
+    {
+        $this->gitlab->changedFiles(['other.txt']);
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, 'd1', true, 1));
+
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertSame(ThreadOutcome::Failed, $this->row()->outcome);
+        $this->assertStringContainsString('`a.txt`, which this merge request does not change', $this->lastNote());
+        $this->assertSame([], $this->gateRunner->calls());
+        $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * An MR whose changed files cannot be read is retried, nothing pushed
+     *
+     * @return void
+     */
+    public function testUnreadableChangedFilesAreRetried(): void
+    {
+        $this->gitlab->changedFiles(null);
+
+        $this->assertSame('could not read the files the merge request changes', $this->service()->run('1', 'g/p', 3, 'd1', true, 1));
+        $this->assertSame(ThreadOutcome::Proposed, $this->row()->outcome);
+    }
+
+    /**
      * A checkout that cannot be made is retried, not answered
      *
      * @return void
@@ -358,6 +393,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $this->gitlab->note('d1', 'Please fix the typo.');
         $this->gitlab->note('d1', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
         $this->gitlab->mergeRequestFields(['sha' => $this->sha]);
+        $this->gitlab->changedFiles(['a.txt']);
         $this->jobs       = new InMemoryJobStore(status: 'running');
         $this->outcomes   = new InMemoryOutcomeStore();
         $this->gateRunner = new ScriptedProcessRunner();
@@ -402,19 +438,26 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $logger = $this->createStub(Logger::class);
         $writer = $this->gitlab->writer($logger);
 
+        $replies = new ReplyService($logger, $writer, 'kelpie-bot');
+
         return new ProposalReactionService(
             $logger,
-            $writer,
-            new ReplyService($logger, $writer, 'kelpie-bot'),
-            new EditApplyService($logger),
-            new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
-            new GateRunner($logger, $gate ?? $this->gateRunner),
+            $replies,
+            new PushRoundService(
+                $logger,
+                $writer,
+                $replies,
+                new EditApplyService($logger),
+                new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
+                new GateRunner($logger, $gate ?? $this->gateRunner),
+                $this->outcomes,
+                $this->jobs,
+                $remote ?? $this->remote,
+            ),
             $this->outcomes,
             $this->outcomes,
-            $this->jobs,
             new JsonService($logger),
             InMemoryProjects::service($mode === null ? [] : ['g/p' => $mode]),
-            $remote ?? $this->remote,
         );
     }
 

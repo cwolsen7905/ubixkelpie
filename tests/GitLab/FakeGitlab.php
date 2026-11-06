@@ -64,6 +64,13 @@ final class FakeGitlab implements HttpClient
     private ?array $compareDiffs = [];
 
     /**
+     * The paths the MR changes, null for a diff listing that fails
+     *
+     * @var ?string[]
+     */
+    private ?array $changedFiles = [];
+
+    /**
      * Discussion IDs resolved through the API
      *
      * @var list<string>
@@ -125,6 +132,18 @@ final class FakeGitlab implements HttpClient
     public function compareDiffs(?array $files): void
     {
         $this->compareDiffs = $files;
+    }
+
+    /**
+     * Set the paths the MR changes
+     *
+     * @param ?string[] $paths The paths, null to make the listing fail
+     *
+     * @return void
+     */
+    public function changedFiles(?array $paths): void
+    {
+        $this->changedFiles = $paths === null ? null : array_values($paths);
     }
 
     /**
@@ -326,6 +345,18 @@ final class FakeGitlab implements HttpClient
                     ...$this->mrFields,
                 ],
             ]));
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/diffs$#', $path) === 1 && $method === 'GET') {
+            if ($this->changedFiles === null) {
+                return $this->fakeJson(['message' => '500 Error'], 500);
+            }
+            parse_str($request->getUri()->getQuery(), $query);
+            $size  = (int) ($query['per_page'] ?? 20);
+            $slice = array_slice($this->changedFiles, (max(1, (int) ($query['page'] ?? 1)) - 1) * $size, $size);
+
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode(array_map(static function (string $file): array {
+                return ['diff' => '', 'new_path' => $file, 'old_path' => $file];
+            }, $slice)));
         }
         if (preg_match('#^/projects/[^/]+/repository/compare$#', $path) === 1 && $method === 'GET') {
             return $this->compareDiffs === null ? $this->fakeJson(['message' => '404 Not found'], 404) : $this->fakeJson(['diffs' => $this->compareDiffs]);

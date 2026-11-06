@@ -25,6 +25,10 @@ use Ubix\Service\JsonService;
  */
 final class DiscussionWriter
 {
+    private const int DIFF_PAGE_SIZE = 100;
+
+    private const int MAX_DIFF_PAGES = 5;
+
     /**
      * Constructor
      *
@@ -125,6 +129,37 @@ final class DiscussionWriter
             is_string($webUrl) ? $webUrl : '',
             $this->strings($mr['labels'] ?? null),
         );
+    }
+
+    /**
+     * Read the paths a merge request changes, against its target branch
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return list<string>|false|null Null when the files could not be read (worth a retry); false when there are more than the page limit allows (a refusal, not a retry)
+     */
+    public function changedPaths(string $project, int $mrIid): array|false|null
+    {
+        $paths = [];
+        for ($page = 1; $page <= self::MAX_DIFF_PAGES; ++$page) {
+            $files = $this->send('GET', sprintf('%s/diffs?per_page=%d&page=%d', $this->mrUrl($project, $mrIid), self::DIFF_PAGE_SIZE, $page), null);
+            if ($files === null) {
+                return null;
+            }
+
+            foreach ($files as $raw) {
+                if (is_array($raw) && is_string($raw['new_path'] ?? null)) {
+                    $paths[] = $raw['new_path'];
+                }
+            }
+
+            if (count($files) < self::DIFF_PAGE_SIZE) {
+                return array_values(array_unique($paths));
+            }
+        }
+
+        return false;
     }
 
     /**

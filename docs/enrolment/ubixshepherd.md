@@ -15,7 +15,7 @@ and `docs/operations/worker.md`.
 | Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, un-suspended by this change. |
 | Worker | `app/KelpieApi/dev-worker.yaml`; deploy.sh skips `*-worker.yaml`, so it is applied by hand. |
 | `projects` row | Not there until an operator inserts it (below). |
-| Dev webhook on ubixshepherd | Not there yet. Hook 5 on the project points at **prod**; step 2 repoints it. |
+| Dev webhook on ubixshepherd | Done 2026-11-05: hook 5 now points at dev (step 2). |
 
 ## Steps (each outside the repo, done by a person or Shepherd)
 
@@ -29,8 +29,17 @@ and `docs/operations/worker.md`.
    past ubixcore !227, so a later change to the file needs another by-hand apply.
 2. **Repoint hook 5 to dev (decided; one hook, never two).** Hook 5 on `ubixsys/ubixshepherd` sent every
    event to prod. It is repointed, not joined by a second hook, so prod stops receiving ubixshepherd events
-   and no two instances answer one thread. Status: **pending** until the dev secret can be read from uBixVault
-   `kelpie/dev/app` (`GITLAB_WEBHOOK_SECRET`; never print it or put it in a log).
+   and no two instances answer one thread. **Done 2026-11-05.** The token is the dev
+   `GITLAB_WEBHOOK_SECRET` from uBixVault `kelpie/dev/app`, read with the dev CI token and never printed.
+   Read back afterwards: URL `https://kelpie.dev.ubixsys.com/gitlab/webhook`, SSL verification on, events on:
+   issues, merge requests, note, emoji, pipeline, job; the project still has exactly one hook.
+
+   **Vault policy change (dev Vault only).** The CI read token's policy `ubixcore-ci-ro` gained one rule,
+   read on `secret/data/kelpie/dev/app`, so it can read that path. It is now:
+   `{"path":{"secret/data/ubixcore/*":{"capabilities":["read"]},"secret/data/kelpie/dev/app":{"capabilities":["read"]}}}`.
+   Rollback: write the original back to `sys/policies/acl/ubixcore-ci-ro` on vault.dev, which was exactly
+   `{"path":{"secret/data/ubixcore/*":{"capabilities":["read"]}}}`. The write used the dev root token for that
+   one call; nothing else was written to Vault and prod Vault was not touched.
 3. **The hook's new shape.** URL `https://kelpie.dev.ubixsys.com/gitlab/webhook`, the dev secret as token,
    SSL verification on, events: comments (note), emoji, pipeline, job, and merge request kept on. Issue events
    stay on as they were.

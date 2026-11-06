@@ -147,6 +147,7 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         foreach (['d1', 'd2'] as $id) {
             $this->assertSame(ThreadOutcome::Failed, $this->row($id)->outcome);
             $this->assertStringContainsString('phpcs', $this->lastNote($id));
+            $this->assertStringContainsString('2 fixes are gated together', $this->lastNote($id));
         }
         $this->assertNull($this->jobs->commitSha());
     }

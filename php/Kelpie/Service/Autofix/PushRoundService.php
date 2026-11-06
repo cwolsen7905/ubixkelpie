@@ -167,7 +167,8 @@ final class PushRoundService
             return 'the gate could not run';
         }
         if (!$gate->passed) {
-            $this->failAll($project, $projectPath, $mrIid, $pushing, 'The gate is red with this change (' . ($gate->failedStep ?? 'a step') . '), so I did not push it.');
+            $together = count($pushing) > 1 ? ' This round\'s ' . count($pushing) . ' fixes are gated together, so the red step may come from another thread\'s fix; reply with `Triage:` to have me try this one alone.' : '';
+            $this->failAll($project, $projectPath, $mrIid, $pushing, 'The gate is red with this change (' . ($gate->failedStep ?? 'a step') . '), so I did not push it.' . $together);
 
             return null;
         }

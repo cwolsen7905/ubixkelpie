@@ -88,7 +88,7 @@ spec:
           value: "true"
         # The bot account whose notes mark a thread as Kelpie's own (the code default is not the real account).
         - name: KELPIE_BOT_USERNAME
-          value: "group_223_bot_b747917a6c6e1334faf2e8ca743faae9"
+          value: "project_160_bot_6902be9519087b25c09cff5971a9002f"
         - name: LOG_LEVEL
           value: "debug"
         ports:

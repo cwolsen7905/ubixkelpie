@@ -20,7 +20,13 @@ and `docs/operations/worker.md`.
 ## Steps (each outside the repo, done by a person or Shepherd)
 
 1. **Worker running in `kelpie-dev`.** The pod is up and idling (not restarting). The sweep only queues;
-   nothing answers a thread without it.
+   nothing answers a thread without it. Checked 2026-11-05: the worker is in CrashLoopBackOff, because
+   `KELPIE_BOT_GITLAB_TOKEN` is missing from uBixVault `kelpie/dev/app` (`GITLAB_API_URL` and
+   `OPENROUTER_API_KEY` are there). Add it on vault.dev, then
+   `kubectl -n kelpie-dev rollout restart deploy/kelpie-worker` and watch that it idles. The sweep needs the
+   same token, so until it is added each sweep run fails (three failed jobs are kept) and queues nothing.
+   `dev-worker.yaml` is applied by hand: deploy.sh skips it until kelpie's ubixcore pin (v0.47.0) is bumped
+   past ubixcore !227, so a later change to the file needs another by-hand apply.
 2. **Repoint hook 5 to dev (decided; one hook, never two).** Hook 5 on `ubixsys/ubixshepherd` sent every
    event to prod. It is repointed, not joined by a second hook, so prod stops receiving ubixshepherd events
    and no two instances answer one thread. Status: **pending** until the dev secret can be read from uBixVault

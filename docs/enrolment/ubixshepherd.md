@@ -15,7 +15,7 @@ and `docs/operations/worker.md`.
 | Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, un-suspended by this change. |
 | Worker | `app/KelpieApi/dev-worker.yaml`; deploy.sh skips `*-worker.yaml`, so it is applied by hand. |
 | `projects` row | Not there until an operator inserts it (below). |
-| Dev webhook on ubixshepherd | Not there. Hook 5 on the project points at **prod**. |
+| Dev webhook on ubixshepherd | Not there yet. Hook 5 on the project points at **prod**; step 2 repoints it. |
 
 ## Steps (each outside the repo, done by a person or Shepherd)
 

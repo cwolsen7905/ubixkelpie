@@ -99,3 +99,11 @@ and is not part of this enrolment.
 - One item: the `triage:off` label.
 - Everything on dev: `KELPIE_AUTOFIX_ENABLED=false` and redeploy, or `replicas: 0` on the worker.
 - The sweep alone: `suspend: true`.
+
+## Bot identity on dev
+
+`KELPIE_BOT_USERNAME` is dev's own bot, `project_160_bot_6902be9519087b25c09cff5971a9002f` (the project token on
+ubixsys/ubixshepherd), in `dev-deploy.yaml`, `dev-cronjob.yaml` and `dev-worker.yaml`, so the API, the sweep and
+the worker agree on which notes are Kelpie's own. The token itself is `KELPIE_BOT_GITLAB_TOKEN` in uBixVault
+`kelpie/dev/app`, read at run time, in no manifest. Staging and prod keep the prod group bot. `deploy.sh` does
+not apply `dev-worker.yaml`, so a change to this value needs a by-hand apply of that file as well.

@@ -53,9 +53,10 @@ uBixVault `kelpie/dev/app` on vault.dev only. Two things to know when redoing it
 - **The dev Vault rejects the KV v2 PATCH** (HTTP 405). The key was written by reading the secret, setting only
   `KELPIE_BOT_GITLAB_TOKEN` and writing all keys back with `cas` set to the version read (4, now 5), then checking that
   the other five keys were unchanged by hash. A plain overwrite without `cas` could drop a key if someone wrote in between.
-- **`KELPIE_BOT_USERNAME` is still the prod group bot's name** in `dev-worker.yaml` and `dev-deploy.yaml`. The code uses it to
-  recognise Kelpie's own notes on a thread, so until the dev manifests carry the new bot username above, the dev worker
-  will not recognise its own comments. This needs a manifest change; it is not done yet.
+- **`KELPIE_BOT_USERNAME` named the prod group bot in the dev manifests.** The code uses it to recognise Kelpie's own notes
+  on a thread. This MR switches `dev-worker.yaml` to the dev bot username above. `dev-deploy.yaml` and `dev-cronjob.yaml`
+  still name the prod group bot and are changed separately; until they are, the dev API and sweep disagree with the worker
+  about which notes are Kelpie's own. The running worker only picks the change up when `dev-worker.yaml` is applied by hand.
 
 An earlier attempt created token id 39 and revoked it when the PATCH failed; its inactive bot user
 (`project_160_bot_4c37b0c4a0f9da5bbca26a6ad85e597b`) remains in GitLab and is not used.

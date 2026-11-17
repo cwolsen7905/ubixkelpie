@@ -224,4 +224,13 @@ out=$(AI_REVIEW_WORK=$w/work OPENROUTER_API_KEY=topsecretvalue123 "$here/../revi
 ! has 'abcdefghij1234'; expect "diagnostics: bearer token is masked" $?
 rm -rf "$w"
 
+# A secret that straddles the 4096-byte cut is masked before the reply is truncated.
+w=$(mktemp -d)
+{ head -c 4090 /dev/zero | tr '\0' 'a'; printf ' topsecretvalue123 tail\n'; } >"$w/reply.txt"
+out=$(AI_REVIEW_WORK=$w/work OPENROUTER_API_KEY=topsecretvalue123 "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1); rc=$?
+! has 'topsec'; expect "diagnostics: a secret across the 4 KB cut is not leaked" $?
+! grep -q 'topsec' "$w/work/diagnostics/attempt-1.txt"; expect "diagnostics: the artifact has no secret prefix either" $?
+rm -rf "$w"
+
 exit $fail

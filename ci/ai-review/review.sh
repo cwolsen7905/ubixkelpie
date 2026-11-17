@@ -474,7 +474,7 @@ diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
     echo "error_field: ${errs:-none}"
     echo "reply_bytes: ${#3}"
     echo "--- raw reply (first 4096 bytes) ---"
-    printf '%s' "$3" | head -c 4096
+    printf '%s' "$3" | mask_secrets | head -c 4096
     echo
     echo "--- end of raw reply ---"
   } | mask_secrets >"$f"

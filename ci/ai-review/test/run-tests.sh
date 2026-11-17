@@ -194,4 +194,34 @@ expect_that "guard: a thread posted meanwhile is not posted again" \
   [ "$(grep -c '^POST .*/discussions' "$CURL_LOG")" = 2 ]
 rm -f "$CURL_LOG"
 
+# Parse-failure diagnostics: the log says why (finish reason, tokens, error field, raw reply),
+# secrets are masked, and the same text is kept under $WORK/diagnostics for the job artifact.
+w=$(mktemp -d)
+out=$(AI_REVIEW_WORK=$w OPENROUTER_API_KEY=topsecretvalue123 "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$here/canned-truncated.jsonl" 2>&1); rc=$?
+expect_that "diagnostics: truncated reply still exits 75" [ "$rc" = 75 ]
+has 'finish_reason: length'; expect "diagnostics: finish_reason is logged" $?
+has 'prompt_tokens: 1234'; expect "diagnostics: prompt tokens are logged" $?
+has 'completion_tokens: 4096'; expect "diagnostics: completion tokens are logged" $?
+has 'model: openrouter/'; expect "diagnostics: model is logged" $?
+has 'Here is the review'; expect "diagnostics: raw reply is logged" $?
+expect_that "diagnostics: file is written per attempt" [ -s "$w/diagnostics/attempt-2.txt" ]
+rm -rf "$w"
+
+w=$(mktemp -d)
+out=$(AI_REVIEW_WORK=$w "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$here/canned-error.jsonl" 2>&1); rc=$?
+has 'error_field: .*Provider returned error'; expect "diagnostics: error event is logged" $?
+! has 'sk-or-v1-abcdef'; expect "diagnostics: token-shaped value is masked" $?
+! grep -q 'sk-or-v1-abcdef' "$w/diagnostics/attempt-1.txt"; expect "diagnostics: artifact file is masked too" $?
+rm -rf "$w"
+
+w=$(mktemp -d)
+printf 'my key is topsecretvalue123 and Bearer abcdefghij1234\n' >"$w/reply.txt"
+out=$(AI_REVIEW_WORK=$w/work OPENROUTER_API_KEY=topsecretvalue123 "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1); rc=$?
+! has 'topsecretvalue123'; expect "diagnostics: the configured secret is masked" $?
+! has 'abcdefghij1234'; expect "diagnostics: bearer token is masked" $?
+rm -rf "$w"
+
 exit $fail

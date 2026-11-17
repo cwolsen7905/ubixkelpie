@@ -434,6 +434,53 @@ reply_text() { # $1 = stream file
   jq -rs '[.[] | select(.type == "text") | (.part.text // .text // "")] | join("")' "$1" 2>/dev/null
 }
 
+# Masks anything token-shaped, plus the exact values of the two secrets, so a model reply
+# or an error event can be logged and kept as an artifact.
+mask_secrets() {
+  local text v
+  text=$(cat)
+  for v in "${OPENROUTER_API_KEY:-}" "${AI_REVIEW_GITLAB_TOKEN:-}"; do
+    [ "${#v}" -ge 6 ] && text=${text//"$v"/'[masked]'}
+  done
+  sed -E \
+    -e 's/sk-[A-Za-z0-9_-]{8,}/sk-[masked]/g' \
+    -e 's/glpat-[A-Za-z0-9_-]{8,}/glpat-[masked]/g' \
+    -e 's/([Bb]earer|PRIVATE-TOKEN:?|[Aa]uthorization:?)[ =]+[A-Za-z0-9._~+\/=-]{8,}/\1 [masked]/g' \
+    -e 's/((api[_-]?key|token|secret|password)"?[ ]*[:=][ ]*"?)[A-Za-z0-9._~+\/=-]{8,}/\1[masked]/Ig' <<<"$text"
+}
+
+# After a failed attempt: what the model run gave back, so the failure can be told apart
+# (length cutoff, provider error, refusal, prose). Goes to the job log and to
+# $WORK/diagnostics/attempt-N.txt, which the job keeps as an artifact. Logging only.
+diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
+  local dir="$WORK/diagnostics" f meta errs
+  f="$dir/attempt-$1.txt"
+  mkdir -p "$dir"
+  meta=$(jq -rs '
+    def num: if type == "number" then . elif type == "object" then (.total // .value // 0) else 0 end;
+    [.[] | select(type == "object")] as $ev
+    | [$ev[] | select(.type == "step-finish" or .type == "step_finish") | (.part // .)] as $fin
+    | "finish_reason: " + (([$fin[] | (.reason // .finishReason // .finish_reason // empty | tostring)] | join(",")) | if . == "" then "none seen" else . end),
+      "prompt_tokens: " + ([$fin[] | (.tokens.input // 0) | num] | add // 0 | tostring),
+      "completion_tokens: " + ([$fin[] | (.tokens.output // 0) | num] | add // 0 | tostring),
+      "events: " + ([$ev[] | .type // "?"] | join(",") | .[0:300])' "$STREAM" 2>/dev/null) \
+    || meta="(no parsable event stream)"
+  errs=$(jq -rs '[.[] | select(type == "object") | select(.type == "error" or has("error") or (.part | type == "object" and has("error")))
+      | (.error // .part.error // .)] | map(tojson) | .[]' "$STREAM" 2>/dev/null | head -c 2048)
+  {
+    echo "why: $2"
+    echo "model: $MODEL"
+    echo "$meta"
+    echo "error_field: ${errs:-none}"
+    echo "reply_bytes: ${#3}"
+    echo "--- raw reply (first 4096 bytes) ---"
+    printf '%s' "$3" | head -c 4096
+    echo
+    echo "--- end of raw reply ---"
+  } | mask_secrets >"$f"
+  while IFS= read -r line; do log "diagnostics (attempt $1): $line"; done <"$f"
+}
+
 MODEL_CALLED=1 # summaries from here on follow a model call and carry the usage stamp
 RESULT=""
 retry=""
@@ -462,6 +509,7 @@ for attempt in 1 2; do
       opencode run --format json --model "$MODEL" ${EFFORT:+--variant "$EFFORT"} \
       "$prompt" --file "$CONTEXT" >"$STREAM"); then
       log "model run failed (attempt $attempt)"
+      diagnose "$attempt" "model run failed" ""
       retry="Your previous run failed before producing a reply. Try again."
       continue
     fi
@@ -471,6 +519,7 @@ for attempt in 1 2; do
   cands=$(extract_candidates <<<"$raw")
   if [ -z "$cands" ]; then
     log "model output contained no JSON object (attempt $attempt)"
+    diagnose "$attempt" "no JSON object in the reply" "$raw"
     retry="Your previous reply contained no JSON object I could parse. Reply with ONLY the JSON object described in the schema: no prose, no Markdown fence, no commentary before or after."
     continue
   fi
@@ -481,6 +530,7 @@ for attempt in 1 2; do
   if [ -n "$json" ]; then RESULT=$json; break; fi
   problem=$(validation_problem <<<"$(head -n1 <<<"$cands")")
   log "model output was not valid review JSON (attempt $attempt): $problem"
+  diagnose "$attempt" "invalid review JSON: $problem" "$raw"
   retry="Your previous reply was JSON but did not match the schema: $problem. Reply with ONLY the corrected JSON object, no prose and no fence."
 done
 [ -n "$RESULT" ] || unreviewed "the model did not return a valid review after a retry."

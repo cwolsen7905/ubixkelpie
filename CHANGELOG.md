@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- AI review says why a reply failed. When `review.sh` cannot parse or validate the model's reply, it logs the
+  finish reason, model, token counts, any error field and the first 4 KB of the raw reply (secrets masked), and
+  keeps the same text as the `ai-review-diagnostics/` job artifact. Review behaviour is unchanged.
+
 - Push mode runs on its own (K-33, part 2). On a project switched to `push`, a thread job that
   ends with a stored fix queues one `round` job for its MR. The round waits (up to 15 minutes)
   for the MR's other thread jobs, then pushes every fix proposed at the current head as one

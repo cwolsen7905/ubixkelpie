@@ -7,7 +7,7 @@ What was done, in the order it has to be done. Redo it in this order for any new
 | # | Step | Result |
 | --- | --- | --- |
 | 1 | Bot account exists, is active, and is a member of `ubixsys/ubixkelpie` and `ubixsys/ubixshepherd` | Yes (Developer on both) |
-| 2 | Vault `kelpie/<env>/app` holds `KELPIE_BOT_GITLAB_TOKEN`, `OPENROUTER_API_KEY`, `GITLAB_API_URL` (key names only; never print values) | `OPENROUTER_API_KEY` was missing on dev and prod and was added with the rest left as they were |
+| 2 | Vault `kelpie/<env>/app` holds `KELPIE_BOT_GITLAB_TOKEN`, `OPENROUTER_API_KEY`, `GITLAB_API_URL` (key names only; never print values) | `OPENROUTER_API_KEY` was missing on dev and prod and was added with the rest left as they were. On dev, `KELPIE_BOT_GITLAB_TOKEN` was still empty and was filled on 2026-11-05 with its own token (see below) |
 | 3 | Code reaches `main` through the pipeline: a green `dev` pipeline fast-forwards `staging`, a green `staging` pipeline fast-forwards `main` | Done; `main` = `dev` = `0a5964d`. First the dev pipeline had to be fixed (an `AlterAck:` header on an ALTER migration, then Vault/DNS reachability for `migrate-verify-dev`) |
 | 4 | `migrate-apply-prod` (manual) on main's pipeline, leave `migrate-apply-prod-destructive` alone | Applied `20261021124000_autofix_jobs_worker_columns`, `20261022100000_create_thread_outcomes`, `20261022140000_autofix_jobs_steering`, `20261022150000_create_projects` on prod; dev applied them by pipeline |
 | 5 | Insert `projects` rows (`ubixsys/ubixkelpie`, `ubixsys/ubixshepherd`, mode `propose`) on dev and prod | Done with an idempotent `INSERT IGNORE` run from a pod, read back. There is no CLI or seed for this |
@@ -24,13 +24,48 @@ uBixCore's `deploy.sh` applies `<tier>-deploy`, `-service`, `-ingress` and `-cro
 yourself if the worker needs a new one (the worker's tag is `:main` or `:dev`). The fix belongs upstream
 in uBixCore (apply `*-worker.yaml`), then a pin bump here.
 
-### Open problem found at go-live
+### Open problem found at go-live, and where dev stands (2026-11-05)
 
-The workers do not run cleanly. The CLI logger writes `/UbixCli.log`, and the container user (`www`)
-cannot write to `/`. The dev worker (debug logging) crash-loops on its first log line. The prod worker (info
-logging) is `Running` but silent, and will fail the first time it logs at `info`. The API pods are unaffected.
-This needs a code or manifest change (a writable log path or logging to stderr); it is not fixed by this
-page. Until then do not count the worker as polling.
+At go-live the workers did not run cleanly. The CLI logger wrote `/UbixCli.log`, and the container user (`www`)
+cannot write to `/`, so the dev worker (debug logging) crash-looped on its first log line. The prod worker (info
+logging) was `Running` but silent, and would fail the first time it logged at `info`. The API pods were unaffected.
+
+**Dev, fixed.** The log path is fixed in the manifest (`LOGGER_PATH=/tmp/logs`, a 1Gi `emptyDir` mounted there).
+`deploy.sh` still does not apply `dev-worker.yaml` (kelpie is pinned to uBixCore v0.47.0, which predates the fix), so
+it was applied by hand to `kelpie-dev` only and the Deployment restarted. The pod then failed on a different line,
+`GITLAB_API_URL, KELPIE_BOT_GITLAB_TOKEN and OPENROUTER_API_KEY must be set.`: the other two keys were in Vault
+`kelpie/dev/app`, but `KELPIE_BOT_GITLAB_TOKEN` existed with an empty value.
+
+**Dev bot token, separate from prod's.** Created and stored on 2026-11-05 (value never printed or written to the repo):
+
+| | Dev | Prod (for comparison, from `bot-account.md`) |
+| --- | --- | --- |
+| Kind | Project access token on `ubixsys/ubixshepherd` (project 160) | Group access token on group `kelpie` (223) |
+| Token name | `kelpie-dev-bot` | `Kelpie Bot` |
+| Role | Developer | Maintainer |
+| Scopes | `api` | `api`, `read_repository`, `write_repository`, `read_registry`, `write_registry`, `ai_features` |
+| Expires | 2027-11-05 | 2027-10-14 |
+| Bot username | `project_160_bot_6902be9519087b25c09cff5971a9002f` | `group_223_bot_b747917a6c6e1334faf2e8ca743faae9` |
+
+Dev enrols only `ubixsys/ubixshepherd`, so a project token is enough; Kelpie needs no group-level token there. It lives in
+uBixVault `kelpie/dev/app` on vault.dev only. Two things to know when redoing it:
+
+- **The dev Vault rejects the KV v2 PATCH** (HTTP 405). The key was written by reading the secret, setting only
+  `KELPIE_BOT_GITLAB_TOKEN` and writing all keys back with `cas` set to the version read (4, now 5), then checking that
+  the other five keys were unchanged by hash. A plain overwrite without `cas` could drop a key if someone wrote in between.
+- **`KELPIE_BOT_USERNAME` named the prod group bot in the dev manifests.** The code uses it to recognise Kelpie's own notes
+  on a thread. This MR switches `dev-worker.yaml` to the dev bot username above. `dev-deploy.yaml` and `dev-cronjob.yaml`
+  still name the prod group bot and are changed separately; until they are, the dev API and sweep disagree with the worker
+  about which notes are Kelpie's own. The running worker only picks the change up when `dev-worker.yaml` is applied by hand.
+
+An earlier attempt created token id 39 and revoked it when the PATCH failed; its inactive bot user
+(`project_160_bot_4c37b0c4a0f9da5bbca26a6ad85e597b`) remains in GitLab and is not used.
+
+**Result on dev.** After the key was added and `kubectl -n kelpie-dev rollout restart deploy/kelpie-worker`, the pod is
+`Running` with 0 restarts and the "must be set" error is gone. An idle worker logs nothing per poll (it sleeps five
+seconds between passes when nothing is due), so the only log line is `Reading the autofix settings from the environment`
+in `/tmp/logs/UbixCli.log`; "polling" shows as the `kelpie:work` process staying up. Prod is unchanged: the prod worker
+still has the old log path until `main-worker.yaml` is applied.
 
 The dev sweep CronJob stays suspended. No spend caps or code were changed.
 

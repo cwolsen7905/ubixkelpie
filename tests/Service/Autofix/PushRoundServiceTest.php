@@ -13,6 +13,7 @@ use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\EditApplyService;
+use Kelpie\Service\Autofix\PushRoundCapService;
 use Kelpie\Service\Autofix\PushRoundService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -90,6 +91,55 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             $this->assertStringStartsWith('Fixed: [`' . substr($pushed, 0, 12) . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote($id));
         }
         $this->assertSame(['d2'], $this->gitlab->resolved());
+    }
+
+    /**
+     * An automatic round records each thread as pushed, not applied
+     *
+     * @return void
+     */
+    public function testAnAutomaticRoundRecordsPushed(): void
+    {
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1, ThreadOutcome::Pushed, new PushRoundCapService($this->createStub(Logger::class))));
+
+        $this->assertNotSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        foreach (['d1', 'd2'] as $id) {
+            $this->assertSame(ThreadOutcome::Pushed, $this->row($id)->outcome);
+        }
+    }
+
+    /**
+     * A round that changes more lines than the cap pushes nothing, tells each thread once and leaves the proposals open
+     *
+     * @return void
+     */
+    public function testARoundOverTheLineCapPushesNothing(): void
+    {
+        $cap = new PushRoundCapService($this->createStub(Logger::class), 5, 1);
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1, ThreadOutcome::Pushed, $cap));
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1, ThreadOutcome::Pushed, $cap));
+
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertNull($this->jobs->commitSha());
+        $this->assertSame([], $this->gateRunner->calls());
+        foreach (['d1', 'd2'] as $id) {
+            $this->assertSame(ThreadOutcome::Proposed, $this->row($id)->outcome);
+            $this->assertStringContainsString('Over the round cap', $this->lastNote($id));
+            $this->assertSame(1, $this->marked($id, 'class=over-cap'));
+        }
+    }
+
+    /**
+     * A thumbs-up is a person's ask: the line cap does not bind it
+     *
+     * @return void
+     */
+    public function testAThumbsUpRoundHasNoCap(): void
+    {
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1));
+
+        $this->assertNotSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
     }
 
     /**
@@ -426,6 +476,24 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $last  = array_pop($notes);
 
         return $last['body'] ?? '';
+    }
+
+    /**
+     * How many notes on a thread carry a marker
+     *
+     * @param string $id     The discussion ID
+     * @param string $marker The text to look for
+     *
+     * @return int
+     */
+    private function marked(string $id, string $marker): int
+    {
+        $count = 0;
+        foreach ($this->gitlab->notes()[$id] as $note) {
+            $count += str_contains($note['body'], $marker) ? 1 : 0;
+        }
+
+        return $count;
     }
 
     /**

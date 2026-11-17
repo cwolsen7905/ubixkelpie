@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Push mode runs on its own (K-33, part 2). On a project switched to `push`, a thread job that
+  ends with a stored fix queues one `round` job for its MR. The round waits (up to 15 minutes)
+  for the MR's other thread jobs, then pushes every fix proposed at the current head as one
+  `fix(review)` commit and one plain push, with no thumbs-up. Each pushed thread is recorded as
+  the new `pushed` outcome (a thumbs-up push stays `applied`), and the MR gets `triage: pushed`.
+  A round is capped at 5 threads and 80 changed lines: over either, nothing is pushed, each
+  thread is told once, and its proposal stays open for a thumbs-up. Push mode stays off by
+  default and is switched per project; a fix that lands while a round is running makes an idle round
+  run again (after a push the head moved, so it is triaged afresh); propose and off projects behave as before. The stored-edit
+  reader moved into its own service.
+
 - Visible reply when the spend cap holds a job (K-14 follow-up). When a daily cap stops an
   autofix job, Kelpie posts one reply on the thread: which cap (project or Kelpie-wide), the
   spend against it and that work resumes when the cap resets (no clock time: the cap's day follows the database's time zone). At most one per thread per day. The notice has

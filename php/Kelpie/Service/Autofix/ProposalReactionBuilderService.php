@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
@@ -57,10 +58,48 @@ final class ProposalReactionBuilderService
      */
     public function make(string $projectPath): ProposalReactionService
     {
-        $writer = $this->gitlab->writer();
-
+        $writer  = $this->gitlab->writer();
         $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername);
-        $round   = new PushRoundService(
+
+        return new ProposalReactionService($this->logger, $replies, $this->round($writer, $replies, $projectPath), $this->reader, $this->outcomes, $this->stored(), $this->modes);
+    }
+
+    /**
+     * The automatic push round for a project
+     *
+     * @param string $projectPath The project path with namespace
+     *
+     * @return PushRoundBatchService
+     */
+    public function batch(string $projectPath): PushRoundBatchService
+    {
+        $writer  = $this->gitlab->writer();
+        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername);
+
+        return new PushRoundBatchService(
+            $this->logger,
+            $writer,
+            $this->round($writer, $replies, $projectPath),
+            new PushRoundCapService($this->logger),
+            $this->reader,
+            $this->stored(),
+            $this->modes,
+            $this->jobs,
+        );
+    }
+
+    /**
+     * The push round of a project
+     *
+     * @param DiscussionWriter $writer      GitLab, as the bot
+     * @param ReplyService     $replies     Posts the replies
+     * @param string           $projectPath The project path with namespace
+     *
+     * @return PushRoundService
+     */
+    private function round(DiscussionWriter $writer, ReplyService $replies, string $projectPath): PushRoundService
+    {
+        return new PushRoundService(
             $this->logger,
             $writer,
             $replies,
@@ -71,7 +110,15 @@ final class ProposalReactionBuilderService
             $this->jobs->writer(),
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
         );
+    }
 
-        return new ProposalReactionService($this->logger, $replies, $round, $this->reader, $this->outcomes, $this->json, $this->modes);
+    /**
+     * Reads back stored edits
+     *
+     * @return StoredEditsService
+     */
+    private function stored(): StoredEditsService
+    {
+        return new StoredEditsService($this->logger, $this->json);
     }
 }

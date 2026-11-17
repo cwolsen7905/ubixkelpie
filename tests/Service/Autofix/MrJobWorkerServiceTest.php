@@ -8,6 +8,7 @@ use ArrayObject;
 use DateTimeImmutable;
 use Generator;
 use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\Enum\FixOutcome;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Model\AutofixJobRecord;
@@ -328,12 +329,126 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A round job for an MR whose head has moved does nothing: that push raised its own events
+     *
+     * @return void
+     */
+    public function testARoundJobForAMovedHeadIsDone(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markDeferred');
+
+        $this->service($this->readerOf($this->job(null, 1, 3, str_repeat('b', 40), 'round')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertSame([], $this->pushedQueries());
+    }
+
+    /**
+     * A round job in a project that is not in push mode pushes nothing and is done, not retried
+     *
+     * @return void
+     */
+    public function testARoundJobInProposeModeIsDoneWithoutAPush(): void
+    {
+        $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+        $writer->expects($this->never())->method('markRetry');
+        $writer->expects($this->never())->method('markFinished');
+
+        $this->service($this->readerOf($this->job(null, 1, 3, self::HEAD, 'round')), $writer, true, ProjectMode::Propose)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertSame([], $this->pushedQueries());
+    }
+
+    /**
+     * A round job for an MR that is no longer open is done
+     *
+     * @return void
+     */
+    public function testARoundJobForAClosedMrIsDone(): void
+    {
+        $this->gitlab->mergeRequestFields(['state' => 'closed']);
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+
+        $this->service($this->readerOf($this->job(null, 1, 9, self::HEAD, 'round')), $writer, true)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+    }
+
+    /**
+     * A push-mode thread that ended with a stored fix queues one round job
+     *
+     * @return void
+     */
+    public function testAProposedThreadInPushModeQueuesARound(): void
+    {
+        $this->service($this->createStub(AutofixJobReader::class), $this->createStub(AutofixJobWriter::class), true)
+            ->afterThread(FixOutcome::Proposed, 'ubixsys/ubixkelpie', 3, self::HEAD, 'd1abc123', new DateTimeImmutable());
+
+        $inserts = $this->inserts();
+        $this->assertCount(1, $inserts);
+        $this->assertStringContainsString('INSERT INTO ubixkelpie.autofix_jobs', $inserts[0]);
+    }
+
+    /**
+     * A propose-mode thread queues none, and neither does an outcome that is not a proposal
+     *
+     * @return void
+     */
+    public function testNoRoundIsQueuedInProposeModeOrWithoutAProposal(): void
+    {
+        $this->service($this->createStub(AutofixJobReader::class), $this->createStub(AutofixJobWriter::class), true, ProjectMode::Propose)
+            ->afterThread(FixOutcome::Proposed, 'ubixsys/ubixkelpie', 3, self::HEAD, 'd1abc123', new DateTimeImmutable());
+        $this->service($this->createStub(AutofixJobReader::class), $this->createStub(AutofixJobWriter::class), true)
+            ->afterThread(FixOutcome::NotAFix, 'ubixsys/ubixkelpie', 3, self::HEAD, 'd1abc123', new DateTimeImmutable());
+        $this->service($this->createStub(AutofixJobReader::class), $this->createStub(AutofixJobWriter::class), false)
+            ->afterThread(FixOutcome::Proposed, 'ubixsys/ubixkelpie', 3, self::HEAD, 'd1abc123', new DateTimeImmutable());
+
+        $this->assertSame([], $this->inserts());
+    }
+
+    /**
      * @return void
      */
     protected function setUp(): void
     {
         $this->gitlab  = new FakeGitlab();
         $this->queries = new ArrayObject();
+    }
+
+    /**
+     * The INSERTs run against the job table
+     *
+     * @return list<string>
+     */
+    private function inserts(): array
+    {
+        $found = [];
+        foreach ($this->queries->getArrayCopy() as $query) {
+            if (str_contains($query, 'INSERT INTO ubixkelpie.autofix_jobs')) {
+                $found[] = $query;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * Outcome rows the worker's round marked pushed
+     *
+     * @return list<string>
+     */
+    private function pushedQueries(): array
+    {
+        $found = [];
+        foreach ($this->queries->getArrayCopy() as $query) {
+            if (str_contains($query, 'thread_outcomes SET outcome')) {
+                $found[] = $query;
+            }
+        }
+
+        return $found;
     }
 
     /**

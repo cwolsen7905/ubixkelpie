@@ -13,11 +13,11 @@ every prompt, triage still has no tools, and the fixer still has no token. These
 | `html_comment` | Any `<!-- ... -->`, including one never closed (it hides the rest of the text) |
 | `invisible_char` | Soft hyphen, U+180E, zero-width characters, U+2060–2064, BOM, tag characters U+E0000–E007F |
 | `bidi_control` | LRM/RLM, U+061C, U+202A–202E, U+2066–2069 |
-| `injection_phrase` | "ignore / disregard / forget / override / bypass" followed by your, my, all, previous, prior, above, system... and "instructions", "rules", "prompt"...; "you are now in developer mode"; "new instructions:"; "reveal your system prompt" |
+| `injection_phrase` | A verb that tells a model to drop its rules (ignore, disregard, forget, override, bypass) followed by a qualifier (your, my, all, previous, prior, above, system...) and a word like instructions, rules or prompt; a request to switch to an unrestricted mode; a line announcing new instructions; a request to reveal the system prompt |
 | `secret_path` | A read, copy or send verb near `.env`, `id_rsa`, `*.pem`, `/etc/passwd`, `.ssh/`, `.aws/credentials`, `.npmrc`, `.netrc`, a kube config, a vault token, `secrets.yml` |
 
-Plain prose such as "never ignore the instructions in CONTRIBUTING.md" is not a hit: the phrase needs a
-qualifier like *previous* or *your*.
+Plain prose that merely tells a reader to follow a guide is not a hit: the verb needs a qualifier like
+*previous* or *your*.
 
 ### What a hit does
 

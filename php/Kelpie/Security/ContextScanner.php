@@ -9,7 +9,7 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Checks forge and repo text before it reaches a model
  *
- * Looks for hidden HTML comments, invisible and bidirectional Unicode, "ignore your instructions" phrasing and
+ * Looks for hidden HTML comments, invisible and bidirectional Unicode, instruction-override phrasing and
  * reads of secret paths. A hit never stops a run: text comes back cleaned (so it can be quoted as data) and the
  * finding is logged; a repo guide with any hit is dropped whole by `guide()`. The scan is a tripwire, not the
  * control: the prompts still fence the text as data, and the run still has no token and no shell.

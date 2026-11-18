@@ -368,6 +368,81 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * A reply that cannot be parsed is logged, its secrets masked and its length capped at 4 KB
+     *
+     * @return void
+     */
+    public function testUnparsableReplyIsLoggedMaskedAndCapped(): void
+    {
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->exactly(2))->method('warning')->willReturnCallback(function (string $message, array $context = []): void {
+            $this->assertSame('Review reply was not a valid review', $message);
+            if ($context['attempt'] === 1) {
+                $this->assertGreaterThan(5000, $context['reply_bytes']);
+                $this->assertIsString($context['reply']);
+                $this->assertSame(4096, strlen($context['reply']));
+                $this->assertStringStartsWith('Sorry, I cannot do that. api_key: [masked] and sk-[masked] and xxx', $context['reply']);
+
+                return;
+            }
+            $this->assertSame(['plain prose, no json', 20], [$context['reply'], $context['reply_bytes']]);
+        });
+        $harness = new ReviewHarness($logger);
+        $harness->model()
+            ->text('Sorry, I cannot do that. api_key: abcdef1234567890 and sk-abcdefghijkl and ' . str_repeat('x', 5000), 10, 0.001)
+            ->text('plain prose, no json', 10, 0.001);
+        putenv('OPENROUTER_API_KEY=test-key-not-real');
+
+        try {
+            $outcome = $harness->service()->review($this->settings());
+        } finally {
+            putenv('OPENROUTER_API_KEY');
+        }
+
+        $this->assertSame(ReviewOutcome::UNREVIEWED, $outcome->exitCode);
+    }
+
+    /**
+     * The model key is masked wherever it appears in a logged reply
+     *
+     * @return void
+     */
+    public function testModelKeyIsMaskedInTheLoggedReply(): void
+    {
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->exactly(2))->method('warning')->willReturnCallback(function (string $message, array $context = []): void {
+            $this->assertSame('Review reply was not a valid review', $message);
+            $this->assertSame($context['attempt'] === 1 ? 'echo [masked] then done' : 'again [masked]', $context['reply']);
+        });
+        $harness = new ReviewHarness($logger);
+        $harness->model()->text('echo my-model-key-value then done', 10, 0.001)->text('again my-model-key-value', 10, 0.001);
+        putenv('OPENROUTER_API_KEY=my-model-key-value');
+
+        try {
+            $harness->service()->review($this->settings());
+        } finally {
+            putenv('OPENROUTER_API_KEY');
+        }
+    }
+
+    /**
+     * A valid review logs no reply
+     *
+     * @return void
+     */
+    public function testValidReviewLogsNoReply(): void
+    {
+        $logger = $this->createStub(Logger::class);
+        $logger->method('warning')->willReturnCallback(function (string $message, array $context = []): void {
+            $this->assertArrayNotHasKey('reply', $context, $message);
+        });
+
+        $outcome = (new ReviewHarness($logger))->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json')]));
+
+        $this->assertSame(0, $outcome->exitCode);
+    }
+
+    /**
      * A bad first reply is retried with what was wrong, and both attempts are stamped
      *
      * @return void

@@ -34,7 +34,7 @@ final class DiscussionReader
     private const int MAX_PAGES = 100;
 
     /**
-     * Pages of label events followed (the newest events come last, so a busy MR may hide the latest: the label is then kept)
+     * Pages of label events followed (the newest events come last: a longer history leaves the age unknown, and the label is kept)
      */
     private const int LABEL_EVENT_PAGES = 5;
 
@@ -165,7 +165,8 @@ final class DiscussionReader
             $page = ctype_digit($next) ? (int) $next : 0;
         }
 
-        return $added;
+        // Pages were left when the cap hit: the newest add may be among them, so the age is unknown, never an older add's.
+        return $page > 0 ? null : $added;
     }
 
     /**

@@ -154,7 +154,7 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * The newest add event of the label gives when it was put on; other labels, removals and a failed read give nothing
+     * The newest add event of the label gives when it was put on; other labels, removals, a failed read and a history longer than the pages followed give nothing
      *
      * @return void
      */
@@ -180,6 +180,11 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
             return new Psr7Response(200, [], '{not json');
         }, $this->createStub(Logger::class));
 
+        $endless = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(200, ['X-Next-Page' => '9'], '[{"action":"add","created_at":"2026-10-01T10:00:00.000Z","label":{"name":"kelpie::working"}}]');
+        });
+
+        $this->assertNull($endless->labelAddedAt(1, 3, 'kelpie::working'));
         $this->assertNull($failing->labelAddedAt(1, 3, 'kelpie::working'));
         $this->assertNull($broken->labelAddedAt(1, 3, 'kelpie::working'));
     }

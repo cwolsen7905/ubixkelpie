@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Kelpie\GitLab;
 
 use DateTimeImmutable;
+use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\DataTransferObject\ThreadHistory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Log\LoggerInterface as Logger;
@@ -13,7 +15,7 @@ use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
 
 /**
- * Reads unresolved, resolvable threads from a GitLab MR's discussions
+ * Reads threads from a GitLab MR's discussions: the unresolved, resolvable ones, or all with their notes
  *
  * No side effects: only reads. Does not reply, resolve, or write anything.
  *
@@ -63,7 +65,69 @@ final class DiscussionReader
     public function read(int $projectId, int $mrIid): array
     {
         $threads = [];
-        $page    = 1;
+        foreach ($this->getDiscussions($projectId, $mrIid) as $discussion) {
+            $thread = $this->toThread($discussion);
+            if ($thread !== null) {
+                $threads[] = $thread;
+            }
+        }
+
+        return $threads;
+    }
+
+    /**
+     * Return every thread of the MR, resolved or not, with all its notes
+     *
+     * A thread is resolved when any of its notes is. System notes are left out; a discussion made only of them is skipped.
+     *
+     * @param int $projectId The GitLab project ID
+     * @param int $mrIid     The MR IID within that project
+     *
+     * @return list<ThreadHistory>
+     */
+    public function discussions(int $projectId, int $mrIid): array
+    {
+        $threads = [];
+        foreach ($this->getDiscussions($projectId, $mrIid) as $discussion) {
+            $id    = $discussion['id'] ?? null;
+            $notes = [];
+            $open  = false;
+            $done  = false;
+            foreach (is_array($discussion['notes'] ?? null) ? $discussion['notes'] : [] as $raw) {
+                if (!is_array($raw) || ($raw['system'] ?? false) === true) {
+                    continue;
+                }
+                $noteId    = $raw['id'] ?? null;
+                $createdAt = $this->parseDate($raw['created_at'] ?? null);
+                $author    = is_array($raw['author'] ?? null) ? ($raw['author']['username'] ?? null) : null;
+                if (!is_int($noteId) || $createdAt === null) {
+                    continue;
+                }
+                $notes[] = new DiscussionNote($noteId, is_string($raw['body'] ?? null) ? $raw['body'] : '', is_string($author) ? $author : '', $createdAt);
+                $open    = $open || ($raw['resolvable'] ?? false) === true;
+                $done    = $done || ($raw['resolved'] ?? false) === true;
+            }
+
+            if (is_string($id) && $notes !== []) {
+                $threads[] = new ThreadHistory($id, $open, $done, $notes);
+            }
+        }
+
+        return $threads;
+    }
+
+    /**
+     * Fetch the MR's discussions, following the pages
+     *
+     * @param int $projectId The GitLab project ID
+     * @param int $mrIid     The MR IID within that project
+     *
+     * @return list<array<mixed>> The decoded discussions
+     */
+    private function getDiscussions(int $projectId, int $mrIid): array
+    {
+        $found = [];
+        $page  = 1;
 
         while ($page > 0 && $page <= self::MAX_PAGES) {
             $url      = sprintf(
@@ -99,9 +163,8 @@ final class DiscussionReader
             }
 
             foreach ($discussions as $discussion) {
-                $thread = is_array($discussion) ? $this->toThread($discussion) : null;
-                if ($thread !== null) {
-                    $threads[] = $thread;
+                if (is_array($discussion)) {
+                    $found[] = $discussion;
                 }
             }
 
@@ -109,7 +172,7 @@ final class DiscussionReader
             $page = ctype_digit($next) ? (int) $next : 0;
         }
 
-        return $threads;
+        return $found;
     }
 
     /**

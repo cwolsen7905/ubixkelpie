@@ -6,6 +6,7 @@ namespace Kelpie\Tests\GitLab;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -118,6 +119,13 @@ final class FakeGitlab implements HttpClient
     private array $commit = ['message' => 'feat: x', 'committed_date' => '2026-01-01T00:00:00.000Z'];
 
     /**
+     * The shas of the commits the MR carries, null for a listing that fails
+     *
+     * @var ?list<string>
+     */
+    private ?array $commitShas = [];
+
+    /**
      * Next note ID to hand out
      */
     private int $nextId = 100;
@@ -144,6 +152,18 @@ final class FakeGitlab implements HttpClient
     public function changedFiles(?array $paths): void
     {
         $this->changedFiles = $paths === null ? null : array_values($paths);
+    }
+
+    /**
+     * Set the commits the MR carries
+     *
+     * @param ?string[] $shas Full shas, null to make the listing fail
+     *
+     * @return void
+     */
+    public function commitShas(?array $shas): void
+    {
+        $this->commitShas = $shas === null ? null : array_values($shas);
     }
 
     /**
@@ -320,6 +340,18 @@ final class FakeGitlab implements HttpClient
     }
 
     /**
+     * Build a DiscussionReader over the fake
+     *
+     * @param Logger $logger Logger
+     *
+     * @return DiscussionReader
+     */
+    public function reader(Logger $logger): DiscussionReader
+    {
+        return new DiscussionReader($logger, $this, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
+    }
+
+    /**
      * {@inheritDoc}
      */
     public function sendRequest(Request $request): Response
@@ -345,6 +377,19 @@ final class FakeGitlab implements HttpClient
                     ...$this->mrFields,
                 ],
             ]));
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/commits$#', $path) === 1 && $method === 'GET') {
+            if ($this->commitShas === null) {
+                return $this->fakeJson(['message' => '404 Not found'], 404);
+            }
+            parse_str($request->getUri()->getQuery(), $query);
+            $size   = (int) ($query['per_page'] ?? 20);
+            $listed = [];
+            foreach (array_slice($this->commitShas, (max(1, (int) ($query['page'] ?? 1)) - 1) * $size, $size) as $sha) {
+                $listed[] = ['id' => $sha];
+            }
+
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode($listed));
         }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/diffs$#', $path) === 1 && $method === 'GET') {
             if ($this->changedFiles === null) {
@@ -480,18 +525,18 @@ final class FakeGitlab implements HttpClient
      */
     private function fakeDiscussion(string $id): array
     {
-        return [
-            'id'    => $id,
-            'notes' => array_map(static function (array $note): array {
-                return [
-                    ...$note,
-                    'author'     => ['username' => $note['author']],
-                    'resolvable' => true,
-                    'resolved'   => false,
-                    'updated_at' => $note['created_at'],
-                ];
-            }, $this->notes[$id]),
-        ];
+        $notes = [];
+        foreach ($this->notes[$id] as $note) {
+            $notes[] = [
+                ...$note,
+                'author'     => ['username' => $note['author']],
+                'resolvable' => true,
+                'resolved'   => in_array($id, $this->resolved, true),
+                'updated_at' => $note['created_at'],
+            ];
+        }
+
+        return ['id' => $id, 'notes' => $notes];
     }
 
     /**

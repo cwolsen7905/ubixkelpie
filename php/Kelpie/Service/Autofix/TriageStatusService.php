@@ -28,9 +28,14 @@ use Psr\Log\LoggerInterface as Logger;
  */
 final class TriageStatusService
 {
+    public const string MARKER = '<!-- kelpie:summary';
+
     private const string EYES = 'eyes';
 
-    private const string MARKER = '<!-- kelpie:summary -->';
+    /**
+     * Most threads whose IDs a summary's marker lists (the scanner allows five attributes of 64 characters; each holds five IDs)
+     */
+    private const int MARKED_THREADS = 25;
 
     /**
      * Constructor
@@ -106,7 +111,7 @@ final class TriageStatusService
         }
 
         $count = count($threads);
-        $note  = $this->writer->openNote($project, $mrIid, sprintf("Kelpie triage is working on %d %s.\n\n%s", $count, $count === 1 ? 'thread' : 'threads', self::MARKER));
+        $note  = $this->writer->openNote($project, $mrIid, sprintf("Kelpie triage is working on %d %s.\n\n%s", $count, $count === 1 ? 'thread' : 'threads', $this->marker($threads)));
         if ($note === null) {
             $this->logger->warning('Triage summary note could not be posted', ['mr_iid' => $mrIid]);
 
@@ -199,8 +204,33 @@ final class TriageStatusService
             $count === 1 ? 'thread' : 'threads',
             $status === null ? 'nothing to do' : substr($status->value, strlen('triage: ')),
             implode("\n", $lines),
-            self::MARKER,
+            $this->marker($run->threads),
         );
+    }
+
+    /**
+     * The marker that makes the note a summary and lists the threads it covers, so a later pass can resolve it once they are
+     *
+     * An ID is cut to ten characters, five to an attribute, to fit what the context scanner keeps. A run of more threads than
+     * fit records the count too, so the reader knows the list is partial.
+     *
+     * @param Thread[] $threads The threads the run covers
+     *
+     * @return string
+     */
+    private function marker(array $threads): string
+    {
+        $ids = [];
+        foreach (array_slice($threads, 0, self::MARKED_THREADS) as $thread) {
+            $ids[] = substr((string) preg_replace('/[^A-Za-z0-9_-]/', '', $thread->discussionId), 0, 10);
+        }
+
+        $attributes = '';
+        foreach (array_chunk($ids, 5) as $index => $chunk) {
+            $attributes .= sprintf(' t%d=%s', $index + 1, implode('.', $chunk));
+        }
+
+        return sprintf('%s n=%d%s -->', self::MARKER, count($threads), $attributes);
     }
 
     /**

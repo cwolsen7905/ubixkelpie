@@ -92,6 +92,37 @@ final class DiscussionWriter
     }
 
     /**
+     * Read the shas of the commits the MR carries on its source branch
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return ?list<string> Full shas; null when they could not be read, or the MR has more commits than the page limit reads
+     */
+    public function commitShas(string $project, int $mrIid): ?array
+    {
+        $shas = [];
+        for ($page = 1; $page <= self::MAX_DIFF_PAGES; ++$page) {
+            $commits = $this->send('GET', sprintf('%s/commits?per_page=%d&page=%d', $this->mrUrl($project, $mrIid), self::DIFF_PAGE_SIZE, $page), null);
+            if ($commits === null) {
+                return null;
+            }
+
+            foreach ($commits as $raw) {
+                if (is_array($raw) && is_string($raw['id'] ?? null) && $raw['id'] !== '') {
+                    $shas[] = $raw['id'];
+                }
+            }
+
+            if (count($commits) < self::DIFF_PAGE_SIZE) {
+                return $shas;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Read what decides whether the fixer may push to an MR's source branch
      *
      * @param string $project The project ID or URL-encodable path

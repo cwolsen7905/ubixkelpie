@@ -15,6 +15,7 @@ use Kelpie\GitLab\JobLogReader;
 use Kelpie\GitLab\MergeRequestLister;
 use Kelpie\Policy\EventFilter;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 
 /**
  * The scheduled safety net: walk the open MRs and put what needs resolution on the job table for `kelpie:work`
@@ -28,7 +29,8 @@ use Psr\Log\LoggerInterface as Logger;
  * The sweep runs nothing itself: `kelpie:work` is the one runner, so the two cannot race. A thread that
  * already has a job open is coalesced into it; one that is already answered is not queued again. With
  * `$enabled` false nothing is written anywhere: candidates are only reported. With it true at most
- * `$maxRuns` jobs are queued per sweep. `sweepMr` is also what the worker calls for a finished review job.
+ * `$maxRuns` jobs are queued per sweep. Each MR's settled threads are resolved first (see `SettledThreadService`), so a
+ * thread that is already fixed or dismissed is not queued. `sweepMr` is also what the worker calls for a finished review job.
  *
  * @see \Kelpie\Tests\Service\Autofix\SweepServiceTest PHPUnit test case
  */
@@ -39,18 +41,19 @@ final class SweepService
     /**
      * Constructor
      *
-     * @param Logger             $logger     Logger
-     * @param bool               $enabled    Whether `KELPIE_AUTOFIX_ENABLED` is on
-     * @param string[]           $projects   Allow-listed project paths
-     * @param int                $maxRuns    Most jobs queued per sweep
-     * @param EnqueueService     $enqueue    The webhook's entry point
-     * @param MergeRequestLister $lister     Lists open MRs
-     * @param DiscussionReader   $reader     Reads unresolved threads
-     * @param DiscussionWriter   $writer     Opens the pipeline thread
-     * @param JobLogReader       $logReader  Reads failed jobs and their logs
-     * @param AutofixJobService  $jobs       The job table
-     * @param ReplyService       $replies    Tells whether a thread is already answered
-     * @param string[]           $gateStages Pipeline stages whose failure is fixable
+     * @param Logger                $logger     Logger
+     * @param bool                  $enabled    Whether `KELPIE_AUTOFIX_ENABLED` is on
+     * @param string[]              $projects   Allow-listed project paths
+     * @param int                   $maxRuns    Most jobs queued per sweep
+     * @param EnqueueService        $enqueue    The webhook's entry point
+     * @param MergeRequestLister    $lister     Lists open MRs
+     * @param DiscussionReader      $reader     Reads unresolved threads
+     * @param DiscussionWriter      $writer     Opens the pipeline thread
+     * @param JobLogReader          $logReader  Reads failed jobs and their logs
+     * @param AutofixJobService     $jobs       The job table
+     * @param ReplyService          $replies    Tells whether a thread is already answered
+     * @param string[]              $gateStages Pipeline stages whose failure is fixable
+     * @param ?SettledThreadService $settled    Resolves the threads that are settled, null to leave them
      */
     public function __construct(
         private readonly Logger $logger,
@@ -65,6 +68,7 @@ final class SweepService
         private readonly AutofixJobService $jobs,
         private readonly ReplyService $replies,
         private readonly array $gateStages = EventFilter::GATE_STAGES,
+        private readonly ?SettledThreadService $settled = null,
     ) {
     }
 
@@ -103,7 +107,7 @@ final class SweepService
      */
     public function sweepMr(string $path, MergeRequestSummary $mr, DateTimeImmutable $now, int $budget): array
     {
-        $lines  = [];
+        $lines  = $this->settle($mr, $now);
         $queued = 0;
 
         foreach ($this->candidates($path, $mr) as $candidate) {
@@ -144,6 +148,31 @@ final class SweepService
         }
 
         return [$lines, $queued];
+    }
+
+    /**
+     * Resolve the MR's settled threads (only report them while autofix is disabled)
+     *
+     * Never throws: a failed read or resolve is logged and the next pass tries again.
+     *
+     * @param MergeRequestSummary $mr  The MR
+     * @param DateTimeImmutable   $now The current time
+     *
+     * @return list<string> One line per thread resolved, or that would be
+     */
+    public function settle(MergeRequestSummary $mr, DateTimeImmutable $now): array
+    {
+        if ($this->settled === null) {
+            return [];
+        }
+
+        try {
+            return $this->settled->settle($mr->projectId, $mr->iid, $now, $this->enabled);
+        } catch (Throwable $e) {
+            $this->logger->error('Autofix sweep: settled threads could not be resolved', ['error' => $e->getMessage(), 'mr_iid' => $mr->iid]);
+
+            return [];
+        }
     }
 
     /**

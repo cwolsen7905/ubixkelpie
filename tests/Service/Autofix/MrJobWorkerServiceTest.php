@@ -20,6 +20,7 @@ use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\MrJobWorkerService;
 use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\SettledThreadService;
 use Kelpie\Service\Autofix\SweepService;
 use Kelpie\Tests\Console\Command\CommandServices;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -171,6 +172,23 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $writer->expects($this->once())->method('markDone')->with(7);
 
         $this->service($this->readerOf($this->job('gone0000', 1)), $writer)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+    }
+
+    /**
+     * After a thread job the MR's settled threads are resolved, so a Note Hook that says "Dismissed: ..." clears its thread
+     *
+     * @return void
+     */
+    public function testSettledThreadsAreResolvedAfterAJob(): void
+    {
+        $this->gitlab->note('d1abc123', 'Rename this.', '-2 hours', null, 'bob');
+        $this->gitlab->note('d1abc123', 'Dismissed: the name matches the interface it implements.', '-1 hour', null, 'bob');
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('markDone')->with(7);
+
+        $this->service($this->readerOf($this->job('gone0000', 1)), $writer)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+
+        $this->assertSame(['d1abc123'], $this->gitlab->resolved());
     }
 
     /**
@@ -583,6 +601,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $gitlab->jobLogReader(),
             $jobs,
             new ReplyService($logger, $gitlab->writer(), 'kelpie-bot'),
+            settled: new SettledThreadService($logger, $gitlab->reader(), $gitlab->writer(), 'kelpie-bot'),
         );
 
         return new MrJobWorkerService(

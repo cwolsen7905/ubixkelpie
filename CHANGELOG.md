@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Kelpie resolves MR threads once they are settled, so nobody clears them by hand (item 290, and the summary notes of 287).
+  A thread with a reply is resolved when it was fixed and pushed (a `Fixed:` reply from Kelpie or "fixed in <sha>" naming a
+  commit the MR carries), or when its last reply says "dismissed" and gives a reason; Kelpie's own triage summary is resolved
+  once the threads it covers are. A thread with a newer note from a person, or whose deciding note is a question, is left
+  open. Each resolve is logged with its reason (`fixed_pushed`, `dismissed`, `summary_settled`). It runs on every worker job
+  and in `kelpie:sweep`, and only reports ("would resolve") while `KELPIE_AUTOFIX_ENABLED` is off. Summary notes now list the
+  threads they cover in their marker. See `docs/autofix/settled-threads.md`.
+
 - Triage comments and auto-fix thread replies now end with the model, effort, tokens and cost (OpenRouter), like review summaries; cost is left out when OpenRouter does not report it.
 
 - Issue autofix failure paths (step 4): a fix that is too big, touches a protected

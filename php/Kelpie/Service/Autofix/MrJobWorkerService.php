@@ -197,16 +197,23 @@ final class MrJobWorkerService
         $mrs  = $this->lister->open($path);
 
         if ($job->getSource() === AutofixJob::ROUND) {
-            return $this->round($job, $path, $mrs, $now);
+            $error = $this->round($job, $path, $mrs, $now);
+        } elseif ($job->getDiscussionId() !== null) {
+            $error = $this->work($job, $path, $mrs, $now);
+        } else {
+            $this->fanOut($job, $path, $mrs, $now);
+
+            return null; // The fan-out's sweep has settled the MR
         }
 
-        if ($job->getDiscussionId() !== null) {
-            return $this->work($job, $path, $mrs, $now);
+        // The job may have changed the thread (a fix, a reply) or been woken by someone's note: resolve what is settled
+        foreach ($mrs as $mr) {
+            if ($mr->iid === $job->getMrIid()) {
+                $this->sweep->settle($mr, $now);
+            }
         }
 
-        $this->fanOut($job, $path, $mrs, $now);
-
-        return null;
+        return $error;
     }
 
     /**

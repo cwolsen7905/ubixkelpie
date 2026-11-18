@@ -166,6 +166,29 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The MR's commit shas are read, across pages; a listing that fails is null
+     *
+     * @return void
+     */
+    public function testCommitShas(): void
+    {
+        $writer = $this->gitlab->writer($this->createStub(Logger::class));
+
+        $this->gitlab->commitShas([str_repeat('a', 40), str_repeat('b', 40)]);
+        $this->assertSame([str_repeat('a', 40), str_repeat('b', 40)], $writer->commitShas('1', 3));
+
+        $many = [];
+        foreach (range(1, 130) as $n) {
+            $many[] = sprintf('%040d', $n);
+        }
+        $this->gitlab->commitShas($many);
+        $this->assertSame($many, $writer->commitShas('1', 3));
+
+        $this->gitlab->commitShas(null);
+        $this->assertNull($writer->commitShas('1', 3));
+    }
+
+    /**
      * A new MR-level discussion is opened and its ID returned
      *
      * @return void

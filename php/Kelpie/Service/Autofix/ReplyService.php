@@ -39,14 +39,16 @@ final class ReplyService
     /**
      * Constructor
      *
-     * @param Logger           $logger      Logger
-     * @param DiscussionWriter $writer      The GitLab writer
-     * @param string           $botUsername The account that writes Kelpie's replies; only its notes prove a thread is Kelpie's
+     * @param Logger             $logger            Logger
+     * @param DiscussionWriter   $writer            The GitLab writer
+     * @param string             $botUsername       The account that writes Kelpie's replies; only its notes prove a thread is Kelpie's
+     * @param ?UsageStampService $usageStampService The usage footer writer; replies carry no footer when none is given
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly DiscussionWriter $writer,
         private readonly string $botUsername,
+        private readonly ?UsageStampService $usageStampService = null,
     ) {
     }
 
@@ -179,7 +181,7 @@ final class ReplyService
 
         $body = sprintf(
             "Kelpie triage: **%s\n\n<!-- kelpie:reply thread=%s class=%s -->",
-            $this->stamper()->append(sprintf($text, $this->clean($verdict->reason)), $verdict->completion),
+            $this->stamped(sprintf($text, $this->clean($verdict->reason)), $verdict->completion),
             $discussionId,
             $verdict->class->value,
         );
@@ -275,7 +277,7 @@ final class ReplyService
             return null;
         }
 
-        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamper()->append($lead, $completion), $discussionId, $kind->value, $headSha);
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamped($lead, $completion), $discussionId, $kind->value, $headSha);
         $note = $this->writer->reply($project, $mrIid, $discussionId, $body);
         if ($note !== null) {
             $this->logger->info('Autofix proposal posted', ['class' => $kind->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
@@ -303,13 +305,16 @@ final class ReplyService
     }
 
     /**
-     * The usage footer writer
+     * A text with the usage footer under it, when there is a writer and a model call
      *
-     * @return UsageStampService
+     * @param string      $text       The text
+     * @param ?Completion $completion The model call behind it
+     *
+     * @return string
      */
-    private function stamper(): UsageStampService
+    private function stamped(string $text, ?Completion $completion): string
     {
-        return new UsageStampService($this->logger);
+        return $this->usageStampService === null ? $text : $this->usageStampService->append($text, $completion);
     }
 
     /**

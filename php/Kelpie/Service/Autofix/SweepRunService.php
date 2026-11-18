@@ -10,6 +10,7 @@ use Kelpie\DataTransferObject\RunResult;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Policy\EventFilter;
 use Kelpie\Service\Project\ProjectModeService;
+use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -91,7 +92,7 @@ final class SweepRunService
             $writer,
             $this->gitlab->jobLogReader(),
             $this->jobs,
-            new ReplyService($this->logger, $writer, $this->settings->botUsername),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger)),
         );
     }
 }

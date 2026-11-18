@@ -9,6 +9,7 @@ use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
 use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Triage\UsageStampService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -95,6 +96,6 @@ final class ReplyUsageStampTest extends TestCase
     {
         $logger = $this->createStub(Logger::class);
 
-        return new ReplyService($logger, $gitlab->writer($logger), 'kelpie-bot');
+        return new ReplyService($logger, $gitlab->writer($logger), 'kelpie-bot', new UsageStampService($logger));
     }
 }

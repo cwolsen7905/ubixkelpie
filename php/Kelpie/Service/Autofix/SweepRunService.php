@@ -93,7 +93,7 @@ final class SweepRunService
             $this->gitlab->jobLogReader(),
             $this->jobs,
             new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger)),
-            settled: new SettledThreadService($this->logger, $this->gitlab->reader(), $writer, $this->settings->botUsername),
+            settled: new SettledThreadService($this->logger, $this->gitlab->reader(), $writer, $this->settings->botUsername, $this->settings->skipAuthors),
         );
     }
 }

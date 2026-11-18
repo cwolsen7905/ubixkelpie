@@ -124,13 +124,13 @@ final class SettledThreadServiceTest extends UbixConcreteClassOrEnumTestCase imp
         $this->gitlab->note('t1', 'Rename this.', '-2 hours', null, 'bob');
         $this->gitlab->note('t1', 'Dismissed: the name matches the interface it implements.', '-1 hour', null, 'bob');
         $this->gitlab->note('t2', 'Rename this.', '-2 hours', null, 'bob');
-        $this->gitlab->note('t2', 'Marking this dismissed because the legacy API needs that name.', '-1 hour', null, 'alice');
+        $this->gitlab->note('t2', 'Marking this dismissed because the legacy API needs that name.', '-1 hour', null, 'bob');
         $this->gitlab->note('t3', 'Rename this.', '-2 hours', null, 'bob');
-        $this->gitlab->note('t3', 'Dismissed.', '-1 hour', null, 'alice');
+        $this->gitlab->note('t3', 'Dismissed.', '-1 hour', null, 'bob');
         $this->gitlab->note('t4', 'Rename this.', '-2 hours', null, 'bob');
-        $this->gitlab->note('t4', 'Dismissed: is that name really right for this class?', '-1 hour', null, 'alice');
+        $this->gitlab->note('t4', 'Dismissed: is that name really right for this class?', '-1 hour', null, 'bob');
         $this->gitlab->note('t5', 'Rename this.', '-2 hours', null, 'bob');
-        $this->gitlab->note('t5', 'This was not dismissed, the name still looks wrong to me here.', '-1 hour', null, 'alice');
+        $this->gitlab->note('t5', 'This was not dismissed, the name still looks wrong to me here.', '-1 hour', null, 'bob');
         $this->gitlab->note('t6', 'Dismissed: not worth the churn for this module.', '-1 hour', null, 'bob');
         $this->gitlab->note('t7', 'Rename this.', '-2 hours', null, 'bob');
         $this->gitlab->note('t7', "Kelpie proposes dismissing this: the name is fine here.\n\n<!-- kelpie:reply thread=t7 class=not_an_issue head=abc1234 -->", '-1 hour', null, 'kelpie-bot');
@@ -141,6 +141,23 @@ final class SettledThreadServiceTest extends UbixConcreteClassOrEnumTestCase imp
         $this->settle();
 
         $this->assertSame(['t1', 't2'], $this->gitlab->resolved());
+    }
+
+    /**
+     * Only the thread's author, the bot or a configured agent can settle it: a bystander's "dismissed" or "fixed in" is a comment
+     *
+     * @return void
+     */
+    public function testBystanderCannotSettleAThread(): void
+    {
+        $this->gitlab->commitShas([self::SHA]);
+        $this->gitlab->note('t1', 'Rename this.', '-2 hours', null, 'bob');
+        $this->gitlab->note('t1', 'Dismissed: the name matches the interface it implements.', '-1 hour', null, 'mallory');
+        $this->gitlab->note('t2', 'Rename this.', '-2 hours', null, 'bob');
+        $this->gitlab->note('t2', 'Fixed in abc1234, honest.', '-1 hour', null, 'mallory');
+
+        $this->assertSame([], $this->settle());
+        $this->assertSame([], $this->gitlab->resolved());
     }
 
     /**
@@ -267,6 +284,6 @@ final class SettledThreadServiceTest extends UbixConcreteClassOrEnumTestCase imp
      */
     private function service(Logger $logger): SettledThreadService
     {
-        return new SettledThreadService($logger, $this->gitlab->reader($logger), $this->gitlab->writer($logger), 'kelpie-bot');
+        return new SettledThreadService($logger, $this->gitlab->reader($logger), $this->gitlab->writer($logger), 'kelpie-bot', ['agent']);
     }
 }

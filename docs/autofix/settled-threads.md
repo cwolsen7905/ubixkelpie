@@ -17,6 +17,12 @@ A thread needs at least one reply (a lone first note is never resolved) and one 
    per attribute, up to 25 threads). A summary with no list (older ones, or a run of more than 25 threads) waits until the MR
    has no other open thread. A summary still saying "working on" is left for an hour, then treated like any other.
 
+## Who may settle a thread
+
+Only the bot, a configured agent account (`KELPIE_SKIP_AUTHORS`) or the person who opened the thread. A "dismissed" or
+"fixed in <sha>" from anyone else is a comment, so a bystander cannot clear a reviewer's thread. The commit check only proves
+the sha is on the MR, which is why the author check matters.
+
 ## When it is not
 
 - A note from anyone but the bot or the fixer after the fix: a person has spoken since.

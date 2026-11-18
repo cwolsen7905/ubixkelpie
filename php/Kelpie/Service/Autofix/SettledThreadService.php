@@ -20,7 +20,8 @@ use Psr\Log\LoggerInterface as Logger;
  * - dismissed with a reason: its last reply says "dismissed" and gives a reason;
  * - it is Kelpie's own triage summary and every thread it covers is resolved.
  *
- * It never resolves a thread with a note from anyone but the bot or the fixer after the fix, nor one whose deciding note
+ * Only the bot, a configured agent or the person who opened the thread can settle it; anyone else's "dismissed" or "fixed in"
+ * is a comment. It never resolves a thread with a note from anyone but the bot or the fixer after the fix, nor one whose deciding note
  * ends in a question: that is a person still asking. A summary counts only when the bot account wrote it, since a marker
  * is text anyone can type. Every resolve is logged with its reason; a failed one is logged and left for the next pass.
  * With `$apply` false nothing is written: the lines say what would be resolved. It is run for an MR on each job the worker
@@ -44,12 +45,14 @@ final class SettledThreadService
      * @param DiscussionReader $reader      Reads every thread of the MR
      * @param DiscussionWriter $writer      Reads the MR's commits and resolves threads
      * @param string           $botUsername The bot's username; only its summaries are Kelpie's
+     * @param string[]         $agents      Usernames of the agents that fix threads (`KELPIE_SKIP_AUTHORS`); their word counts like the bot's
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly DiscussionReader $reader,
         private readonly DiscussionWriter $writer,
         private readonly string $botUsername,
+        private readonly array $agents = [],
     ) {
     }
 
@@ -222,14 +225,14 @@ final class SettledThreadService
         if ($this->isQuestion($last->body)) {
             return null;
         }
-        if ($this->dismissal($last)) {
+        if ($this->dismissal($last, $thread)) {
             return SettleReason::Dismissed;
         }
 
         // The latest fix note decides; whatever follows it must be the bot's or the fixer's own
         for ($index = count($notes) - 1; $index >= 1; --$index) {
             $note = $notes[$index];
-            if (!$this->fixNamesCommit($note, $shas)) {
+            if (!$this->fixNamesCommit($note, $thread, $shas)) {
                 continue;
             }
             if ($this->isQuestion($note->body)) {
@@ -251,14 +254,15 @@ final class SettledThreadService
     /**
      * Whether a note says it fixed the thing in a commit the MR carries
      *
-     * @param DiscussionNote $note The note
-     * @param string[]       $shas The commits the MR carries
+     * @param DiscussionNote $note   The note
+     * @param ThreadHistory  $thread The thread it is in
+     * @param string[]       $shas   The commits the MR carries
      *
      * @return bool
      */
-    private function fixNamesCommit(DiscussionNote $note, array $shas): bool
+    private function fixNamesCommit(DiscussionNote $note, ThreadHistory $thread, array $shas): bool
     {
-        if ($this->isProposal($note)) {
+        if ($this->isProposal($note) || !$this->mayClose($note, $thread)) {
             return false;
         }
 
@@ -290,14 +294,15 @@ final class SettledThreadService
      * The bot's own note must start "Dismissed:"; anyone else's may say "dismissed" in its first words. A proposal
      * to dismiss, which waits for a person, never counts.
      *
-     * @param DiscussionNote $note The note
+     * @param DiscussionNote $note   The note
+     * @param ThreadHistory  $thread The thread it is in
      *
      * @return bool
      */
-    private function dismissal(DiscussionNote $note): bool
+    private function dismissal(DiscussionNote $note, ThreadHistory $thread): bool
     {
         $text = $this->visible($note->body);
-        if ($this->isProposal($note) || preg_match('/\b(?:not|never|isn\'t|wasn\'t|un)\s*dismissed\b/i', $text) === 1) {
+        if ($this->isProposal($note) || !$this->mayClose($note, $thread) || preg_match('/\b(?:not|never|isn\'t|wasn\'t|un)\s*dismissed\b/i', $text) === 1) {
             return false;
         }
 
@@ -309,6 +314,21 @@ final class SettledThreadService
         $reason = trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $match[1]));
 
         return count(preg_split('/\s+/', $reason, -1, PREG_SPLIT_NO_EMPTY) ?: []) >= self::MIN_REASON_WORDS;
+    }
+
+    /**
+     * Whether the note's author may settle the thread: the bot, a configured agent, or the person who opened it
+     *
+     * Anyone else's "dismissed" or "fixed in" is a comment, not the reviewer's agreement.
+     *
+     * @param DiscussionNote $note   The note
+     * @param ThreadHistory  $thread The thread it is in
+     *
+     * @return bool
+     */
+    private function mayClose(DiscussionNote $note, ThreadHistory $thread): bool
+    {
+        return $note->author !== '' && ($note->author === $this->botUsername || $note->author === $thread->notes[0]->author || in_array($note->author, $this->agents, true));
     }
 
     /**

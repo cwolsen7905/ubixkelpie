@@ -28,6 +28,8 @@ use Ubix\Service\JsonService;
  */
 final class ReviewService
 {
+    private const int RAW_REPLY_LOG_BYTES = 4096;
+
     /**
      * Constructor
      *
@@ -218,11 +220,48 @@ final class ReviewService
             if ($parsed instanceof ReviewResult) {
                 return [$parsed, $usage];
             }
-            $this->logger->warning('Review reply was not a valid review', ['attempt' => $attempt, 'problem' => $parsed]);
+            $this->logger->warning('Review reply was not a valid review', [
+                'attempt'     => $attempt,
+                'problem'     => $parsed,
+                'reply'       => $this->maskedExcerpt($reply, $settings),
+                'reply_bytes' => strlen($reply),
+            ]);
             $retry = $parsed;
         }
 
         return [null, $usage];
+    }
+
+    /**
+     * The first 4 KB of a reply that could not be parsed, with secrets masked, so the log can say what the model sent
+     *
+     * Masking runs before the cut so a secret that straddles the limit is not left half showing.
+     *
+     * @param string         $reply    The raw reply
+     * @param ReviewSettings $settings The settings, for the token to mask
+     *
+     * @return string
+     */
+    private function maskedExcerpt(string $reply, ReviewSettings $settings): string
+    {
+        $masked = $reply;
+        foreach ([(string) getenv('OPENROUTER_API_KEY'), $settings->token] as $secret) {
+            if (strlen($secret) >= 6) {
+                $masked = str_replace($secret, '[masked]', $masked);
+            }
+        }
+        $masked = (string) preg_replace(
+            [
+                '/sk-[A-Za-z0-9_-]{8,}/',
+                '/glpat-[A-Za-z0-9_-]{8,}/',
+                '/(Bearer|PRIVATE-TOKEN:?|Authorization:?)[ =]+[A-Za-z0-9._~+\/=-]{8,}/i',
+                '/((?:api[_-]?key|token|secret|password)"?[ ]*[:=][ ]*"?)[A-Za-z0-9._~+\/=-]{8,}/i',
+            ],
+            ['sk-[masked]', 'glpat-[masked]', '$1 [masked]', '$1[masked]'],
+            $masked,
+        );
+
+        return mb_strcut($masked, 0, self::RAW_REPLY_LOG_BYTES);
     }
 
     /**

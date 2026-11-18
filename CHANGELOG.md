@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `kelpie review` says what the model sent when its reply is not a valid review. The warning now carries
+  `reply_bytes` and the first 4 KB of the raw reply, with the model key, the review token and common key,
+  token and password patterns masked. Review behaviour is unchanged.
+
 - AI review says why a reply failed. When `review.sh` cannot parse or validate the model's reply, it logs the
   finish reason, model, token counts, any error field and the first 4 KB of the raw reply (secrets masked), and
   keeps the same text as the `ai-review-diagnostics/` job artifact. Review behaviour is unchanged.

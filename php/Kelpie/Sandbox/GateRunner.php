@@ -26,7 +26,7 @@ final class GateRunner
      * The steps, in order
      */
     private const array STEPS = [
-        'composer install' => ['composer', 'install', '--no-interaction', '--no-progress', '--prefer-dist'],
+        'composer install' => ['composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--prefer-dist'],
         'phpcs'            => ['vendor/bin/phpcs'],
         'phpstan'          => ['vendor/bin/phpstan', 'analyse', '--no-progress', '--no-interaction'],
         'phpunit'          => ['vendor/bin/phpunit'],
@@ -59,12 +59,11 @@ final class GateRunner
             'HOME' => dirname($directory),
             'PATH' => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin'),
         ];
-        if ($this->composerAuth !== '') {
-            $env['COMPOSER_AUTH'] = $this->composerAuth;
-        }
 
         foreach (self::STEPS as $name => $argv) {
-            $result = $this->runner->run($argv, $directory, $env, self::STEP_TIMEOUT);
+            // The registry credential is for composer alone: the steps after it run the repository's own code.
+            $stepEnv = $name === 'composer install' && $this->composerAuth !== '' ? $env + ['COMPOSER_AUTH' => $this->composerAuth] : $env;
+            $result  = $this->runner->run($argv, $directory, $stepEnv, self::STEP_TIMEOUT);
 
             if ($result->exitCode !== 0) {
                 $output = $result->timedOut ? 'Timed out.' : trim($result->stdout . "\n" . $result->stderr);

@@ -472,7 +472,7 @@ diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
     echo "model: $MODEL"
     echo "$meta"
     echo "error_field: ${errs:-none}"
-    echo "reply_bytes: ${#3}"
+    echo "reply_bytes: $(printf '%s' "$3" | wc -c | tr -d ' ')"
     echo "--- raw reply (first 4096 bytes) ---"
     printf '%s' "$3" | mask_secrets | head -c 4096
     echo

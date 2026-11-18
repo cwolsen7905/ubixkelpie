@@ -233,4 +233,12 @@ out=$(AI_REVIEW_WORK=$w/work OPENROUTER_API_KEY=topsecretvalue123 "$here/../revi
 ! grep -q 'topsec' "$w/work/diagnostics/attempt-1.txt"; expect "diagnostics: the artifact has no secret prefix either" $?
 rm -rf "$w"
 
+# reply_bytes counts bytes, not characters: "ééé" is 6 bytes.
+w=$(mktemp -d)
+printf 'ééé' >"$w/reply.txt"
+out=$(LC_ALL=en_US.UTF-8 AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1); rc=$?
+has 'reply_bytes: 6$'; expect "diagnostics: reply_bytes counts bytes of a multibyte reply" $?
+rm -rf "$w"
+
 exit $fail

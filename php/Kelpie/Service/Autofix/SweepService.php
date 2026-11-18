@@ -37,6 +37,11 @@ use Throwable;
  */
 final class SweepService
 {
+    /**
+     * How long a working label must have been on an MR, with no live job, before it is taken for a dead run's: two job leases
+     */
+    private const int STALE_SECONDS = 2 * MrJobWorkerService::LOCK_SECONDS;
+
     private const string PIPELINE_MARKER = '<!-- kelpie:pipeline job=';
 
     /**
@@ -155,7 +160,9 @@ final class SweepService
      * Take a stale `kelpie::working` label off the MR (only report it while autofix is disabled)
      *
      * The label is stale when no run can be behind it: the job table holds no pending job and no running job with a live lease
-     * for the MR, so the run that set it died before it could end. Never throws: a failure is logged and the next pass tries again.
+     * for the MR, and the label was put on longer ago than a run can last (two job leases). The age matters because a run that
+     * leaves no job row, such as the `respond` command, or a fixer whose lease ran out before it ended, still holds the label.
+     * When the age cannot be read the label is kept. Never throws: a failure is logged and the next pass tries again.
      *
      * @param string              $path The project path
      * @param MergeRequestSummary $mr   The MR
@@ -172,6 +179,10 @@ final class SweepService
 
         try {
             if ($this->jobs->reader()->hasLiveJob($path, $mr->iid, $now)) {
+                return [];
+            }
+
+            if (!$this->olderThanARun($mr, $claims, $now)) {
                 return [];
             }
 
@@ -217,6 +228,28 @@ final class SweepService
 
             return [];
         }
+    }
+
+    /**
+     * Whether the newest of the claim labels was put on longer ago than a run can last
+     *
+     * @param MergeRequestSummary $mr     The MR
+     * @param string[]            $claims The claim labels on the MR
+     * @param DateTimeImmutable   $now    The current time
+     *
+     * @return bool False when it is younger, or when its age is not known
+     */
+    private function olderThanARun(MergeRequestSummary $mr, array $claims, DateTimeImmutable $now): bool
+    {
+        $newest = null;
+        foreach ($claims as $claim) {
+            $at = $this->reader->labelAddedAt($mr->projectId, $mr->iid, $claim);
+            if ($at !== null && ($newest === null || $at > $newest)) {
+                $newest = $at;
+            }
+        }
+
+        return $newest !== null && $now->getTimestamp() - $newest->getTimestamp() >= self::STALE_SECONDS;
     }
 
     /**

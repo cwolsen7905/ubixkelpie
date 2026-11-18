@@ -39,7 +39,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Enabled, the sweep only queues jobs for the worker and runs nothing
  * - A thread Kelpie already answered is not queued again
  * - At most the run limit of jobs is queued per sweep
- * - A `kelpie::working` label left by a run that died (no live job) is cleared; one a live job explains is kept; disabled, it is only reported
+ * - A `kelpie::working` label left by a run that died (no live job, and older than two leases) is cleared; a recent one or one of unknown age is kept; one a live job explains is kept; disabled, it is only reported
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\SweepService
  */
@@ -148,12 +148,34 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     public function testStaleWorkingLabelIsCleared(): void
     {
         $this->gitlab->withLabels(['bug', 'kelpie::working', 'triage: working']);
+        $this->gitlab->labelAdded('kelpie::working', '-3 hours');
 
         $this->assertSame(['ubixsys/ubixkelpie!3  stale kelpie::working label would be cleared (autofix disabled)'], $this->service(false)->sweep(new DateTimeImmutable()));
         $this->assertSame(['bug', 'kelpie::working', 'triage: working'], $this->gitlab->labels());
 
         $this->assertSame(['ubixsys/ubixkelpie!3  stale kelpie::working label cleared'], $this->service(true)->sweep(new DateTimeImmutable()));
         $this->assertSame(['bug'], $this->gitlab->labels());
+    }
+
+    /**
+     * A working label with no job row but put on recently is a run in progress (the `respond` command leaves no job): the sweep keeps it,
+     * and keeps one whose age it cannot read
+     *
+     * @return void
+     */
+    public function testRecentOrUnknownWorkingLabelIsKept(): void
+    {
+        $this->gitlab->withLabels(['kelpie::working']);
+        $this->gitlab->labelAdded('kelpie::working', '-5 minutes');
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+
+        $this->gitlab = new FakeGitlab();
+        $this->gitlab->withLabels(['kelpie::working']);
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
     }
 
     /**

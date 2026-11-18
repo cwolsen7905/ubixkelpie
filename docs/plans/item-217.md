@@ -279,7 +279,17 @@ small change in a class I read as separate from `Service/Gitlab/**`; I will conf
 Each step is one MR-sized commit with the gate green. The switch stays `false` until the person turns it
 on for dev.
 
-## Needs the person (decisions)
+## Decided
+
+Globs (decision 480): the free globs above are granted to this lane. The held-area edits are not done
+here: the `feat/issue-autofix-fix-mr` lane is asked to add the three one-line calls (record the declined
+signal in `ProposalReactionService`, record the steered signal in `TriageReplyService`, run the drafting
+pass in `WorkRunService`) and to pass the lessons block at the prompt callers, once steps 1-4 have merged
+so it has something to call.
+
+## Needs the person (open decisions)
+
+Item 1 is answered as above; the rest stand, and the plan's choices are used unless told otherwise.
 
 1. **The globs**: leave the held paths for the other lane (step 5 above), or have that lane add the
    three one-line calls. Recommendation: wait; steps 1-4 are useful alone and inert.

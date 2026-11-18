@@ -78,6 +78,16 @@ The worker's roughly hourly restart is a clean exit 0, not a crash. Changed: `de
 Spend is bounded by the code default of 10.00 USD a day (`KELPIE_MAX_COST_USD_DAY_GLOBAL` is unset); "No spend caps were changed" above refers to the earlier worker work. The person approved the switch-on (Shepherd decision 459). The entrypoint's Vault hydration for a command override is evidenced by the worker, which uses the same override. Still missing: the image has no `claude` CLI, so the fixer cannot run; the Vault key values were not read (no Vault access
 from this lane). Revert by setting `suspend: true`.
 
+### What credential the fixer needs (checked 2026-11-17, nothing to add in Vault)
+
+The fixer runs the `claude` CLI headless and gives it the **OpenRouter key** as its model credential
+(`ANTHROPIC_AUTH_TOKEN` = `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` emptied, `ANTHROPIC_BASE_URL` =
+`https://openrouter.ai/api`), so it needs no Anthropic key and no OAuth token. `OPENROUTER_API_KEY` is already in
+`kelpie/dev/app` and the worker already reads it. The Vault client (`VAULT_APP_KV_PATH`) turns every UPPER_SNAKE_CASE key of
+that secret into an environment variable at start-up for every container that uses the entrypoint, so the worker and the sweep
+pod get it with no manifest change. What the fixer lacks in dev is the `claude` binary in the image (lane `ops/image-claude-cli`).
+Needed besides: the OpenRouter account behind the key must have credit and allow the fixer model.
+
 ---
 
 # Go-live plan: enrolling the whole `ubixsys` group

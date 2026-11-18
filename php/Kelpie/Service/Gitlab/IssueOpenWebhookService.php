@@ -124,7 +124,7 @@ final class IssueOpenWebhookService
     }
 
     /**
-     * Queue an issue accepted for triage; a failure is logged, never thrown
+     * Queue an issue accepted for triage, or one a Developer gated for a fix; a failure is logged, never thrown
      *
      * @param IssueIntakeResult $result The classification
      *
@@ -132,19 +132,24 @@ final class IssueOpenWebhookService
      */
     private function enqueue(IssueIntakeResult $result): void
     {
-        if ($result->class !== IssueIntake::Triage) {
+        if ($result->class === IssueIntake::Ignored) {
             return;
         }
 
+        $fix = $result->class === IssueIntake::Gate;
         try {
-            $this->queue->enqueue($result->projectPath, $result->issueIid);
+            if ($fix) {
+                $this->queue->enqueueFix($result->projectPath, $result->issueIid);
+            } else {
+                $this->queue->enqueue($result->projectPath, $result->issueIid);
+            }
         } catch (Throwable $e) {
-            $this->logger->error('GitLab webhook: issue could not be queued for triage', ['error' => $e->getMessage(), 'issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
+            $this->logger->error('GitLab webhook: issue could not be queued for ' . ($fix ? 'a fix' : 'triage'), ['error' => $e->getMessage(), 'issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
 
             return;
         }
 
-        $this->logger->debug('GitLab webhook: issue queued for triage', ['issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
+        $this->logger->debug('GitLab webhook: issue queued for ' . ($fix ? 'a fix' : 'triage'), ['issue_iid' => $result->issueIid, 'project_path' => $result->projectPath]);
     }
 
     /**

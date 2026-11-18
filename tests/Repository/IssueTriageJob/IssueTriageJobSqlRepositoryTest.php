@@ -172,4 +172,45 @@ final class IssueTriageJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestC
         $failed->expects($this->once())->method('query')->with($this->logicalAnd($this->stringContains("status = 'failed'"), $clears), ['id' => 9, 'last_error' => 'gave up'])->willReturn(1);
         (new IssueTriageJobSqlRepository($logger, $failed))->markFailed(9, 'gave up');
     }
+
+    /**
+     * The fix queue has its own source and thread key, and a settled job goes back to pending
+     *
+     * @return void
+     */
+    public function testEnqueueFix(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('query')
+            ->with(
+                $this->logicalAnd($this->stringContains('ON DUPLICATE KEY UPDATE'), $this->stringContains("IN ('done', 'failed')"), $this->stringContains('status          = IF(')),
+                ['issue_iid' => 7, 'project_path' => 'g/p', 'source' => 'issue_fix', 'thread_key' => 'issue-fix-7'],
+            )->willReturn(1);
+
+        (new IssueTriageJobSqlRepository($this->createStub(Logger::class), $sql))->enqueueFix('g/p', 7);
+    }
+
+    /**
+     * The fix queue is read with its own source
+     *
+     * @return void
+     */
+    public function testFixJobsAreReadByTheirSource(): void
+    {
+        $due = $this->createMock(SqlService::class);
+        $due->expects($this->once())->method('getRow')->with(
+            $this->stringContains('attempt < :max_attempts'),
+            ['source' => 'issue_fix', 'project_0' => 'g/a', 'due_now' => '2026-10-19 12:00:00', 'lock_now' => '2026-10-19 12:00:00', 'max_attempts' => 2],
+        )->willReturn(['attempt' => '0', 'id' => '4', 'issue_iid' => '7', 'project_path' => 'g/a']);
+        $locked = $this->createMock(SqlService::class);
+        $locked->expects($this->once())->method('getRow')->with($this->stringContains('locked_by = :locked_by'), ['source' => 'issue_fix', 'id' => 4, 'locked_by' => 'w1'])
+            ->willReturn(['attempt' => '1', 'id' => '4', 'issue_iid' => '7', 'project_path' => 'g/a']);
+
+        $logger = $this->createStub(Logger::class);
+        $job    = (new IssueTriageJobSqlRepository($logger, $due))->getDueFixJob(['g/a'], new DateTimeImmutable('2026-10-19 12:00:00 UTC'), 2);
+
+        $this->assertSame(4, $job?->id);
+        $this->assertSame(1, (new IssueTriageJobSqlRepository($logger, $locked))->getFixJobLockedBy(4, 'w1')?->attempt);
+        $this->assertNull((new IssueTriageJobSqlRepository($logger, $this->createStub(SqlService::class)))->getDueFixJob([], new DateTimeImmutable(), 2));
+    }
 }

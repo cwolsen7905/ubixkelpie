@@ -14,7 +14,7 @@ use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 
 /**
- * SQL-backed issue triage queue on `autofix_jobs` (source `issue_triage`)
+ * SQL-backed issue triage queue on `autofix_jobs` (source `issue_triage`, or `issue_fix` for the fix queue)
  *
  * The thread key is `issue-<iid>` so the table's open-job unique key keeps one open job per issue
  * and a second issue in the same project does not collide with it. Times written here are UTC
@@ -25,6 +25,8 @@ use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 final class IssueTriageJobSqlRepository implements IssueTriageJobReader, IssueTriageJobWriter
 {
     public const string SOURCE = 'issue_triage';
+
+    public const string FIX_SOURCE = 'issue_fix';
 
     /**
      * Constructor
@@ -85,6 +87,48 @@ final class IssueTriageJobSqlRepository implements IssueTriageJobReader, IssueTr
     /**
      * {@inheritDoc}
      */
+    public function getDueFixJob(array $projects, DateTimeImmutable $now, int $maxAttempts): ?IssueTriageJob
+    {
+        if ($projects === []) {
+            return null;
+        }
+
+        return $this->query(new IssueTriageJobOptions(projects: $projects, dueAt: $now, maxAttempts: $maxAttempts), self::FIX_SOURCE);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getFixJobLockedBy(int $id, string $workerId): ?IssueTriageJob
+    {
+        return $this->query(new IssueTriageJobOptions(id: $id, workerId: $workerId), self::FIX_SOURCE);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function enqueueFix(string $projectPath, int $issueIid): void
+    {
+        // Assignments run left to right, so `status` is the last one: the others still see the old value.
+        $sql = "INSERT INTO ubixkelpie.autofix_jobs (project_path, mr_iid, issue_iid, head_sha, thread_key, source, status)
+                VALUES (:project_path, 0, :issue_iid, '', :thread_key, :source, 'pending')
+                ON DUPLICATE KEY UPDATE
+                    attempt         = IF(status IN ('done', 'failed'), 0, attempt),
+                    next_attempt_at = IF(status IN ('done', 'failed'), NULL, next_attempt_at),
+                    last_error      = IF(status IN ('done', 'failed'), NULL, last_error),
+                    status          = IF(status IN ('done', 'failed'), 'pending', status)";
+
+        $this->sqlService->query($sql, [
+            'issue_iid'    => $issueIid,
+            'project_path' => $projectPath,
+            'source'       => self::FIX_SOURCE,
+            'thread_key'   => 'issue-fix-' . $issueIid,
+        ]);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function lockJob(int $id, int $attempt, string $workerId, DateTimeImmutable $now, int $lockSeconds): void
     {
         $sql = "UPDATE ubixkelpie.autofix_jobs
@@ -138,13 +182,14 @@ final class IssueTriageJobSqlRepository implements IssueTriageJobReader, IssueTr
      * Query issue triage jobs
      *
      * @param IssueTriageJobOptions $options DTO of options to generate the query
+     * @param string                $source  Which queue: triage by default, or the fix queue
      *
      * @return ?IssueTriageJob The first matching job, or null
      */
-    private function query(IssueTriageJobOptions $options): ?IssueTriageJob
+    private function query(IssueTriageJobOptions $options, string $source = self::SOURCE): ?IssueTriageJob
     {
         $sql        = 'SELECT id, project_path, issue_iid, attempt FROM ubixkelpie.autofix_jobs WHERE source = :source';
-        $parameters = ['source' => self::SOURCE];
+        $parameters = ['source' => $source];
 
         if ($options->issueIid !== null) {
             $sql                       .= ' AND project_path = :project_path AND issue_iid = :issue_iid';

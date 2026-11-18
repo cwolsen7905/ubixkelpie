@@ -315,19 +315,23 @@ final class IssueOpenWebhookServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * Ignored events and gate events are not queued for triage
+     * Ignored events are not queued, and a gate event is queued for a fix and not for triage
      *
      * @return void
      */
-    public function testIgnoredAndGateEventsAreNotQueued(): void
+    public function testIgnoredEventsAreNotQueuedAndGateEventsAreQueuedForAFix(): void
     {
         $queue = new InMemoryIssueQueue();
 
         $this->service(queue: $queue)->handle($this->open('kelpie-bot'));
-        $this->service(queue: $queue)->handle($this->label('alice', [], ['kelpie::fix']));
         $this->service(false, queue: $queue)->handle($this->open('alice'));
+        $this->assertSame([], $queue->enqueued());
+        $this->assertSame([], $queue->enqueuedFix());
+
+        $this->service(queue: $queue)->handle($this->label('alice', [], ['kelpie::fix']));
 
         $this->assertSame([], $queue->enqueued());
+        $this->assertSame(['org/proj#7'], $queue->enqueuedFix());
     }
 
     /**

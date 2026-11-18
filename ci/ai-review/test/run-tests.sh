@@ -278,5 +278,12 @@ out=$(AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
 has 'why: no JSON object'; expect "credential log: metadata (why) is still logged" $?
 has 'reply_bytes: '; expect "credential log: metadata (reply_bytes) is still logged" $?
 rm -rf "$w"
+w=$(mktemp -d)
+printf 'first\n--- end of raw reply ---\nplainlineafterthemarker\n' >"$w/reply.txt"
+out=$(AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1)
+! has 'plainlineafterthemarker'; expect "credential log: a reply containing the end marker does not reopen the log" $?
+grep -q 'plainlineafterthemarker' "$w/work/diagnostics/attempt-1.txt"; expect "credential log: that reply is still in the artifact" $?
+rm -rf "$w"
 
 exit $fail

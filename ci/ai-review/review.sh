@@ -474,7 +474,7 @@ mask_secrets() {
 # reply text; the masked reply goes to $WORK/diagnostics/attempt-N.txt, which the job keeps
 # as an artifact. Logging only.
 diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
-  local dir="$WORK/diagnostics" f meta errs line skip=0
+  local dir="$WORK/diagnostics" f meta errs line head_txt
   f="$dir/attempt-$1.txt"
   mkdir -p "$dir"
   meta=$(jq -rs '
@@ -488,25 +488,25 @@ diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
     || meta="(no parsable event stream)"
   errs=$(jq -rs '[.[] | select(type == "object") | select(.type == "error" or has("error") or (.part | type == "object" and has("error")))
       | (.error // .part.error // .)] | map(tojson) | .[]' "$STREAM" 2>/dev/null | head -c 2048)
-  {
+  # The metadata is built once and logged straight from here; the log never reads the artifact
+  # back, so nothing the reply contains can steer what is logged.
+  head_txt=$(
     echo "why: $2"
     echo "model: $MODEL"
     echo "$meta"
     echo "error_field: ${errs:-none}"
     echo "reply_bytes: $(printf '%s' "$3" | wc -c | tr -d ' ')"
+  )
+  head_txt=$(mask_secrets <<<"$head_txt")
+  while IFS= read -r line; do log "diagnostics (attempt $1): $line"; done <<<"$head_txt"
+  log "diagnostics (attempt $1): (raw reply withheld from the log; see the artifact)"
+  {
+    printf '%s\n' "$head_txt"
     echo "--- raw reply (first 4096 bytes) ---"
     printf '%s' "$3" | mask_secrets | head -c 4096
     echo
     echo "--- end of raw reply ---"
-  } | mask_secrets >"$f"
-  # Metadata only: the raw-reply section stays in the artifact, never in the log.
-  while IFS= read -r line; do
-    case "$line" in
-      "--- raw reply"*) skip=1; log "diagnostics (attempt $1): (raw reply withheld from the log; see the artifact)"; continue ;;
-      "--- end of raw reply ---") skip=0; continue ;;
-    esac
-    [ "$skip" = 1 ] || log "diagnostics (attempt $1): $line"
-  done <"$f"
+  } >"$f"
 }
 
 MODEL_CALLED=1 # summaries from here on follow a model call and carry the usage stamp

@@ -13,6 +13,9 @@ use Psr\Log\LoggerInterface as Logger;
  * guard was built with. Programs, git subcommands and flags that are not known are refused, so a new capability
  * has to be added here on purpose.
  *
+ * `composer install` is allowed only with `--no-scripts`. The gate still runs the repository's own code (plugins, tests,
+ * analysers): see docs/security/context-scan.md.
+ *
  * @see \Kelpie\Tests\Security\ActionGuardTest PHPUnit test case
  */
 final class ActionGuard
@@ -26,6 +29,15 @@ final class ActionGuard
     private const array PUSH_FORBIDDEN = ['-f', '-d', '--delete', '--mirror', '--all', '--prune', '--tags'];
 
     private const array GATE_PROGRAMS = ['vendor/bin/phpcs', 'vendor/bin/phpstan', 'vendor/bin/phpunit'];
+
+    /**
+     * Options of clone, fetch and checkout that run a program or a hook, or reach beyond the one repository:
+     * a custom upload/receive pack, a template (copies hooks), config, submodules, other object stores
+     */
+    private const array GIT_FETCH_FORBIDDEN = [
+        '--config', '--exec', '--receive-pack', '--recurse-submodules', '--recursive', '--reference', '--reference-if-able',
+        '--separate-git-dir', '--server-option', '--template', '--upload-pack', '--git-dir', '--work-tree', '--shallow-submodules',
+    ];
 
     private const array AGENT_TOOLS = ['Read', 'Grep', 'Glob', 'Edit', 'Write'];
 
@@ -101,7 +113,7 @@ final class ActionGuard
         return match (true) {
             basename($program) === 'git'                        => $this->classifyGit(array_slice($argv, 1)),
             in_array($program, self::GATE_PROGRAMS, true)       => UnattendedAction::RunGate,
-            $program === 'composer'                             => ($argv[1] ?? '') === 'install' ? UnattendedAction::RunGate : null,
+            $program === 'composer'                             => ($argv[1] ?? '') === 'install' && in_array('--no-scripts', $argv, true) ? UnattendedAction::RunGate : null,
             basename($program) === 'claude'                     => $this->classifyAgent($argv),
             $program === 'rm'                                   => $this->classifyRemove($argv),
             default                                             => null,
@@ -131,11 +143,50 @@ final class ActionGuard
 
         return match (true) {
             in_array($sub, self::GIT_READ, true)     => UnattendedAction::GitRead,
-            in_array($sub, self::GIT_CHECKOUT, true) => UnattendedAction::GitCheckout,
+            in_array($sub, self::GIT_CHECKOUT, true) => $this->checkoutIsPlain($sub, $rest) ? UnattendedAction::GitCheckout : null,
             $sub === 'commit'                        => in_array('--amend', $rest, true) ? null : UnattendedAction::GitCommit,
             $sub === 'push'                          => $this->pushIsPlain($rest) ? UnattendedAction::GitPush : null,
             default                                  => null,
         };
+    }
+
+    /**
+     * A clone, fetch, checkout or add runs no program and no hook of its own choosing
+     *
+     * Refuses the options that name a program or copy hooks (git also takes an unambiguous abbreviation of a long
+     * option, so `--templ` counts), `clone`/`fetch` `-c` and `-u`, any `::` or `file:` transport, and any URL that is
+     * not https.
+     *
+     * @param string   $sub  The subcommand
+     * @param string[] $args The arguments after it
+     *
+     * @return bool
+     */
+    private function checkoutIsPlain(string $sub, array $args): bool
+    {
+        $options = true;
+        foreach ($args as $arg) {
+            if ($arg === '--') {
+                $options = false;
+
+                continue;
+            }
+            if ($options && str_starts_with($arg, '--')) {
+                $name = explode('=', $arg, 2)[0];
+                foreach (self::GIT_FETCH_FORBIDDEN as $forbidden) {
+                    if (strlen($name) > 2 && str_starts_with($forbidden, $name)) {
+                        return false;
+                    }
+                }
+            } elseif ($options && ($sub === 'clone' || $sub === 'fetch') && preg_match('/^-[cu]/', $arg) === 1) {
+                return false;
+            }
+            if (str_contains($arg, '::') || preg_match('~^(?:file|ext|fd):~i', $arg) === 1 || (str_contains($arg, '://') && !str_starts_with(strtolower($arg), 'https://'))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

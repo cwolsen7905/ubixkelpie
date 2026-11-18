@@ -86,6 +86,25 @@ final class GateRunnerTest extends UbixConcreteClassOrEnumTestCase implements IU
     }
 
     /**
+     * Composer runs without scripts, and the registry credential reaches composer only, not the steps that run the repository's code
+     *
+     * @return void
+     */
+    public function testComposerRunsWithoutScriptsAndKeepsItsCredentialToItself(): void
+    {
+        $runner = new ScriptedProcessRunner();
+
+        (new GateRunner($this->createStub(Logger::class), $runner, '{"gitlab-token":{}}'))->run('/tmp/checkout/repo');
+
+        $calls = $runner->calls();
+        $this->assertContains('--no-scripts', $calls[0]['argv']);
+        $this->assertArrayHasKey('COMPOSER_AUTH', $calls[0]['env']);
+        foreach (array_slice($calls, 1) as $call) {
+            $this->assertArrayNotHasKey('COMPOSER_AUTH', $call['env'], $call['argv'][0]);
+        }
+    }
+
+    /**
      * @param ScriptedProcessRunner $runner The runner
      *
      * @return string[]

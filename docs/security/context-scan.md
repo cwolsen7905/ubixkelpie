@@ -47,9 +47,9 @@ writes them.
 |---|---|
 | `read_repo` | model tools `read`, `grep`, `glob` |
 | `edit_files` | the `claude` CLI with `--allowedTools` limited to Read, Grep, Glob, Edit, Write, and no permission-skipping switch |
-| `run_gate` | `composer install`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit` |
+| `run_gate` | `composer install` with `--no-scripts`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit` |
 | `git_read` | `git diff, show, ls-tree, cat-file, rev-parse, status, log` |
-| `git_checkout` | `git clone, fetch, checkout, add` |
+| `git_checkout` | `git clone, fetch, checkout, add`, without options that run a program or hook (`--template`, `--config`, `-c`, `--upload-pack`, `-u`, `--receive-pack`, `--exec`, `--server-option`, `--reference`, `--separate-git-dir`, `--recurse-submodules`, and any abbreviation of them), without a `::`, `file:`, `ext:` or `fd:` transport, and with only https URLs |
 | `git_commit` | `git commit`, not `--amend` |
 | `git_push` | `git push` with no force flag, no delete, no `+` or `:` refspec |
 | `clean_checkout` | `rm -rf -- <path under the temp directory>` |
@@ -62,6 +62,21 @@ only those.
 
 `GuardedProcessRunner` wraps a `ProcessRunnerInterface`: a refused command is not started, is logged, and comes
 back as exit code 126 with the reason on stderr.
+
+### What the list does not cover: the gate runs repository code
+
+The gate is `composer install`, phpcs, phpstan and phpunit, and the agent may edit any file in the checkout
+(`edit_files`). So the agent can write code that those tools then run: a test, a `vendor/bin` script, a
+composer plugin, a phpstan or phpcs extension. The list controls which programs start, not what repository code
+does once one has. This is a design limit, not something the list can fix. What reduces it:
+
+- `composer install` runs with `--no-scripts`, and the guard refuses it without. Composer plugins still run.
+- `GateRunner` gives the registry credential (`COMPOSER_AUTH`) to the `composer install` step only; phpcs, phpstan
+  and phpunit get just `HOME` and `PATH`.
+- The fixer has no GitLab or Vault value in its environment, and the bot token reaches git only through the
+  askpass helper, never to the gate.
+- The real boundary is isolation: running the gate in a container with no secrets and a network policy
+  (a known design item, FIX-013). Until then, treat the gate as running untrusted code on the worker.
 
 ## 3. Where it is wired
 

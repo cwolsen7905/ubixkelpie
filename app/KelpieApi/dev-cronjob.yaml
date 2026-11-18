@@ -3,10 +3,16 @@
 # in the autofix_jobs table, and the kelpie-worker Deployment (`kelpie:work`) runs them. Same image, namespace, Vault role and KV path as the
 # kelpie-api Deployment; nothing here is new infrastructure.
 #
-# ON (suspend: false) since 2026-11-17, with the person's approval, in propose mode. What was checked first:
-#   - the `ubixkelpie` database has the autofix_jobs and projects migrations;
-#   - uBixVault `kelpie/dev/app` holds KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY and GITLAB_API_URL (the worker
-#     starts without the "must be set" error; the fail-closed read makes a sweep fail otherwise).
+# ON (suspend: false) since 2026-11-17, in propose mode. The person approved switching Kelpie on in dev (Shepherd decision 459).
+# Checked before enabling:
+#   - the `ubixkelpie` database has the autofix_jobs and projects migrations (read from the migrate jobs, not re-queried);
+#   - the entrypoint's Vault hydration runs for a command override: the kelpie-worker Deployment uses the same
+#     `php /web/bin/ubix <command>` override and the same Vault role and KV path, and it starts without the "must be set" error;
+#   - spend is bounded: KELPIE_MAX_COST_USD_DAY_GLOBAL is not set here, so the code default of 10.00 USD a day applies
+#     (docs/design/spend-caps.md); set it in this file to change the cap.
+# NOT verified: the key values in uBixVault `kelpie/dev/app` (KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY, GITLAB_API_URL).
+# No Vault access from the lane that made this change; the worker starting cleanly suggests they are set. A sweep fails
+# closed if one is missing.
 # Known gap: the image has no `claude` CLI, which the fixer runs, so the sweep queues and triages but no fix can run
 # until the image gets it (a Dockerfile change, tracked separately).
 # To stop it, set suspend: true again (or KELPIE_AUTOFIX_ENABLED to anything but "true").

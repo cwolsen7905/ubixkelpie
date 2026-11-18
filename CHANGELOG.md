@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Triage comments and auto-fix thread replies now end with the model, effort, tokens and cost (OpenRouter), like review summaries; cost is left out when OpenRouter does not report it.
+
 - Issue autofix failure paths (step 4): a fix that is too big, touches a protected
   path or fails the gate gets one hand-off comment with the reason and
   `kelpie::needs-human`, records the outcome as failed and pushes no branch; a run

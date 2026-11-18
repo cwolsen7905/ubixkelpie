@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Issue autofix failure paths (step 4): a fix that is too big, touches a protected
+  path or fails the gate gets one hand-off comment with the reason and
+  `kelpie::needs-human`, records the outcome as failed and pushes no branch; a run
+  after a failure settles at once with no second comment (the one-attempt rule).
+  Tests only; the fixer is unchanged.
+
 - `kelpie review` says what the model sent when its reply is not a valid review. The warning now carries
   `reply_bytes` and the first 4 KB of the raw reply, with the model key, the review token and common key,
   token and password patterns masked. Review behaviour is unchanged.

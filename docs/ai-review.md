@@ -143,10 +143,19 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
    nothing it writes is root-owned and the job's workdir is removed by plain `rm`.
 5. Validates the reply with `jq` (one retry on bad JSON). Two failures: UNREVIEWED, exit 75.
    Each failed attempt (no JSON, invalid JSON, or the model run failing) logs a diagnostics
-   block to the job log: why it failed, the model, `finish_reason`, prompt and completion token
-   counts, any error event or OpenRouter error field, the reply's size and its first 4 KB. Token-shaped
-   values (`sk-…`, `glpat-…`, bearer tokens) and the two configured secrets are masked. The same
-   text is kept as `ai-review-diagnostics/attempt-N.txt`, a job artifact for one week. Start there
+   block to the job log with **metadata only**: why it failed, the model, `finish_reason`, prompt
+   and completion token counts, any error event or OpenRouter error field (masked), and the
+   reply's size in bytes. The reply's text is never written to the job log, because a model can
+   echo a credential it saw in the diff or the repo and job logs are widely readable.
+   The first 4 KB of the reply is kept as `ai-review-diagnostics/attempt-N.txt`, a job artifact
+   for one week, after masking. Masking covers AWS access keys (`AKIA…`, `ASIA…` and the
+   other IAM id prefixes), PEM private key blocks (`-----BEGIN … PRIVATE KEY-----`, including a
+   block cut off before its END line), GitHub tokens (`ghp_…`, `github_pat_…`), `glpat-…`, `sk-…`,
+   Slack `xox…` tokens, Stripe `sk_live_`/`rk_live_` keys, Google `AIza…` keys, other GitLab tokens (`glrt-`, `gldt-`, `glptt-`, `glcbt-`), bare JWTs, bearer and `Authorization` headers, `key=value` pairs named like
+   a token or password, and the two configured secrets. Masking is pattern-based, so treat the
+   artifact as sensitive anyway.
+   The artifact can exist for a run that **succeeded on retry**: if attempt 1 failed and attempt 2
+   produced a valid review, the job is green but still carries `attempt-1.txt`. Start there
    when a job says "no JSON object I could parse": `finish_reason: length` means the reply was
    cut off, an error field means the provider failed, an empty reply with no error may be a refusal.
 6. Posts one inline thread per new finding (a plain thread if GitLab refuses the position;

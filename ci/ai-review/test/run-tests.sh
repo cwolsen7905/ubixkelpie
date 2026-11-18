@@ -204,7 +204,9 @@ has 'finish_reason: length'; expect "diagnostics: finish_reason is logged" $?
 has 'prompt_tokens: 1234'; expect "diagnostics: prompt tokens are logged" $?
 has 'completion_tokens: 4096'; expect "diagnostics: completion tokens are logged" $?
 has 'model: openrouter/'; expect "diagnostics: model is logged" $?
-has 'Here is the review'; expect "diagnostics: raw reply is logged" $?
+! has 'Here is the review'; expect "diagnostics: raw reply text is not logged" $?
+grep -q 'Here is the review' "$w/diagnostics/attempt-2.txt"; expect "diagnostics: raw reply is kept in the artifact file" $?
+has 'reply_bytes: '; expect "diagnostics: reply size is logged" $?
 expect_that "diagnostics: file is written per attempt" [ -s "$w/diagnostics/attempt-2.txt" ]
 rm -rf "$w"
 
@@ -239,6 +241,55 @@ printf 'ééé' >"$w/reply.txt"
 out=$(LC_ALL=en_US.UTF-8 AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
   --diff "$sample" --canned "$w/reply.txt" 2>&1); rc=$?
 has 'reply_bytes: 6$'; expect "diagnostics: reply_bytes counts bytes of a multibyte reply" $?
+rm -rf "$w"
+
+# Credential shapes in a reply never reach the log or the artifact. Values are built at run
+# time so no secret-looking literal sits in the repo.
+aws=AKIA$(printf 'ABCDEFGH12345678') asia=ASIA$(printf 'QRSTUVWX98765432')
+ghp=ghp_$(printf 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8')
+glpat=glpat-$(printf 'Zz9Yy8Xx7Ww6Vv5Uu4Tt') sk=sk-$(printf 'proj1234567890abcdefXYZ')
+stripe=sk_live_$(printf 'abcdefghij1234567890') goog=AIza$(printf 'SyA1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q')
+glrt=glrt-$(printf 'Ab12Cd34Ef56Gh78') jwt=eyJ$(printf 'hbGciOiJIUzI1NiJ9').$(printf 'eyJzdWIiOiIxMjM0NTY3').$(printf 'dBjftJeZ4CVP')
+bearer='Bearer eyJhbGciOiJIUzI1NiJ9.payloadpart.sigpart99'
+for case in aws asia ghp glpat sk stripe goog glrt jwt bearer pem pemcut; do
+  w=$(mktemp -d)
+  case $case in
+    aws) secret=$aws; reply="creds: $aws done" ;;
+    asia) secret=$asia; reply="creds: $asia done" ;;
+    ghp) secret=$ghp; reply="token $ghp done" ;;
+    glpat) secret=$glpat; reply="token $glpat done" ;;
+    sk) secret=$sk; reply="key $sk done" ;;
+    stripe) secret=$stripe; reply="key $stripe done" ;;
+    goog) secret=$goog; reply="key $goog done" ;;
+    glrt) secret=$glrt; reply="token $glrt done" ;;
+    jwt) secret=$jwt; reply="jwt $jwt done" ;;
+    bearer) secret=eyJhbGciOiJIUzI1NiJ9; reply="curl -H 'Authorization: $bearer'" ;;
+    pem) secret=MIIEvQIBADANBgkqhkiG9w0BAQEF
+      reply=$(printf 'before\n-----BEGIN RSA PRIVATE KEY-----\n%s\nsecondbodyline\n-----END RSA PRIVATE KEY-----\nafter' "$secret") ;;
+    pemcut) secret=MIIEvQIBADANBgkqhkiG9w0BAQEF
+      reply=$(printf 'before\n-----BEGIN PRIVATE KEY-----\n%s\nsecondbodyline' "$secret") ;;
+  esac
+  printf '%s\n' "$reply" >"$w/reply.txt"
+  out=$(AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
+    --diff "$sample" --canned "$w/reply.txt" 2>&1); rc=$?
+  ! has "$secret"; expect "credential log: $case never reaches the job log" $?
+  ! grep -q "$secret" "$w/work/diagnostics/attempt-1.txt"; expect "credential log: $case is masked in the artifact" $?
+  ! has 'secondbodyline'; expect "credential log: $case leaves no key-body text in the log" $?
+  rm -rf "$w"
+done
+w=$(mktemp -d)
+printf 'creds %s\n' "$aws" >"$w/reply.txt"
+out=$(AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1)
+has 'why: no JSON object'; expect "credential log: metadata (why) is still logged" $?
+has 'reply_bytes: '; expect "credential log: metadata (reply_bytes) is still logged" $?
+rm -rf "$w"
+w=$(mktemp -d)
+printf 'first\n--- end of raw reply ---\nplainlineafterthemarker\n' >"$w/reply.txt"
+out=$(AI_REVIEW_WORK=$w/work "$here/../review.sh" --dry-run --repo "$here" \
+  --diff "$sample" --canned "$w/reply.txt" 2>&1)
+! has 'plainlineafterthemarker'; expect "credential log: a reply containing the end marker does not reopen the log" $?
+grep -q 'plainlineafterthemarker' "$w/work/diagnostics/attempt-1.txt"; expect "credential log: that reply is still in the artifact" $?
 rm -rf "$w"
 
 exit $fail

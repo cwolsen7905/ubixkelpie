@@ -44,7 +44,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - A good fix with a green gate is pushed to `kelpie/fix-<iid>-<slug>` and opens a merge request to dev with `Closes #N`
  *   and the reviewer, and the issue gets the link; dev itself is untouched
- * - Anything else (no safe edit, edits that do not apply, a protected path, a red gate) pushes nothing, comments the reason,
+ * - Anything else (no safe edit, edits that do not apply, a protected path, too big, a red gate) pushes nothing, comments the reason,
  *   labels the issue `kelpie::needs-human` and stops: one attempt
  * - Nothing to do (label gone, confidential, opted out, a merge request already open, not enrolled) is skipped without a model call
  * - A reached spend cap makes no model call; what a run cost is recorded
@@ -173,6 +173,28 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $this->assertSame(IssueFixOutcome::HandedOff, $outcome);
         $this->assertNoBranchPushed();
         $this->assertStringContainsString('protected path', $gitlab->notes()[0]);
+    }
+
+    /**
+     * An edit over the size limit is refused by the policy
+     *
+     * @return void
+     */
+    public function testATooBigFixHandsOff(): void
+    {
+        $gitlab = new FakeFixGitlab();
+        $big    = str_repeat('line\\n', 81) . 'the typo';
+        $edit   = '{"summary":"x","edits":[{"file":"src/a.php","old":"teh typo","new":"' . $big . '"}]}';
+
+        $outcome = $this->service($gitlab, new ScriptedModelHttp([self::SELECT, $edit]))->fix('org/proj', 7);
+
+        $this->assertSame(IssueFixOutcome::HandedOff, $outcome);
+        $this->assertNoBranchPushed();
+        $this->assertCount(1, $gitlab->notes());
+        $this->assertStringContainsString('changes 83 lines (limit 80)', $gitlab->notes()[0]);
+        $this->assertSame(['kelpie::needs-human'], $gitlab->labelsAdded());
+        $this->assertSame(ThreadOutcome::Failed, $this->records[0]->outcome);
+        $this->assertNotContains('POST /api/v4/projects/org%2Fproj/merge_requests', $gitlab->requests());
     }
 
     /**

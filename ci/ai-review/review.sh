@@ -435,25 +435,46 @@ reply_text() { # $1 = stream file
 }
 
 # Masks anything token-shaped, plus the exact values of the two secrets, so a model reply
-# or an error event can be logged and kept as an artifact.
+# or an error event can be kept as an artifact. PEM private key blocks go first (they span
+# lines; a block cut off before its END line is masked to the end of the text).
 mask_secrets() {
   local text v
   text=$(cat)
   for v in "${OPENROUTER_API_KEY:-}" "${AI_REVIEW_GITLAB_TOKEN:-}"; do
     [ "${#v}" -ge 6 ] && text=${text//"$v"/'[masked]'}
   done
-  sed -E \
+  awk '
+    {
+      line = $0; out = ""
+      while (1) {
+        if (inb) {
+          if (match(line, /-----END [A-Z ]*PRIVATE KEY-----/)) { line = substr(line, RSTART + RLENGTH); inb = 0; continue }
+          line = ""; break
+        }
+        if (match(line, /-----BEGIN [A-Z ]*PRIVATE KEY-----/)) {
+          out = out substr(line, 1, RSTART - 1) "[masked private key]"
+          line = substr(line, RSTART + RLENGTH); inb = 1; continue
+        }
+        break
+      }
+      if (!(inb && out == "")) print out line
+    }' <<<"$text" | sed -E \
+    -e 's/(AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|ABIA|ACCA)[A-Z0-9]{16}/[masked aws key]/g' \
+    -e 's/github_pat_[A-Za-z0-9_]{20,}/github_pat_[masked]/g' \
+    -e 's/gh[pousr]_[A-Za-z0-9]{20,}/gh_[masked]/g' \
+    -e 's/xox[abprs]-[A-Za-z0-9-]{10,}/xox-[masked]/g' \
     -e 's/sk-[A-Za-z0-9_-]{8,}/sk-[masked]/g' \
     -e 's/glpat-[A-Za-z0-9_-]{8,}/glpat-[masked]/g' \
     -e 's/([Bb]earer|PRIVATE-TOKEN:?|[Aa]uthorization:?)[ =]+[A-Za-z0-9._~+\/=-]{8,}/\1 [masked]/g' \
-    -e 's/((api[_-]?key|token|secret|password)"?[ ]*[:=][ ]*"?)[A-Za-z0-9._~+\/=-]{8,}/\1[masked]/Ig' <<<"$text"
+    -e 's/((api[_-]?key|token|secret|password)"?[ ]*[:=][ ]*"?)[A-Za-z0-9._~+\/=-]{8,}/\1[masked]/Ig'
 }
 
 # After a failed attempt: what the model run gave back, so the failure can be told apart
-# (length cutoff, provider error, refusal, prose). Goes to the job log and to
-# $WORK/diagnostics/attempt-N.txt, which the job keeps as an artifact. Logging only.
+# (length cutoff, provider error, refusal, prose). The job log gets metadata only, never the
+# reply text; the masked reply goes to $WORK/diagnostics/attempt-N.txt, which the job keeps
+# as an artifact. Logging only.
 diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
-  local dir="$WORK/diagnostics" f meta errs
+  local dir="$WORK/diagnostics" f meta errs line skip=0
   f="$dir/attempt-$1.txt"
   mkdir -p "$dir"
   meta=$(jq -rs '
@@ -478,7 +499,14 @@ diagnose() { # $1 = attempt, $2 = why, $3 = the reply text
     echo
     echo "--- end of raw reply ---"
   } | mask_secrets >"$f"
-  while IFS= read -r line; do log "diagnostics (attempt $1): $line"; done <"$f"
+  # Metadata only: the raw-reply section stays in the artifact, never in the log.
+  while IFS= read -r line; do
+    case "$line" in
+      "--- raw reply"*) skip=1; log "diagnostics (attempt $1): (raw reply withheld from the log; see the artifact)"; continue ;;
+      "--- end of raw reply ---") skip=0; continue ;;
+    esac
+    [ "$skip" = 1 ] || log "diagnostics (attempt $1): $line"
+  done <"$f"
 }
 
 MODEL_CALLED=1 # summaries from here on follow a model call and carry the usage stamp

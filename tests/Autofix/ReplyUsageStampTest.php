@@ -88,6 +88,21 @@ final class ReplyUsageStampTest extends TestCase
     }
 
     /**
+     * A fix proposal's footer covers the triage call and the edit call together
+     *
+     * @return void
+     */
+    public function testProposalFooterSumsTriageAndEditCalls(): void
+    {
+        $gitlab = new FakeGitlab();
+        $gitlab->note('d1', 'x');
+
+        $this->service($gitlab)->propose('1', 3, 'd1', TriageClass::Fix, str_repeat('a', 40), 'Closes it.', "--- a/a\n+++ b/a\n", new Completion('{}', 'p/y', 900, 100, 0.01), new Completion('{}', 't/z', 100, 20, 0.0005));
+
+        $this->assertStringContainsString('_Model `p/y`, effort default, 1.0k in / 120 out, $0.0105 (OpenRouter)._', $gitlab->notes()['d1'][1]['body']);
+    }
+
+    /**
      * @param FakeGitlab $gitlab The fake GitLab
      *
      * @return ReplyService

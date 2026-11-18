@@ -24,7 +24,7 @@ final class UsageStampService
      * @param Logger $logger Logger
      */
     public function __construct(
-        private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; formatting has nothing to log)
+        private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first, and the standards test enforces it; formatting has nothing to log)
     ) {
     }
 
@@ -39,9 +39,30 @@ final class UsageStampService
     {
         $model  = str_replace('`', '', $completion->model);
         $tokens = sprintf('%s in / %s out', $this->tokens($completion->promptTokens), $this->tokens($completion->completionTokens));
-        $cost   = $completion->costUsd === null ? '' : sprintf(', $%.4f (OpenRouter)', $completion->costUsd);
+        $cost   = $completion->costUsd === null ? '' : ', ' . $this->cost($completion->costUsd) . ' (OpenRouter)';
 
         return sprintf('_Model `%s`, effort default, %s%s._', $model, $tokens, $cost);
+    }
+
+    /**
+     * Two calls behind one reply as one: tokens added, and the cost added only when both calls reported one
+     *
+     * Either may be missing, and then the other stands alone. The model is the later call's.
+     *
+     * @param ?Completion $earlier The earlier call
+     * @param ?Completion $later   The later call
+     *
+     * @return ?Completion
+     */
+    public function sum(?Completion $earlier, ?Completion $later): ?Completion
+    {
+        if ($earlier === null || $later === null) {
+            return $later ?? $earlier;
+        }
+
+        $cost = $earlier->costUsd === null || $later->costUsd === null ? null : $earlier->costUsd + $later->costUsd;
+
+        return new Completion($later->text, $later->model, $earlier->promptTokens + $later->promptTokens, $earlier->completionTokens + $later->completionTokens, $cost);
     }
 
     /**
@@ -55,6 +76,18 @@ final class UsageStampService
     public function append(string $text, ?Completion $completion): string
     {
         return $completion === null ? $text : $text . "\n\n" . $this->line($completion);
+    }
+
+    /**
+     * A cost in dollars to four places; a real cost that rounds to zero reads `<$0.0001`, not as free
+     *
+     * @param float $usd The cost
+     *
+     * @return string
+     */
+    private function cost(float $usd): string
+    {
+        return $usd > 0.0 && $usd < 0.00005 ? '<$0.0001' : sprintf('$%.4f', $usd);
     }
 
     /**

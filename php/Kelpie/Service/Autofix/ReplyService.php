@@ -257,10 +257,11 @@ final class ReplyService
      * @param string      $text         The summary of the fix, or the reason
      * @param string      $diff         The diff git wrote, for a fix
      * @param ?Completion $completion   The model call behind the proposal, for the usage footer
+     * @param ?Completion $earlier      A call made before it for the same reply (triage), added to the footer
      *
      * @return ?int The new note's ID, null when the reply failed or the kind is not a proposal
      */
-    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = '', ?Completion $completion = null): ?int
+    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = '', ?Completion $completion = null, ?Completion $earlier = null): ?int
     {
         $text = $this->oneLine($text);
         $text = $text === '' ? 'no reason given.' : $text;
@@ -277,7 +278,7 @@ final class ReplyService
             return null;
         }
 
-        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamped($lead, $completion), $discussionId, $kind->value, $headSha);
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamped($lead, $this->usageStampService?->sum($earlier, $completion) ?? $completion), $discussionId, $kind->value, $headSha);
         $note = $this->writer->reply($project, $mrIid, $discussionId, $body);
         if ($note !== null) {
             $this->logger->info('Autofix proposal posted', ['class' => $kind->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);

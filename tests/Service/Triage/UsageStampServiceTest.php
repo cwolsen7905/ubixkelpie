@@ -56,6 +56,39 @@ final class UsageStampServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
+     * A real cost too small for four places reads as below the smallest shown, not as free
+     *
+     * @return void
+     */
+    public function testTinyCostIsNotShownAsFree(): void
+    {
+        $this->assertStringContainsString(', <$0.0001 (OpenRouter)', $this->service()->line(new Completion('x', 'a/b', 1, 1, 0.00002)));
+        $this->assertStringContainsString(', $0.0001 (OpenRouter)', $this->service()->line(new Completion('x', 'a/b', 1, 1, 0.00005)));
+        $this->assertStringContainsString(', $0.0000 (OpenRouter)', $this->service()->line(new Completion('x', 'a/b', 1, 1, 0.0)));
+    }
+
+    /**
+     * Two calls add up tokens and cost; the cost is unknown when either part's is; one call stands alone
+     *
+     * @return void
+     */
+    public function testSumAddsTwoCalls(): void
+    {
+        $a = new Completion('a', 'm1', 10, 2, 0.001);
+        $b = new Completion('b', 'm2', 30, 5, 0.002);
+
+        $sum = $this->service()->sum($a, $b);
+
+        $this->assertSame(['b', 'm2', 40, 7], [$sum?->text, $sum?->model, $sum?->promptTokens, $sum?->completionTokens]);
+        $this->assertEqualsWithDelta(0.003, $sum?->costUsd, 1e-12);
+        $this->assertNull($this->service()->sum($a, new Completion('b', 'm2', 1, 1))?->costUsd);
+        $this->assertNull($this->service()->sum(new Completion('a', 'm1', 1, 1), $b)?->costUsd);
+        $this->assertSame($a, $this->service()->sum($a, null));
+        $this->assertSame($b, $this->service()->sum(null, $b));
+        $this->assertNull($this->service()->sum(null, null));
+    }
+
+    /**
      * A backtick in the model id cannot break the footer
      *
      * @return void

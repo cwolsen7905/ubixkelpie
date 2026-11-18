@@ -15,21 +15,28 @@ an MR to `dev` with `Closes #N`, a reviewer, and a comment on the issue. One att
 Item 199 (the triage verdict is `fix`); the gate label (item 198); `SafetyPolicy`, `Checkout` and the
 propose-mode fixer (all present).
 
-## Current state (dev, 3d820e9)
-Not built. There is no issue-fixing path: the only fixer that runs is the MR-thread propose/apply path
-(`ProposalReactionService`, `MrJobWorkerService`). No code opens an issue fix branch or an MR from an
-issue. The design (this item's section in `docs/design/issue-autofix.md`)
-covers the flow, the in-pod sandbox and the limits.
+## Current state (built)
+The gate label from a Developer now queues an `issue_fix` job (same `autofix_jobs` table, thread key
+`issue-fix-<iid>`, so no migration). `kelpie:work` takes it after the MR and triage queues. The service
+is in `Service/Autofix/` (not `Service/Triage/`, which the scope list of this lane did not cover):
 
-## Steps
-1. Read the tracker (item 200) and the prior design for the flow and the limits.
-2. Add an issue-fix service: on the gate label, branch `kelpie/fix-<iid>-<slug>` from `dev`, run the
-   fixer, check `SafetyPolicy`, run the gate.
-3. Gate green: push the branch, open the MR to `dev` with `Closes #N`, set the reviewer, comment on the
-   issue with the MR link.
-4. Gate red or a policy violation: one attempt only — comment with the failing tail, label
-   `kelpie::needs-human`, leave no pushed branch.
-5. Enforce the spend cap (item 214) before the first live run.
+- `IssueFixWorkerService` claims the job (one retry, only when nothing changed anywhere).
+- `IssueFixService` checks the label, confidential and opt-out, an open MR for the branch and the spend cap, then
+  the checkout is opened (existing `Checkout::open`, detached) at the head of `dev`, read from the GitLab API; the
+  `kelpie/fix-<iid>-<slug>` name is only what `push()` gives HEAD, so `Checkout.php` is not changed in this lane.
+- `IssueProposeEditsService` asks the propose model twice (which files, then exact-text edits), reusing
+  `EditApplyService`; `SafetyPolicy` (size, files, protected paths, plus the project's own globs) judges the measured
+  diff; `IssueGateService` runs the project's `gate_command`, else `make check`, else the PHP gate.
+- Green: plain push, `MergeRequestOpener` opens the MR to `dev` with `Closes #N`, label `kelpie` and the reviewer
+  (`KELPIE_FIX_REVIEWER`), and the issue gets the link and `kelpie::fix-proposed`.
+- Anything else: one comment with the reason (and the gate tail), `kelpie::needs-human`, nothing pushed. Step 201
+  refines these paths.
+- Spend: the run's cost is recorded in `thread_outcomes` (`issue-<iid>`), which the daily caps already count; the
+  per-issue budget is 100k tokens, checked between the two calls, and each call is capped on size.
+- `kelpie:fix-issue <iid> --path=...` runs one by hand.
+
+Open: tests-required is not enforced (the done-when example is a doc-comment typo); the reviewer env var and the
+Go/Node toolchains in the image are deployment work outside this lane.
 
 ## Done when
 A throwaway "fix a typo in a doc comment" issue, gated by a Developer, opens an MR to `dev` with

@@ -101,4 +101,14 @@ final class GitlabClientFactory
     {
         return new IssueClient($this->logger, $this->client(), $this->requestFactory, $this->streamFactory, $this->settings->apiUrl, $this->jsonService);
     }
+
+    /**
+     * The merge request opener
+     *
+     * @return MergeRequestOpener
+     */
+    public function opener(): MergeRequestOpener
+    {
+        return new MergeRequestOpener($this->logger, $this->client(), $this->requestFactory, $this->streamFactory, $this->settings->apiUrl, $this->jsonService);
+    }
 }

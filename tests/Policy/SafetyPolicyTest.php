@@ -94,8 +94,29 @@ final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements 
     public function testOrdinaryPathsAreAllowed(): void
     {
         $proposal = self::build(paths: ['php/Kelpie/Triage/TriageService.php', 'tests/Triage/TriageServiceTest.php', 'docs/ai-review.md', 'app/KelpieApi/src/Routes.php', 'app/KelpieApi/src/Dependencies.php']);
+        $other    = self::build(paths: ['api/main.go', 'web/src/App.tsx', 'docs/Makefile.md']);
 
         $this->assertSame(TriageClass::Fix, $this->policy()->apply($this->fix(), $proposal)->class);
+        $this->assertSame(TriageClass::Fix, $this->policy()->apply($this->fix(), $other)->class);
+    }
+
+    /**
+     * A project's own globs: `*` stays in a folder, `**` crosses folders, a bare name matches anywhere, a folder covers what is under it
+     *
+     * @return void
+     */
+    public function testProjectProtectedGlobs(): void
+    {
+        $policy = $this->policy();
+
+        $this->assertNull($policy->protectedPath(['a.go', 'web/src/App.tsx'], []));
+        $this->assertSame('api/gen/x.go', $policy->protectedPath(['a.go', 'api/gen/x.go'], ['api/gen/**']));
+        $this->assertSame('api/gen/x.go', $policy->protectedPath(['api/gen/x.go'], ['api/gen']));
+        $this->assertNull($policy->protectedPath(['api/sub/gen.go'], ['api/*.go']));
+        $this->assertSame('api/a.go', $policy->protectedPath(['api/a.go'], ['api/*.go']));
+        $this->assertSame('web/deep/schema.json', $policy->protectedPath(['web/deep/schema.json'], ['schema.json']));
+        $this->assertSame('v1.txt', $policy->protectedPath(['./v1.txt'], ['v?.txt']) === './v1.txt' ? 'v1.txt' : null);
+        $this->assertNull($policy->protectedPath(['api/a.c'], ['api/*.go']));
     }
 
     /**
@@ -123,6 +144,7 @@ final class SafetyPolicyTest extends UbixConcreteClassOrEnumTestCase implements 
                 'composer.lock', 'web/package-lock.json', 'app/KelpieApi/k8s/dev-deploy.yaml', 'bin/promote.sh',
                 'app/KelpieApi/dev-deploy.yaml', 'app/KelpieApi/main-ingress.yaml', 'app/KelpieApi/staging-service.yaml',
                 'app/KelpieApi/dev-cronjob.yaml', 'sql/ubixkelpie.sql', 'sql/grants/app.sql',
+                'go.sum', 'api/go.sum', 'Makefile', 'web/Makefile', 'Dockerfile', 'Dockerfile_Test', 'Dockerfile.prod', '.golangci.yml', '.eslintrc.json', 'eslint.config.mjs', 'web/tsconfig.json',
                 'phpcs.xml', 'phpstan.neon', 'phpstan-baseline.neon', 'phpunit.xml.dist', 'config/secrets.php', 'deploy/server.pem',
             ] as $path
         ) {

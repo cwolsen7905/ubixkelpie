@@ -14,6 +14,8 @@ use Kelpie\Repository\IssueTriageJob\IssueTriageJobReaderInterface as IssueTriag
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
+use Kelpie\Service\Autofix\IssueFixBuilderService;
+use Kelpie\Service\Autofix\IssueFixWorkerService;
 use Kelpie\Service\Autofix\MrJobWorkerService;
 use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Service\Autofix\SweepRunService;
@@ -23,7 +25,7 @@ use Throwable;
 use Ubix\Service\JsonService;
 
 /**
- * The `kelpie:work` loop: poll the queue, run what is due (merge request jobs first, then issue triage), stop after a bounded run
+ * The `kelpie:work` loop: poll the queue, run what is due (merge request jobs first, then issue triage, then issue fixes), stop after a bounded run
  *
  * The loop ends by itself (a job count or a time limit) and the Deployment restarts it, so memory
  * stays bounded and no signal handling is needed. A kill after a claim is safe: the lock expires
@@ -53,6 +55,7 @@ final class WorkRunService
      * @param FixerRunnerBuilderService      $runners          The fixer runner factory
      * @param ProposalReactionBuilderService $reactions        Builds what acts on a thumbs on a proposal
      * @param ProjectModeService             $modes            Which projects are enrolled, read again on every pass
+     * @param IssueFixBuilderService         $issueFix         Builds the issue fix service the fix jobs run
      * @param int                            $pollSeconds      Seconds to sleep when nothing is due
      */
     public function __construct(
@@ -69,6 +72,7 @@ final class WorkRunService
         private readonly FixerRunnerBuilderService $runners,
         private readonly ProposalReactionBuilderService $reactions,
         private readonly ProjectModeService $modes,
+        private readonly IssueFixBuilderService $issueFix,
         private readonly int $pollSeconds = 5,
     ) {
     }
@@ -104,6 +108,8 @@ final class WorkRunService
             $workerId,
         );
 
+        $fixWorker = new IssueFixWorkerService($this->logger, $this->reader, $this->writer, $this->issueFix->make(), $workerId);
+
         $deadline = (new DateTimeImmutable())->modify('+' . $timeLimit . ' seconds');
         $taken    = 0;
         while ($taken < $jobLimit && new DateTimeImmutable() < $deadline) {
@@ -111,7 +117,7 @@ final class WorkRunService
             $projects = $this->enrolled();
             // Built on every pass: the sweep it fans out with is wired from the projects enrolled right now
             $mrWorker = $projects === [] ? null : $this->mrWorker($workerId);
-            if (($mrWorker !== null && $mrWorker->step($settings->enabled, $projects, $now)) || $worker->step($settings->enabled, $projects, $now)) {
+            if (($mrWorker !== null && $mrWorker->step($settings->enabled, $projects, $now)) || $worker->step($settings->enabled, $projects, $now) || $fixWorker->step($settings->enabled, $projects, $now)) {
                 ++$taken;
                 continue;
             }

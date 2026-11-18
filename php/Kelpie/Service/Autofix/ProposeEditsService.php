@@ -127,29 +127,13 @@ final class ProposeEditsService
     }
 
     /**
-     * The lines around the thread, whole lines, so `old` can still match
-     *
-     * @param string $content The whole file
-     * @param int    $line    The thread's line, from 1
-     *
-     * @return string
-     */
-    private function window(string $content, int $line): string
-    {
-        $lines = explode("\n", $content);
-        $from  = max(0, $line - 1 - self::WINDOW_LINES);
-
-        return implode("\n", array_slice($lines, $from, 2 * self::WINDOW_LINES + 1));
-    }
-
-    /**
      * Read the model's JSON answer
      *
      * @param string $answer The raw text (a JSON object, possibly inside a code fence)
      *
      * @return ?array{0: string, 1: ProposedEdit[]} The summary and the edits, null when it is not the expected object
      */
-    private function parse(string $answer): ?array
+    public function parse(string $answer): ?array
     {
         $start = strpos($answer, '{');
         $end   = strrpos($answer, '}');
@@ -181,5 +165,21 @@ final class ProposeEditsService
         $summary = is_string($decoded['summary'] ?? null) ? trim($decoded['summary']) : '';
 
         return [mb_substr($summary, 0, self::MAX_SUMMARY_LENGTH), $edits];
+    }
+
+    /**
+     * The lines around the thread, whole lines, so `old` can still match
+     *
+     * @param string $content The whole file
+     * @param int    $line    The thread's line, from 1
+     *
+     * @return string
+     */
+    private function window(string $content, int $line): string
+    {
+        $lines = explode("\n", $content);
+        $from  = max(0, $line - 1 - self::WINDOW_LINES);
+
+        return implode("\n", array_slice($lines, $from, 2 * self::WINDOW_LINES + 1));
     }
 }

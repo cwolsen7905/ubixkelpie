@@ -22,6 +22,20 @@ interface IssueTriageJobWriterInterface
     public function enqueue(string $projectPath, int $issueIid): void;
 
     /**
+     * Queue one issue for a fix attempt
+     *
+     * A second call while the job is pending or running adds nothing. After the job has settled (done or
+     * failed) it puts the same row back as pending with no attempts: a person removing and re-adding the gate
+     * label is how a re-run is asked for. Locking and settling work on the id as for a triage job.
+     *
+     * @param string $projectPath The project path with namespace
+     * @param int    $issueIid    The issue number in the project
+     *
+     * @return void
+     */
+    public function enqueueFix(string $projectPath, int $issueIid): void;
+
+    /**
      * Try to lock a due job for a worker
      *
      * One conditional UPDATE on the attempt the job had when it was read, so when two workers race

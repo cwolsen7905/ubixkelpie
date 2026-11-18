@@ -45,4 +45,25 @@ interface IssueTriageJobReaderInterface
      * @return ?IssueTriageJob Null when the issue was never queued
      */
     public function getJobForIssue(string $projectPath, int $issueIid): ?IssueTriageJob;
+
+    /**
+     * The oldest issue fix job that is due, in one of the given projects (same rules as `getDueJob()`)
+     *
+     * @param string[]          $projects    The project paths that may be taken
+     * @param DateTimeImmutable $now         The current time
+     * @param int               $maxAttempts Jobs with this many attempts are not due
+     *
+     * @return ?IssueTriageJob The job with the attempt it has made so far; null when nothing is due
+     */
+    public function getDueFixJob(array $projects, DateTimeImmutable $now, int $maxAttempts): ?IssueTriageJob;
+
+    /**
+     * The running issue fix job a worker holds the lock of
+     *
+     * @param int    $id       The job id
+     * @param string $workerId The worker that tried to lock it
+     *
+     * @return ?IssueTriageJob The job with the attempt this lock made; null when another worker holds it
+     */
+    public function getFixJobLockedBy(int $id, string $workerId): ?IssueTriageJob;
 }

@@ -15,6 +15,7 @@ use Kelpie\Tests\Console\Command\CommandServices;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
+use Kelpie\Tests\Service\Autofix\IssueFixFixtures;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -82,6 +83,21 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
     }
 
     /**
+     * A due issue fix job is taken after the triage queue is empty, and settled with its outcome
+     *
+     * @return void
+     */
+    public function testTakesAnIssueFixJob(): void
+    {
+        $queue = (new InMemoryIssueQueue())->withFixJobs([new IssueTriageJob(5, 'org/proj', 7, 0)]);
+
+        $result = $this->service($queue, new FakeIssueGitlab())->run('1', '60');
+
+        $this->assertSame(['Worker stopped after 1 job(s).'], $result->lines);
+        $this->assertSame(['lock 5 0', 'done 5 skipped'], $queue->settled());
+    }
+
+    /**
      * The claim is for the projects that are enrolled now: propose and push, not off, not unlisted
      *
      * @return void
@@ -93,7 +109,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
         $this->service($queue, new FakeIssueGitlab(), null, ['org/a' => ProjectMode::Propose, 'org/b' => ProjectMode::Push, 'org/off' => ProjectMode::Off])->run('1', '1');
 
         $this->assertNotSame([], $queue->claims());
-        $this->assertSame(['org/a,org/b'], array_values(array_unique($queue->claims())));
+        $this->assertSame(['org/a,org/b', 'fix:org/a,org/b'], array_values(array_unique($queue->claims())));
     }
 
     /**
@@ -191,6 +207,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             $services->runners(),
             $services->reactions(),
             InMemoryProjects::service($modes),
+            IssueFixFixtures::builder($logger, $gitlab, $settings),
             0,
         );
     }

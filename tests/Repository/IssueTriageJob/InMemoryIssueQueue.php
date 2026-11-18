@@ -26,6 +26,20 @@ final class InMemoryIssueQueue implements IssueTriageJobReader, IssueTriageJobWr
     private array $enqueued = [];
 
     /**
+     * "path#iid" of every enqueueFix
+     *
+     * @var string[]
+     */
+    private array $enqueuedFix = [];
+
+    /**
+     * The fix jobs due, handed out one per call
+     *
+     * @var IssueTriageJob[]
+     */
+    private array $fixJobs = [];
+
+    /**
      * What lockJob, markDone, markRetry and markFailed were called with, as strings
      *
      * @var string[]
@@ -113,6 +127,28 @@ final class InMemoryIssueQueue implements IssueTriageJobReader, IssueTriageJobWr
     public function enqueued(): array
     {
         return $this->enqueued;
+    }
+
+    /**
+     * Give the fix queue jobs
+     *
+     * @param IssueTriageJob[] $jobs The due fix jobs
+     *
+     * @return self
+     */
+    public function withFixJobs(array $jobs): self
+    {
+        $this->fixJobs = $jobs;
+
+        return $this;
+    }
+
+    /**
+     * @return string[]
+     */
+    public function enqueuedFix(): array
+    {
+        return $this->enqueuedFix;
     }
 
     /**
@@ -216,5 +252,41 @@ final class InMemoryIssueQueue implements IssueTriageJobReader, IssueTriageJobWr
     public function markFailed(int $id, string $error): void
     {
         $this->settled[] = 'failed ' . $id . ' ' . $error;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getDueFixJob(array $projects, DateTimeImmutable $now, int $maxAttempts): ?IssueTriageJob // phpcs:ignore SlevomatCodingStandard.Functions.UnusedParameter.UnusedParameter -- the double ignores time and attempts
+    {
+        $this->claims[] = 'fix:' . implode(',', $projects);
+        $job            = array_shift($this->fixJobs);
+        if ($job !== null) {
+            $this->offered[$job->id] = $job;
+        }
+
+        return $job;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getFixJobLockedBy(int $id, string $workerId): ?IssueTriageJob
+    {
+        return $this->getJobLockedBy($id, $workerId);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @throws RuntimeException When told to
+     */
+    public function enqueueFix(string $projectPath, int $issueIid): void
+    {
+        if ($this->enqueueThrows) {
+            throw new RuntimeException('database down');
+        }
+
+        $this->enqueuedFix[] = $projectPath . '#' . $issueIid;
     }
 }

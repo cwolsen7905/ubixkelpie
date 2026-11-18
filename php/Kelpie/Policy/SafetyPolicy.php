@@ -44,7 +44,9 @@ final class SafetyPolicy
         '#(^|/)id_(rsa|dsa|ecdsa|ed25519)#',
         // All of sql/: migrations, the schema baselines and the grants the migrate job applies.
         '#^sql/#',
-        '#(^|/)(composer\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock)$#',
+        '#(^|/)(composer\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|go\.sum)$#',
+        // Build and tool configuration: how the gate itself runs.
+        '#(^|/)(Makefile|Dockerfile[^/]*|\.golangci[^/]*\.ya?ml|\.eslintrc[^/]*|eslint\.config\.[cm]?js|\.prettierrc[^/]*|tsconfig[^/]*\.json)$#',
         // Kubernetes manifests: app/<App>/<env>-{deploy,service,ingress,cronjob...}.yaml (the
         // uBixCore template's layout), and the older app/<App>/k8s/ folder.
         '#^app/[^/]+/k8s/#',
@@ -89,6 +91,44 @@ final class SafetyPolicy
         $this->logger->info('Triage: fix downgraded to needs_human', ['violation' => $violation]);
 
         return new TriageVerdict(TriageClass::NeedsHuman, 'Not safe to fix automatically: ' . $violation . '.', $verdict->completion);
+    }
+
+    /**
+     * The first path that matches one of a project's own protected globs
+     *
+     * `*` matches within a folder, `**` across folders, `?` one character; a glob without a slash also matches by file
+     * name in any folder.
+     *
+     * @param string[] $paths Repo-relative paths the fix touches
+     * @param string[] $globs The project's protected globs
+     *
+     * @return ?string The path, null when none is protected
+     */
+    public function protectedPath(array $paths, array $globs): ?string
+    {
+        foreach ($globs as $glob) {
+            $regex = $this->globRegex($glob);
+            foreach ($paths as $path) {
+                $normalized = preg_replace('#^(\./)+#', '', str_replace('\\', '/', $path)) ?? '';
+                if (preg_match($regex, $normalized) === 1) {
+                    return $path;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param string $glob The glob
+     *
+     * @return string A regular expression for it
+     */
+    private function globRegex(string $glob): string
+    {
+        $body = strtr(preg_quote(ltrim($glob, '/'), '#'), ['\\*\\*' => '.*', '\\*' => '[^/]*', '\\?' => '[^/]']);
+
+        return '#^' . (str_contains($glob, '/') ? '' : '(.*/)?') . $body . '(/.*)?$#';
     }
 
     /**

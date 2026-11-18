@@ -137,9 +137,9 @@ a lock and a last error, with a unique key per (project, issue, source), and the
 | # | MR | Content | Test |
 | --- | --- | --- | --- |
 | 1 | Intake | `IssueOpenWebhookService` classifies each Issue event as `triage` (enrolled, not the bot), `gate` (gate label added; actor's Developer-or-higher access verified through the API) or `ignored`, logs the class and puts a 👀 on a triaged issue, behind `KELPIE_AUTOFIX_ENABLED` | Unit tests; send a test event from the hook's Test button, see the class in the log |
-| 2 | Triage and comment | Issue prompt, verdict, one comment and labels on every new issue; no fixing. Needs `issue_iid` migration | Throwaway issue: comment and label appear once; replay adds nothing |
-| 3 | Fix and MR | Starts on the gate label from a Developer or higher. Branch, fixer, policy, gate, push, MR with `Closes #N`, reviewer, one-attempt hand-off, spend cap | Throwaway issue "fix a typo in a doc comment": MR opens, gate green, reviewer set, nothing merged |
-| 4 | Failure paths | Too big, protected path, red gate: comment and label, no branch | Throwaway issues for each; check no branch is left |
+| 2 | Triage and comment | Built: prompt, verdict, one comment and labels on every new issue; no fixing. Needed the `issue_iid` migration | Throwaway issue: comment and label appear once; replay adds nothing |
+| 3 | Fix and MR | Built: starts on the gate label from a Developer or higher. Branch, fixer, policy, gate, push, MR with `Closes #N`, reviewer, one-attempt hand-off, spend cap | Throwaway issue "fix a typo in a doc comment": MR opens, gate green, reviewer set, nothing merged |
+| 4 | Failure paths | Built: too big, protected path, red gate. One comment with the reason and `kelpie::needs-human`, records the outcome as failed, no branch pushed; a re-run settles at once with no second comment | Throwaway issues for each; check no branch is left |
 | 5 | Widen | Per-project enrolment list; next project | Repeat on one more project |
 
 End-to-end test, from step 2 on, on a throwaway issue in `ubixshepherd`: create the issue,

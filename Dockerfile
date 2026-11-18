@@ -11,9 +11,18 @@ ENV APP_NAME=${APP_NAME}
 # The commit SHA, passed by CI; served by KelpieApi's /version.
 ARG APP_VERSION=unknown
 ENV APP_VERSION=${APP_VERSION}
+# The claude CLI the issue fixer shells out to; top-level version pinned, bump deliberately
+# (its transitive dependencies are not locked: see docs/image.md).
+ARG CLAUDE_CODE_VERSION=2.1.327
 
 USER root
-RUN apk add --no-cache git && mkdir -p /web && chown -R www:www /web && chmod -R 0755 /web
+# nodejs + npm carry the claude CLI (npm package: works on musl, unlike the native installer);
+# `claude --version` fails the build if the binary is missing. No credentials are baked in.
+RUN apk add --no-cache git nodejs npm \
+ && npm install -g --no-fund --no-audit @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+ && npm cache clean --force \
+ && claude --version \
+ && mkdir -p /web && chown -R www:www /web && chmod -R 0755 /web
 # nginx site for /web/public (the base image's default config serves nothing useful)
 COPY config/devops/nginx.conf /etc/nginx/nginx.conf
 USER www

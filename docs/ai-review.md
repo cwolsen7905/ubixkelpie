@@ -142,6 +142,13 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
    tools image (`ai-review-tools:<hash>`, built once per image + opencode version), so
    nothing it writes is root-owned and the job's workdir is removed by plain `rm`.
 5. Validates the reply with `jq` (one retry on bad JSON). Two failures: UNREVIEWED, exit 75.
+   Each failed attempt (no JSON, invalid JSON, or the model run failing) logs a diagnostics
+   block to the job log: why it failed, the model, `finish_reason`, prompt and completion token
+   counts, any error event or OpenRouter error field, the reply's size and its first 4 KB. Token-shaped
+   values (`sk-…`, `glpat-…`, bearer tokens) and the two configured secrets are masked. The same
+   text is kept as `ai-review-diagnostics/attempt-N.txt`, a job artifact for one week. Start there
+   when a job says "no JSON object I could parse": `finish_reason: length` means the reply was
+   cut off, an error field means the provider failed, an empty reply with no error may be a refusal.
 6. Posts one inline thread per new finding (a plain thread if GitLab refuses the position;
    the reason is in the job log) and one summary note, replaced on every push. A finding
    already open or dismissed is matched by its id or by file + title, so a reworded slug does

@@ -130,6 +130,29 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * A live job is a pending one or a running one whose lease has not expired; issue jobs do not count
+     *
+     * @return void
+     */
+    public function testHasLiveJob(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->exactly(2))->method('getColumn')->with(
+            $this->logicalAnd($this->stringContains("status = 'pending'"), $this->stringContains('locked_until >= :lock_now'), $this->stringContains('source <> :issue_source')),
+            $this->callback(
+                static function (array $p): bool {
+                    return $p['lock_now'] === '2026-10-21 12:00:00' && $p['mr_iid'] === 3 && $p['project_path'] === 'g/p';
+                },
+            ),
+        )->willReturnOnConsecutiveCalls('1', '0');
+
+        $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+
+        $this->assertTrue($repo->hasLiveJob('g/p', 3, new DateTimeImmutable('2026-10-21 12:00:00')));
+        $this->assertFalse($repo->hasLiveJob('g/p', 3, new DateTimeImmutable('2026-10-21 12:00:00')));
+    }
+
+    /**
      * Counting jobs leaves out the fan-out rows, which run nothing
      *
      * @return void

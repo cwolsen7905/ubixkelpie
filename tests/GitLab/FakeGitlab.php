@@ -369,6 +369,7 @@ final class FakeGitlab implements HttpClient
                     'draft'         => false,
                     'head_pipeline' => $this->pipeline === null ? null : ['id' => $this->pipeline['id'], 'status' => $this->pipeline['status'], 'user' => ['username' => 'alice']],
                     'iid'           => 3,
+                    'labels'        => $this->labels,
                     'project_id'    => 1,
                     'sha'           => str_repeat('a', 40),
                     'source_branch' => 'feat/x',

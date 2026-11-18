@@ -225,7 +225,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
         $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/dev'])));
         $this->assertSame([], $this->gitlab->resolved());
-        $this->assertSame(['triage: proposed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::proposed'], $this->gitlab->labels());
         $this->assertSame('done', $this->jobs->status());
 
         $body = $this->lastNote();
@@ -371,7 +371,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->triageClass = 'needs_human';
 
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
         $this->assertSame(['google/gemini-3-flash'], $this->calls());
         $this->assertSame('done', $this->jobs->status());
     }
@@ -389,7 +389,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertStringContainsString('occurs 0 times', $this->lastNote());
         $this->assertStringNotContainsString('Kelpie proposes', $this->lastNote());
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
         $this->assertSame('failed', $this->jobs->status());
         $this->assertSame(ThreadOutcome::Answered, $this->row()->outcome);
     }
@@ -431,7 +431,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(FixOutcome::Unsafe, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
         $this->assertStringContainsString('protected path', $this->lastNote());
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
     }
 
     /**
@@ -499,7 +499,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
         $this->assertSame([], $this->calls());
         $this->assertStringContainsString('same family as the review', $this->lastNote());
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
     }
 
     /**

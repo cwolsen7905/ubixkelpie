@@ -69,7 +69,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $outcomes = $this->responder('needs_human')->respond('1', 3, 'abc', [$this->thread('d1')]);
 
         $this->assertSame(['d1' => ResponseOutcome::Replied], $outcomes);
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels()); // The working label came off, the outcome stayed
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels()); // The working label came off, the outcome stayed
         $bodies = array_column($this->gitlab->notes()['d1'], 'body');
         $this->assertStringContainsString('kelpie:release', $bodies[1]);
         $this->assertStringContainsString('kelpie:reply', $bodies[2]);
@@ -103,7 +103,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $outcomes = $this->responder('fix')->respond('1', 3, 'abc', [$this->thread('d1')]);
 
         $this->assertSame(['d1' => ResponseOutcome::Silent], $outcomes);
-        $this->assertSame(['triage: proposed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::proposed'], $this->gitlab->labels());
         $this->assertCount(2, $this->gitlab->notes()['d1']); // The original and the released claim
         $this->assertStringContainsString('kelpie:release', $this->gitlab->notes()['d1'][1]['body']);
     }
@@ -141,7 +141,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
 
         $this->responder('needs_human')->respond('1', 3, 'abc', [$this->thread('d1', $firstNote)]);
 
-        $this->assertSame(['kelpie::needs-human', 'triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
         $this->assertSame([$firstNote . ':eyes'], $this->gitlab->awards());
         $summaries = [];
         foreach ($this->gitlab->notes() as $id => $notes) {

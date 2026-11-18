@@ -59,11 +59,26 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::NeedsHuman, 'Design call.'));
 
         $this->assertSame(ResponseOutcome::Replied, $outcome);
-        $this->assertSame(['kelpie::needs-human'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
         $body = $this->gitlab->notes()['d1'][1]['body'];
         $this->assertStringContainsString('**needs human** — Design call.', $body);
         $this->assertStringContainsString('I did not change any code.', $body);
         $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=needs_human -->', $body);
+    }
+
+    /**
+     * The needs-you label replaces the old needs-human one and any other outcome, keeps the working claim and other labels
+     *
+     * @return void
+     */
+    public function testNeedsYouReplacesOtherOutcomeLabels(): void
+    {
+        $this->gitlab->note('d1', 'Redesign this?');
+        $this->gitlab->withLabels(['bug', 'kelpie::working', 'kelpie::pushed', 'kelpie::proposed', 'kelpie::needs-human', 'triage: needs you']);
+
+        $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::NeedsHuman, 'Design call.'));
+
+        $this->assertSame(['bug', 'kelpie::working', 'kelpie::needs-you'], $this->gitlab->labels());
     }
 
     /**

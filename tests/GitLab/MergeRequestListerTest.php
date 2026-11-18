@@ -44,9 +44,11 @@ final class MergeRequestListerTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $gitlab = new FakeGitlab();
         $gitlab->pipeline('failed', []);
+        $gitlab->withLabels(['bug', 'kelpie::working']);
         $list = $this->lister($gitlab)->open('ubixsys/ubixkelpie');
 
         $this->assertCount(1, $list);
+        $this->assertSame(['bug', 'kelpie::working'], $list[0]->labels);
         $this->assertSame(3, $list[0]->iid);
         $this->assertSame(1, $list[0]->projectId);
         $this->assertSame(9, $list[0]->pipelineId);

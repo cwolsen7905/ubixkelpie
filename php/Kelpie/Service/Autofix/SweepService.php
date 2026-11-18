@@ -9,6 +9,7 @@ use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\EnqueueOutcome;
+use Kelpie\Enum\TriageStatus;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\GitLab\JobLogReader;
@@ -107,7 +108,7 @@ final class SweepService
      */
     public function sweepMr(string $path, MergeRequestSummary $mr, DateTimeImmutable $now, int $budget): array
     {
-        $lines  = $this->settle($mr, $now);
+        $lines  = [...$this->clearStale($path, $mr, $now), ...$this->settle($mr, $now)];
         $queued = 0;
 
         foreach ($this->candidates($path, $mr) as $candidate) {
@@ -148,6 +149,49 @@ final class SweepService
         }
 
         return [$lines, $queued];
+    }
+
+    /**
+     * Take a stale `kelpie::working` label off the MR (only report it while autofix is disabled)
+     *
+     * The label is stale when no run can be behind it: the job table holds no pending job and no running job with a live lease
+     * for the MR, so the run that set it died before it could end. Never throws: a failure is logged and the next pass tries again.
+     *
+     * @param string              $path The project path
+     * @param MergeRequestSummary $mr   The MR
+     * @param DateTimeImmutable   $now  The current time
+     *
+     * @return list<string> One line when the label was cleared, or would be
+     */
+    public function clearStale(string $path, MergeRequestSummary $mr, DateTimeImmutable $now): array
+    {
+        $claims = array_values(array_intersect([TriageStatus::Working->value, TriageStatus::LEGACY_CLAIM], $mr->labels));
+        if ($claims === []) {
+            return [];
+        }
+
+        try {
+            if ($this->jobs->reader()->hasLiveJob($path, $mr->iid, $now)) {
+                return [];
+            }
+
+            $line = sprintf('%s!%d  stale %s label', $path, $mr->iid, TriageStatus::Working->value);
+            if (!$this->enabled) {
+                return [$line . ' would be cleared (autofix disabled)'];
+            }
+            if (!$this->writer->changeLabels((string) $mr->projectId, $mr->iid, [], $claims)) {
+                $this->logger->warning('Autofix sweep: stale working label could not be cleared', ['mr_iid' => $mr->iid, 'project_path' => $path]);
+
+                return [];
+            }
+            $this->logger->info('Autofix sweep: cleared a stale working label', ['mr_iid' => $mr->iid, 'project_path' => $path]);
+
+            return [$line . ' cleared'];
+        } catch (Throwable $e) {
+            $this->logger->error('Autofix sweep: stale working label could not be checked', ['error' => $e->getMessage(), 'mr_iid' => $mr->iid]);
+
+            return [];
+        }
     }
 
     /**

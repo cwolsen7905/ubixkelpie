@@ -18,10 +18,10 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Lets a person see from the MR list where triage is with a merge request
  *
- * A run calls `start()` when it picks up threads: the `triage: working` label replaces whatever an earlier
+ * A run calls `start()` when it picks up threads: the `kelpie::working` label replaces whatever an earlier
  * round left, one summary note says "working on N threads", and each thread gets 👀. `finish()` edits
- * that note into what happened per thread, takes `working` off and leaves exactly one of `triage: pushed`,
- * `triage: proposed` or `triage: needs you`. Labels are replaced, never stacked. Every GitLab failure is
+ * that note into what happened per thread, takes `working` off and leaves exactly one of `kelpie::pushed`,
+ * `kelpie::proposed` or `kelpie::needs-you`. Labels are replaced, never stacked. Every GitLab failure is
  * logged and swallowed: the status is a courtesy and never stops the work.
  *
  * @see \Kelpie\Tests\Service\Autofix\TriageStatusServiceTest PHPUnit test case
@@ -66,7 +66,7 @@ final class TriageStatusService
     }
 
     /**
-     * Whether another run is on the MR: it carries `triage: working` or the label older versions used
+     * Whether another run is on the MR: it carries `kelpie::working` or the label older versions used
      *
      * @param MergeRequestInfo $mr The merge request
      *
@@ -96,11 +96,7 @@ final class TriageStatusService
             $this->logger->warning('Triage status labels could not be created', ['mr_iid' => $mrIid]);
         }
 
-        $stale = [TriageStatus::LEGACY_CLAIM];
-        foreach (TriageStatus::outcomes() as $status) {
-            $stale[] = $status->value;
-        }
-        if (!$this->writer->changeLabels($project, $mrIid, [TriageStatus::Working->value], $stale)) {
+        if (!$this->writer->changeLabels($project, $mrIid, [TriageStatus::Working->value], TriageStatus::othersThan(TriageStatus::Working))) {
             $this->logger->warning('Triage working label could not be set', ['mr_iid' => $mrIid]);
         }
 
@@ -142,7 +138,7 @@ final class TriageStatusService
 
         // With nothing done there is nothing to report: back to no label rather than a false "pushed".
         $add = $status === null ? [] : [$status->value];
-        if (!$this->writer->changeLabels($project, $mrIid, $add, [TriageStatus::Working->value])) {
+        if (!$this->writer->changeLabels($project, $mrIid, $add, TriageStatus::othersThan($status))) {
             $this->logger->warning('Triage status label could not be set', ['mr_iid' => $mrIid]);
         }
 
@@ -202,7 +198,7 @@ final class TriageStatusService
             "Kelpie triage looked at %d %s: **%s**.\n\n%s\n\n%s",
             $count,
             $count === 1 ? 'thread' : 'threads',
-            $status === null ? 'nothing to do' : substr($status->value, strlen('triage: ')),
+            $status === null ? 'nothing to do' : str_replace('-', ' ', substr($status->value, strlen('kelpie::'))),
             implode("\n", $lines),
             $this->marker($run->threads),
         );

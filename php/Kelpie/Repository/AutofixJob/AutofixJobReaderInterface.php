@@ -64,6 +64,17 @@ interface AutofixJobReaderInterface
     public function countJobsSince(string $projectPath, DateTimeImmutable $since): int;
 
     /**
+     * Whether a run may still be working on the MR: a pending job, or a running one whose lease has not expired
+     *
+     * @param string            $projectPath The project path
+     * @param int               $mrIid       The MR IID
+     * @param DateTimeImmutable $now         The current time
+     *
+     * @return bool
+     */
+    public function hasLiveJob(string $projectPath, int $mrIid, DateTimeImmutable $now): bool;
+
+    /**
      * The oldest MR job a worker may take: pending or with an expired lease, due, and under the attempt limit
      *
      * @param string[]          $projects    Allow-listed project paths

@@ -16,16 +16,17 @@ final readonly class MergeRequestSummary implements Dto
     /**
      * Constructor
      *
-     * @param int    $projectId      The GitLab project ID
-     * @param int    $iid            The MR IID
-     * @param string $title          The title
-     * @param bool   $draft          Whether the MR is a draft
-     * @param string $sourceBranch   The source branch
-     * @param string $targetBranch   The target branch
-     * @param string $sha            Head commit sha of the source branch
-     * @param ?int   $pipelineId     The head pipeline ID, when there is one
-     * @param string $pipelineStatus The head pipeline status, empty when there is none
-     * @param string $pipelineUser   The user the head pipeline ran as, empty when unknown
+     * @param int      $projectId      The GitLab project ID
+     * @param int      $iid            The MR IID
+     * @param string   $title          The title
+     * @param bool     $draft          Whether the MR is a draft
+     * @param string   $sourceBranch   The source branch
+     * @param string   $targetBranch   The target branch
+     * @param string   $sha            Head commit sha of the source branch
+     * @param ?int     $pipelineId     The head pipeline ID, when there is one
+     * @param string   $pipelineStatus The head pipeline status, empty when there is none
+     * @param string   $pipelineUser   The user the head pipeline ran as, empty when unknown
+     * @param string[] $labels         The MR's labels
      */
     public function __construct(
         public int $projectId,
@@ -38,6 +39,7 @@ final readonly class MergeRequestSummary implements Dto
         public ?int $pipelineId = null,
         public string $pipelineStatus = '',
         public string $pipelineUser = '',
+        public array $labels = [],
     ) {
     }
 }

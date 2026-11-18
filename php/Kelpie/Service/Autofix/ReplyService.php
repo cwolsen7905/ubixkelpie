@@ -12,6 +12,7 @@ use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
+use Kelpie\Enum\TriageStatus;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
@@ -19,7 +20,7 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Answers a triaged thread: the not-safe path (design section 5) and the resolution comment (section 4)
  *
- * `needs_human` gets a reply and the `kelpie::needs-human` label on the MR; `not_an_issue` gets a
+ * `needs_human` gets a reply and the `kelpie::needs-you` label on the MR (the other outcome labels and the old `needs-human` come off; `working` stays until the run ends); `not_an_issue` gets a
  * reply; `already_fixed` gets a reply and the thread is resolved only when the code near the finding changed
  * since the review raised it (otherwise the thread stays open). A `fix` verdict is left silent here:
  * once the commit is pushed and the gate passed, `fixed()` replies, and resolves the thread only when
@@ -30,8 +31,6 @@ use Psr\Log\LoggerInterface as Logger;
  */
 final class ReplyService
 {
-    public const string LABEL = 'kelpie::needs-human';
-
     private const string MARKER = '<!-- kelpie:';
 
     private const string CAP_MARKER = '<!-- kelpie:cap-held ';
@@ -175,7 +174,7 @@ final class ReplyService
         }
 
         // Label first: a failed label leaves the thread unanswered, so the next run tries again.
-        if ($verdict->class === TriageClass::NeedsHuman && !$this->writer->addLabel($project, $mrIid, self::LABEL)) {
+        if ($verdict->class === TriageClass::NeedsHuman && !$this->writer->changeLabels($project, $mrIid, [TriageStatus::NeedsYou->value], array_values(array_diff(TriageStatus::othersThan(TriageStatus::NeedsYou), [TriageStatus::Working->value])))) {
             return ResponseOutcome::Failed;
         }
 

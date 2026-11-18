@@ -146,7 +146,7 @@ final class PushRoundBatchService
         foreach ($fixes as $fix) {
             if ($this->reader->getByThread($projectPath, $mrIid, $fix['discussionId'])?->outcome === ThreadOutcome::Pushed) {
                 // Some thread went: the MR says so (a failed one has its own reply)
-                $this->writer->changeLabels($project, $mrIid, [TriageStatus::Pushed->value], [TriageStatus::Working->value, TriageStatus::Proposed->value]);
+                $this->writer->changeLabels($project, $mrIid, [TriageStatus::Pushed->value], TriageStatus::othersThan(TriageStatus::Pushed));
                 $pushed = true;
 
                 break;

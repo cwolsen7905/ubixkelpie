@@ -10,6 +10,7 @@ use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Service\Project\ProjectModeService;
 use Kelpie\Service\Triage\TriageService;
+use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -77,7 +78,7 @@ final class RespondService
             $this->logger,
             $writer,
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
-            new ReplyService($this->logger, $writer, $this->settings->botUsername),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger)),
             $this->triageService,
             new TriageStatusService($this->logger, $writer),
         );

@@ -38,12 +38,13 @@ final class IssueTriageService
     /**
      * Constructor
      *
-     * @param Logger            $logger           Logger
-     * @param IssueClient       $issueClient      The GitLab issue client
-     * @param OpenRouterClient  $openRouterClient The model client
-     * @param IssueTriagePrompt $prompt           The issue prompt
-     * @param JsonService       $jsonService      JSON service
-     * @param string            $botUsername      The bot's username; only its notes count as an earlier triage
+     * @param Logger            $logger            Logger
+     * @param IssueClient       $issueClient       The GitLab issue client
+     * @param OpenRouterClient  $openRouterClient  The model client
+     * @param IssueTriagePrompt $prompt            The issue prompt
+     * @param JsonService       $jsonService       JSON service
+     * @param UsageStampService $usageStampService The usage footer
+     * @param string            $botUsername       The bot's username; only its notes count as an earlier triage
      */
     public function __construct(
         private readonly Logger $logger,
@@ -51,6 +52,7 @@ final class IssueTriageService
         private readonly OpenRouterClient $openRouterClient,
         private readonly IssueTriagePrompt $prompt,
         private readonly JsonService $jsonService,
+        private readonly UsageStampService $usageStampService,
         private readonly string $botUsername = 'kelpie-bot',
     ) {
     }
@@ -147,8 +149,9 @@ final class IssueTriageService
      */
     private function classify(IssueDetails $issue): ?IssueTriageVerdict
     {
-        $model  = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
-        $answer = $this->openRouterClient->complete($model, $this->prompt->system(), $this->prompt->forIssue($issue));
+        $model      = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
+        $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forIssue($issue));
+        $answer     = $completion?->text;
         if ($answer === null) {
             return null;
         }
@@ -177,7 +180,7 @@ final class IssueTriageService
             return null;
         }
 
-        return new IssueTriageVerdict($class, $this->cleanReason($reason));
+        return new IssueTriageVerdict($class, $this->cleanReason($reason), $completion);
     }
 
     /**
@@ -212,7 +215,7 @@ final class IssueTriageService
             "**Kelpie triage: %s**\n\n%s\n\n%s\n\n<!-- kelpie:triage issue=%d class=%s -->",
             $verdict->class->heading(),
             $verdict->reason,
-            $note,
+            $this->usageStampService->append($note, $verdict->completion),
             $iid,
             $verdict->class->value,
         );

@@ -13,6 +13,7 @@ use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
+use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -65,7 +66,7 @@ final class FixerRunnerBuilderService
             $enabled,
             $writer,
             new ClaimService($this->logger, $writer, $this->settings->claimTtl),
-            new ReplyService($this->logger, $writer, $this->settings->botUsername),
+            new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger)),
             $this->triageService,
             $this->propose,
             new EditApplyService($this->logger),

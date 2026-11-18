@@ -10,6 +10,7 @@ use Kelpie\GitLab\IssueClient;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
 use Kelpie\Service\Triage\IssueTriageService;
+use Kelpie\Service\Triage\UsageStampService;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -71,6 +72,28 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $this->assertStringEndsWith('<!-- kelpie:triage issue=7 class=' . $class->value . ' -->', $comments[0]);
             $this->assertStringContainsString('kelpie:skip', $comments[0]);
         }
+    }
+
+    /**
+     * The comment carries the usage footer, above the marker, and shows tokens only when OpenRouter gave no cost
+     *
+     * @return void
+     */
+    public function testCommentIsStampedWithUsage(): void
+    {
+        $content = '{"class": "needs_human", "reason": "because"}';
+        $json    = new JsonService($this->createStub(Logger::class));
+        $costed  = new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]], 'usage' => ['prompt_tokens' => 1234, 'completion_tokens' => 56, 'cost' => 0.00123]]));
+        $free    = new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]], 'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 5]]));
+
+        $withCost = new FakeIssueGitlab();
+        $this->service($withCost, $costed)->triage('org/proj', 7);
+        $noCost = new FakeIssueGitlab();
+        $this->service($noCost, $free)->triage('org/proj', 7);
+
+        $this->assertStringContainsString("\n\n_Model `anthropic/claude-haiku-5.5`, effort default, 1.2k in / 56 out, \$0.0012 (OpenRouter)._\n\n<!-- kelpie:triage", $withCost->notesBy('kelpie-bot')[0]);
+        $this->assertStringContainsString('_Model `anthropic/claude-haiku-5.5`, effort default, 10 in / 5 out._', $noCost->notesBy('kelpie-bot')[0]);
+        $this->assertStringNotContainsString('OpenRouter', $noCost->notesBy('kelpie-bot')[0]);
     }
 
     /**
@@ -295,6 +318,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
             new OpenRouterClient($logger, $model, $factory, $factory, $json),
             new IssueTriagePrompt($logger),
             $json,
+            new UsageStampService($logger),
         );
     }
 }

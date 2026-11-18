@@ -287,7 +287,7 @@ final class FixerRunnerService
         }
 
         $summary = $edits->summary === '' ? $verdict->reason : $edits->summary;
-        $note    = $this->replyService->propose($project, $mrIid, $id, TriageClass::Fix, $sha, $summary, $diff);
+        $note    = $this->replyService->propose($project, $mrIid, $id, TriageClass::Fix, $sha, $summary, $diff, $edits->completion, $verdict->completion);
         if ($note === null) {
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The proposal could not be posted.', $edits->completion, diff: $diff)];
         }
@@ -314,7 +314,7 @@ final class FixerRunnerService
     private function proposeNoChange(string $project, string $projectPath, int $mrIid, Thread $thread, string $sha, TriageVerdict $verdict): array
     {
         $id   = $thread->discussionId;
-        $note = $this->replyService->propose($project, $mrIid, $id, $verdict->class, $sha, $verdict->reason);
+        $note = $this->replyService->propose($project, $mrIid, $id, $verdict->class, $sha, $verdict->reason, '', $verdict->completion);
         if ($note === null) {
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The proposal could not be posted.')];
         }

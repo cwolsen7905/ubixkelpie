@@ -13,6 +13,7 @@ use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Service\Project\ProjectModeService;
+use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
 
@@ -59,7 +60,7 @@ final class ProposalReactionBuilderService
     public function make(string $projectPath): ProposalReactionService
     {
         $writer  = $this->gitlab->writer();
-        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername);
+        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger));
 
         return new ProposalReactionService($this->logger, $replies, $this->round($writer, $replies, $projectPath), $this->reader, $this->outcomes, $this->stored(), $this->modes);
     }
@@ -74,7 +75,7 @@ final class ProposalReactionBuilderService
     public function batch(string $projectPath): PushRoundBatchService
     {
         $writer  = $this->gitlab->writer();
-        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername);
+        $replies = new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger));
 
         return new PushRoundBatchService(
             $this->logger,

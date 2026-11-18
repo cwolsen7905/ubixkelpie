@@ -69,6 +69,15 @@ still has the old log path until `main-worker.yaml` is applied.
 
 The dev sweep CronJob stays suspended. No spend caps or code were changed.
 
+### Dev sweep switched on (2026-11-17)
+
+Checked first (read only): in `kelpie-dev` the `kelpie-api` and `kelpie-worker` Deployments run the `:dev` image, `/health`
+answers 200, `KELPIE_AUTOFIX_ENABLED=true`, and the `ubixshepherd` project hook (id 5) to `kelpie.dev.ubixsys.com` gets 200s.
+The worker's roughly hourly restart is a clean exit 0, not a crash. Changed: `dev-cronjob.yaml` is `suspend: false`, so
+`kelpie:sweep` runs every 15 minutes over enrolled projects (`ubixshepherd`, mode `propose`: proposes, never pushes).
+Spend is bounded by the code default of 10.00 USD a day (`KELPIE_MAX_COST_USD_DAY_GLOBAL` is unset); "No spend caps were changed" above refers to the earlier worker work. The person approved the switch-on (Shepherd decision 459). The entrypoint's Vault hydration for a command override is evidenced by the worker, which uses the same override. Still missing: the image has no `claude` CLI, so the fixer cannot run; the Vault key values were not read (no Vault access
+from this lane). Revert by setting `suspend: true`.
+
 ---
 
 # Go-live plan: enrolling the whole `ubixsys` group

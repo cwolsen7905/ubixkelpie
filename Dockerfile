@@ -11,7 +11,8 @@ ENV APP_NAME=${APP_NAME}
 # The commit SHA, passed by CI; served by KelpieApi's /version.
 ARG APP_VERSION=unknown
 ENV APP_VERSION=${APP_VERSION}
-# The claude CLI the issue fixer shells out to; pinned, bump deliberately (docs/image.md).
+# The claude CLI the issue fixer shells out to; top-level version pinned, bump deliberately
+# (its transitive dependencies are not locked: see docs/image.md).
 ARG CLAUDE_CODE_VERSION=2.1.327
 
 USER root

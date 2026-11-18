@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
+use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\SpendCheck;
 use Kelpie\DataTransferObject\Thread;
@@ -12,6 +13,7 @@ use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\Enum\TriageClass;
 use Kelpie\GitLab\DiscussionWriter;
+use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -177,7 +179,7 @@ final class ReplyService
 
         $body = sprintf(
             "Kelpie triage: **%s\n\n<!-- kelpie:reply thread=%s class=%s -->",
-            sprintf($text, $this->clean($verdict->reason)),
+            $this->stamper()->append(sprintf($text, $this->clean($verdict->reason)), $verdict->completion),
             $discussionId,
             $verdict->class->value,
         );
@@ -252,10 +254,11 @@ final class ReplyService
      * @param string      $headSha      The head the proposal was made at
      * @param string      $text         The summary of the fix, or the reason
      * @param string      $diff         The diff git wrote, for a fix
+     * @param ?Completion $completion   The model call behind the proposal, for the usage footer
      *
      * @return ?int The new note's ID, null when the reply failed or the kind is not a proposal
      */
-    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = ''): ?int
+    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = '', ?Completion $completion = null): ?int
     {
         $text = $this->oneLine($text);
         $text = $text === '' ? 'no reason given.' : $text;
@@ -272,7 +275,7 @@ final class ReplyService
             return null;
         }
 
-        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $lead, $discussionId, $kind->value, $headSha);
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamper()->append($lead, $completion), $discussionId, $kind->value, $headSha);
         $note = $this->writer->reply($project, $mrIid, $discussionId, $body);
         if ($note !== null) {
             $this->logger->info('Autofix proposal posted', ['class' => $kind->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
@@ -297,6 +300,16 @@ final class ReplyService
         $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s -->", $this->clean($text), $discussionId, $kind);
 
         return $this->writer->reply($project, $mrIid, $discussionId, $body) !== null;
+    }
+
+    /**
+     * The usage footer writer
+     *
+     * @return UsageStampService
+     */
+    private function stamper(): UsageStampService
+    {
+        return new UsageStampService($this->logger);
     }
 
     /**

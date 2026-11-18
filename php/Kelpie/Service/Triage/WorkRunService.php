@@ -104,7 +104,7 @@ final class WorkRunService
             $this->logger,
             $this->reader,
             $this->writer,
-            new IssueTriageService($this->logger, $this->gitlab->issueClient(), $this->openRouterClient, $this->prompt, $this->jsonService, $settings->botUsername),
+            new IssueTriageService($this->logger, $this->gitlab->issueClient(), $this->openRouterClient, $this->prompt, $this->jsonService, new UsageStampService($this->logger), $settings->botUsername),
             $workerId,
         );
 

@@ -17,12 +17,14 @@ final readonly class IssueTriageVerdict implements Dto
     /**
      * Constructor
      *
-     * @param IssueTriageClass $class  The class the issue falls into
-     * @param string           $reason A short reason, safe to show to a human
+     * @param IssueTriageClass $class      The class the issue falls into
+     * @param string           $reason     A short reason, safe to show to a human
+     * @param ?Completion      $completion The model call behind it
      */
     public function __construct(
         public IssueTriageClass $class,
         public string $reason,
+        public ?Completion $completion = null,
     ) {
     }
 }

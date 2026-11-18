@@ -11,6 +11,7 @@ use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
 use Kelpie\Service\Triage\IssueTriageService;
 use Kelpie\Service\Triage\IssueTriageWorkerService;
+use Kelpie\Service\Triage\UsageStampService;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -197,6 +198,7 @@ final class IssueTriageWorkerServiceTest extends UbixConcreteClassOrEnumTestCase
             new OpenRouterClient($logger, $model, $factory, $factory, $json),
             new IssueTriagePrompt($logger),
             $json,
+            new UsageStampService($logger),
         );
 
         return new IssueTriageWorkerService($logger, $queue, $queue, $triage);

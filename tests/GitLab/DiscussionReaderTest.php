@@ -64,6 +64,27 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * Every thread comes back with its notes and its state: resolved and non-resolvable ones too, system-only ones not
+     *
+     * @return void
+     */
+    public function testDiscussionsReturnEveryThreadWithItsNotes(): void
+    {
+        $threads = $this->buildReader($this->fixtureResponder())->discussions(1, 3);
+
+        $initials = [];
+        foreach ($threads as $thread) {
+            $initials[] = $thread->discussionId[0];
+        }
+        $this->assertSame(['b', 'c', 'd', 'e', 'f'], $initials);
+        $this->assertSame([false, true, false, false, false], array_column($threads, 'resolved'));
+        $this->assertSame([true, true, false, true, true], array_column($threads, 'resolvable'));
+        $this->assertSame([101, 102], array_column($threads[0]->notes, 'id'));
+        $this->assertSame('bob', $threads[0]->notes[0]->author);
+        $this->assertSame([107], array_column($threads[4]->notes, 'id'));
+    }
+
+    /**
      * Pagination requests page 1 then page 2 and stops when X-Next-Page is empty
      *
      * @return void

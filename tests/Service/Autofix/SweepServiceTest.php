@@ -15,6 +15,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\ReplyService;
+use Kelpie\Service\Autofix\SettledThreadService;
 use Kelpie\Service\Autofix\SweepService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -113,6 +114,24 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $lines = $service->sweep(new DateTimeImmutable());
 
         $this->assertSame(['ubixsys/other!3 d1abc123  skipped: project not allow-listed'], $lines);
+    }
+
+    /**
+     * A settled thread is resolved before the candidates are read, so it is not queued; disabled, it is only reported
+     *
+     * @return void
+     */
+    public function testSettledThreadsAreResolvedNotQueued(): void
+    {
+        $this->gitlab->note('d1abc123', 'Rename this.', '-2 hours', null, 'bob');
+        $this->gitlab->note('d1abc123', 'Dismissed: the name matches the interface it implements.', '-1 hour', null, 'bob');
+
+        $this->assertSame(['1!3 d1abc123  would resolve: dismissed', 'ubixsys/ubixkelpie!3 d1abc123  would queue (autofix disabled)'], $this->service(false, settle: true)->sweep(new DateTimeImmutable()));
+        $this->assertSame([], $this->gitlab->resolved());
+
+        $this->assertSame(['1!3 d1abc123  resolved: dismissed'], $this->service(true, settle: true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['d1abc123'], $this->gitlab->resolved());
+        $this->assertCount(0, $this->queries);
     }
 
     /**
@@ -300,10 +319,11 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
      * @param bool     $enabled  Whether autofix is enabled
      * @param string[] $projects The allow-list
      * @param int      $maxRuns  The run limit
+     * @param bool     $settle   Whether the sweep resolves settled threads
      *
      * @return SweepService
      */
-    private function service(bool $enabled, array $projects = ['ubixsys/ubixkelpie'], int $maxRuns = 5): SweepService
+    private function service(bool $enabled, array $projects = ['ubixsys/ubixkelpie'], int $maxRuns = 5, bool $settle = false): SweepService
     {
         $logger = $this->createStub(Logger::class);
         $json   = new JsonService($logger);
@@ -367,6 +387,7 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             new JobLogReader($logger, $http, $factory, $apiUrl, $json),
             $jobs,
             new ReplyService($logger, $writer, 'kelpie-bot'),
+            settled: $settle ? new SettledThreadService($logger, new DiscussionReader($logger, $http, $factory, $apiUrl, $json), $writer, 'kelpie-bot') : null,
         );
     }
 }

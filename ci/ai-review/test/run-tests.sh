@@ -248,8 +248,10 @@ rm -rf "$w"
 aws=AKIA$(printf 'ABCDEFGH12345678') asia=ASIA$(printf 'QRSTUVWX98765432')
 ghp=ghp_$(printf 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8')
 glpat=glpat-$(printf 'Zz9Yy8Xx7Ww6Vv5Uu4Tt') sk=sk-$(printf 'proj1234567890abcdefXYZ')
+stripe=sk_live_$(printf 'abcdefghij1234567890') goog=AIza$(printf 'SyA1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q')
+glrt=glrt-$(printf 'Ab12Cd34Ef56Gh78') jwt=eyJ$(printf 'hbGciOiJIUzI1NiJ9').$(printf 'eyJzdWIiOiIxMjM0NTY3').$(printf 'dBjftJeZ4CVP')
 bearer='Bearer eyJhbGciOiJIUzI1NiJ9.payloadpart.sigpart99'
-for case in aws asia ghp glpat sk bearer pem pemcut; do
+for case in aws asia ghp glpat sk stripe goog glrt jwt bearer pem pemcut; do
   w=$(mktemp -d)
   case $case in
     aws) secret=$aws; reply="creds: $aws done" ;;
@@ -257,6 +259,10 @@ for case in aws asia ghp glpat sk bearer pem pemcut; do
     ghp) secret=$ghp; reply="token $ghp done" ;;
     glpat) secret=$glpat; reply="token $glpat done" ;;
     sk) secret=$sk; reply="key $sk done" ;;
+    stripe) secret=$stripe; reply="key $stripe done" ;;
+    goog) secret=$goog; reply="key $goog done" ;;
+    glrt) secret=$glrt; reply="token $glrt done" ;;
+    jwt) secret=$jwt; reply="jwt $jwt done" ;;
     bearer) secret=eyJhbGciOiJIUzI1NiJ9; reply="curl -H 'Authorization: $bearer'" ;;
     pem) secret=MIIEvQIBADANBgkqhkiG9w0BAQEF
       reply=$(printf 'before\n-----BEGIN RSA PRIVATE KEY-----\n%s\nsecondbodyline\n-----END RSA PRIVATE KEY-----\nafter' "$secret") ;;

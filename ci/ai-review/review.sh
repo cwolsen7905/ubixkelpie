@@ -463,6 +463,10 @@ mask_secrets() {
     -e 's/github_pat_[A-Za-z0-9_]{20,}/github_pat_[masked]/g' \
     -e 's/gh[pousr]_[A-Za-z0-9]{20,}/gh_[masked]/g' \
     -e 's/xox[abprs]-[A-Za-z0-9-]{10,}/xox-[masked]/g' \
+    -e 's/(sk|rk)_live_[A-Za-z0-9]{10,}/\1_live_[masked]/g' \
+    -e 's/AIza[0-9A-Za-z_-]{35}/AIza[masked]/g' \
+    -e 's/gl(rt|dt|ptt|cbt)-[A-Za-z0-9_-]{8,}/gl\1-[masked]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/[masked jwt]/g' \
     -e 's/sk-[A-Za-z0-9_-]{8,}/sk-[masked]/g' \
     -e 's/glpat-[A-Za-z0-9_-]{8,}/glpat-[masked]/g' \
     -e 's/([Bb]earer|PRIVATE-TOKEN:?|[Aa]uthorization:?)[ =]+[A-Za-z0-9._~+\/=-]{8,}/\1 [masked]/g' \

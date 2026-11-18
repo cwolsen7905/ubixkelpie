@@ -151,7 +151,7 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
    for one week, after masking. Masking covers AWS access keys (`AKIA…`, `ASIA…` and the
    other IAM id prefixes), PEM private key blocks (`-----BEGIN … PRIVATE KEY-----`, including a
    block cut off before its END line), GitHub tokens (`ghp_…`, `github_pat_…`), `glpat-…`, `sk-…`,
-   Slack `xox…` tokens, bearer and `Authorization` headers, `key=value` pairs named like
+   Slack `xox…` tokens, Stripe `sk_live_`/`rk_live_` keys, Google `AIza…` keys, other GitLab tokens (`glrt-`, `gldt-`, `glptt-`, `glcbt-`), bare JWTs, bearer and `Authorization` headers, `key=value` pairs named like
    a token or password, and the two configured secrets. Masking is pattern-based, so treat the
    artifact as sensitive anyway.
    The artifact can exist for a run that **succeeded on retry**: if attempt 1 failed and attempt 2

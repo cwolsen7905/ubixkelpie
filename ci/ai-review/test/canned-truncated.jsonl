@@ -1,0 +1,2 @@
+{"type":"text","part":{"text":"Here is the review: {\"verdict\":\"pass\",\"summ"}}
+{"type":"step-finish","part":{"reason":"length","tokens":{"input":1234,"output":4096},"cost":0}}

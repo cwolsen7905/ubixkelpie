@@ -162,7 +162,9 @@ final class SweepService
      * The label is stale when no run can be behind it: the job table holds no pending job and no running job with a live lease
      * for the MR, and the label was put on longer ago than a run can last (two job leases). The age matters because a run that
      * leaves no job row, such as the `respond` command, or a fixer whose lease ran out before it ended, still holds the label.
-     * When the age cannot be read the label is kept. Never throws: a failure is logged and the next pass tries again.
+     * A run still going after two leases is taken for a dead one: a worker's lease is the longest a job is held, after which another
+     * worker may take it, so the label is cleared and the run's end sets the status again. When the age cannot be read the label is
+     * kept. The two checks are repeated right before the write, so a run that started in between keeps its label. Never throws: a failure is logged and the next pass tries again.
      *
      * @param string              $path The project path
      * @param MergeRequestSummary $mr   The MR
@@ -178,17 +180,18 @@ final class SweepService
         }
 
         try {
-            if ($this->jobs->reader()->hasLiveJob($path, $mr->iid, $now)) {
-                return [];
-            }
-
-            if (!$this->olderThanARun($mr, $claims, $now)) {
+            if (!$this->isStale($path, $mr, $claims, $now)) {
                 return [];
             }
 
             $line = sprintf('%s!%d  stale %s label', $path, $mr->iid, TriageStatus::Working->value);
             if (!$this->enabled) {
                 return [$line . ' would be cleared (autofix disabled)'];
+            }
+            // A run may have started since the first look (its worker locks the job, then puts the label on): look again right before
+            // the write. GitLab cannot make the removal conditional, so this narrows the window to the gap between this read and the write.
+            if (!$this->isStale($path, $mr, $claims, $now)) {
+                return [];
             }
             if (!$this->writer->changeLabels((string) $mr->projectId, $mr->iid, [], $claims)) {
                 $this->logger->warning('Autofix sweep: stale working label could not be cleared', ['mr_iid' => $mr->iid, 'project_path' => $path]);
@@ -228,6 +231,25 @@ final class SweepService
 
             return [];
         }
+    }
+
+    /**
+     * Whether no run can be behind the claim labels: no live job and the newest label older than a run can last
+     *
+     * It reads the job table and GitLab, so two calls can differ.
+     *
+     * @param string              $path   The project path
+     * @param MergeRequestSummary $mr     The MR
+     * @param string[]            $claims The claim labels on the MR
+     * @param DateTimeImmutable   $now    The current time
+     *
+     * @return bool
+     *
+     * @phpstan-impure
+     */
+    private function isStale(string $path, MergeRequestSummary $mr, array $claims, DateTimeImmutable $now): bool
+    {
+        return !$this->jobs->reader()->hasLiveJob($path, $mr->iid, $now) && $this->olderThanARun($mr, $claims, $now);
     }
 
     /**

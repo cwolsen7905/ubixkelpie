@@ -55,9 +55,11 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     private ArrayObject $queries;
 
     /**
-     * What the live-job count query answers
+     * What the live-job count query answers, call by call; the last answer repeats
+     *
+     * @var non-empty-list<string>
      */
-    private string $liveJobs = '0';
+    private array $liveJobs = ['0'];
 
     /**
      * Test that the class is following uBix standards
@@ -186,7 +188,22 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     public function testWorkingLabelOfALiveRunIsKept(): void
     {
         $this->gitlab->withLabels(['kelpie::working']);
-        $this->liveJobs = '1';
+        $this->liveJobs = ['1'];
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+    }
+
+    /**
+     * A run that took its job between the sweep's first look and the write keeps its label: the sweep looks again before it clears
+     *
+     * @return void
+     */
+    public function testRunStartingDuringTheSweepKeepsItsLabel(): void
+    {
+        $this->gitlab->withLabels(['kelpie::working']);
+        $this->gitlab->labelAdded('kelpie::working', '-3 hours');
+        $this->liveJobs = ['0', '1'];
 
         $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
         $this->assertSame(['kelpie::working'], $this->gitlab->labels());
@@ -423,7 +440,15 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             return 1;
         });
         $sql->method('lastInsertId')->willReturn('7');
-        $sql->method('getColumn')->willReturn($this->liveJobs);
+        $answers = new ArrayObject($this->liveJobs);
+        $sql->method('getColumn')->willReturnCallback(static function () use ($answers): string {
+            $answer = $answers->getArrayCopy()[0] ?? '0';
+            if ($answers->count() > 1) {
+                $answers->exchangeArray(array_slice($answers->getArrayCopy(), 1));
+            }
+
+            return $answer;
+        });
         $sql->method('getRows')->willReturnCallback(static function (string $statement) use ($queries): Generator {
             if (str_contains($statement, 'open_marker = 1') && str_contains(implode("\n", $queries->getArrayCopy()), 'INSERT INTO')) {
                 yield [

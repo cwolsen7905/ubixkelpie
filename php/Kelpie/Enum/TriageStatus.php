@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Enum;
 
 /**
- * Where Kelpie is with a merge request, as the `triage: …` label the MR list shows
+ * Where Kelpie is with a merge request, as the scoped `kelpie::…` label the MR list shows
  *
  * `Working` is on while a run is in progress; a finished run leaves exactly one of the other three.
  * When several threads ended differently the most demanding wins: `NeedsYou`, then `Proposed`, then `Pushed`.
@@ -14,15 +14,20 @@ namespace Kelpie\Enum;
  */
 enum TriageStatus: string
 {
-    case Working  = 'triage: working';
-    case Pushed   = 'triage: pushed';
-    case Proposed = 'triage: proposed';
-    case NeedsYou = 'triage: needs you';
+    case Working  = 'kelpie::working';
+    case Pushed   = 'kelpie::pushed';
+    case Proposed = 'kelpie::proposed';
+    case NeedsYou = 'kelpie::needs-you';
 
     /**
      * The label an earlier version used as its claim; still read as one, never written
      */
-    public const string LEGACY_CLAIM = 'kelpie::working';
+    public const string LEGACY_CLAIM = 'triage: working';
+
+    /**
+     * The labels earlier versions left on merge requests: taken off whenever a status label is set, never written
+     */
+    public const array LEGACY = ['triage: working', 'triage: pushed', 'triage: proposed', 'triage: needs you', 'kelpie::needs-human'];
 
     /**
      * The label that switches triage off for one merge request
@@ -57,6 +62,25 @@ enum TriageStatus: string
             self::Proposed => 2,
             self::NeedsYou => 3,
         };
+    }
+
+    /**
+     * Every label that is not the one given: what to take off so the scoped set stays exclusive
+     *
+     * @param ?self $keep The status to keep, null to keep none
+     *
+     * @return list<string> The other statuses and the legacy labels
+     */
+    public static function othersThan(?self $keep): array
+    {
+        $others = self::LEGACY;
+        foreach (self::cases() as $status) {
+            if ($status !== $keep) {
+                $others[] = $status->value;
+            }
+        }
+
+        return $others;
     }
 
     /**

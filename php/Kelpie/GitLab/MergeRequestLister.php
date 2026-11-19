@@ -166,6 +166,7 @@ final class MergeRequestLister
             is_int($pipeline['id'] ?? null) ? $pipeline['id'] : null,
             is_string($pipeline['status'] ?? null) ? $pipeline['status'] : '',
             is_string($user) ? $user : '',
+            is_array($item['labels'] ?? null) ? array_values(array_filter($item['labels'], is_string(...))) : [],
         );
     }
 }

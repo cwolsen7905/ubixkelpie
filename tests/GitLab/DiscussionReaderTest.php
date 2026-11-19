@@ -154,6 +154,42 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The newest add event of the label gives when it was put on; other labels, removals, a failed read and a history longer than the pages followed give nothing
+     *
+     * @return void
+     */
+    public function testLabelAddedAt(): void
+    {
+        $events = (new JsonService($this->createStub(Logger::class)))->encode([
+            ['action' => 'add', 'created_at' => '2026-10-01T10:00:00.000Z', 'label' => ['name' => 'kelpie::working']],
+            ['action' => 'remove', 'created_at' => '2026-10-01T10:30:00.000Z', 'label' => ['name' => 'kelpie::working']],
+            ['action' => 'add', 'created_at' => '2026-10-01T11:00:00.000Z', 'label' => ['name' => 'kelpie::working']],
+            ['action' => 'add', 'created_at' => '2026-10-01T12:00:00.000Z', 'label' => ['name' => 'bug']],
+        ]);
+        $reader = $this->buildReader(static function () use ($events): Psr7Response {
+            return new Psr7Response(200, [], $events);
+        });
+
+        $this->assertSame('2026-10-01T11:00:00', $reader->labelAddedAt(1, 3, 'kelpie::working')?->format('Y-m-d\TH:i:s'));
+        $this->assertNull($reader->labelAddedAt(1, 3, 'kelpie::pushed'));
+
+        $failing = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(500);
+        }, $this->createStub(Logger::class));
+        $broken  = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(200, [], '{not json');
+        }, $this->createStub(Logger::class));
+
+        $endless = $this->buildReader(static function (): Psr7Response {
+            return new Psr7Response(200, ['X-Next-Page' => '9'], '[{"action":"add","created_at":"2026-10-01T10:00:00.000Z","label":{"name":"kelpie::working"}}]');
+        });
+
+        $this->assertNull($endless->labelAddedAt(1, 3, 'kelpie::working'));
+        $this->assertNull($failing->labelAddedAt(1, 3, 'kelpie::working'));
+        $this->assertNull($broken->labelAddedAt(1, 3, 'kelpie::working'));
+    }
+
+    /**
      * An undecodable body is logged and yields no threads, without throwing
      *
      * @return void

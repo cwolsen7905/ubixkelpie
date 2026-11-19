@@ -89,6 +89,18 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
     /**
      * {@inheritDoc}
      */
+    public function hasLiveJob(string $projectPath, int $mrIid, DateTimeImmutable $now): bool
+    {
+        $sql = "SELECT COUNT(*) FROM ubixkelpie.autofix_jobs
+                WHERE project_path = :project_path AND mr_iid = :mr_iid AND source <> :issue_source
+                AND (status = 'pending' OR (status = 'running' AND locked_until >= :lock_now))";
+
+        return (int) $this->sqlService->getColumn($sql, ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'lock_now' => $this->stamp($now), 'mr_iid' => $mrIid, 'project_path' => $projectPath]) > 0;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function createJob(AutofixJobRecord $job): void
     {
         $sql = "INSERT INTO ubixkelpie.autofix_jobs (project_path, mr_iid, head_sha, discussion_id, thread_key, source, after_autofix, steering, status)

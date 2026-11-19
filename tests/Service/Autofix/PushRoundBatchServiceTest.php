@@ -190,7 +190,7 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
         foreach (['d1', 'd2'] as $id) {
             $this->assertSame(ThreadOutcome::Pushed, $this->outcomes->getByThread('g/p', 3, $id)?->outcome);
         }
-        $this->assertContains('triage: pushed', $this->gitlab->labels());
+        $this->assertContains('kelpie::pushed', $this->gitlab->labels());
     }
 
     /**

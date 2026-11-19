@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- MR status labels are now the scoped `kelpie::` set (item 311). While a run works on an MR it carries `kelpie::working`;
+  when it ends, exactly one of `kelpie::pushed` (it pushed a fix), `kelpie::proposed` (it proposed a change) or
+  `kelpie::needs-you` (a person must act) replaces it. `kelpie::needs-you` replaces the MR label `kelpie::needs-human`, and
+  setting any of them takes off the others and the old `triage: working`, `triage: pushed`, `triage: proposed`,
+  `triage: needs you` and `kelpie::needs-human`. The old `triage: working` still counts as a claim. The sweep (`kelpie:sweep`,
+  and the worker after a job) clears a `kelpie::working` label left by a run that died: no pending job and no running job
+  with a live lease for the MR; with autofix off it only reports it. Issues keep `kelpie::needs-human`.
+
 - Kelpie resolves MR threads once they are settled, so nobody clears them by hand (item 290, and the summary notes of 287).
   A thread with a reply is resolved when it was fixed and pushed (a `Fixed:` reply from Kelpie or "fixed in <sha>" naming a
   commit the MR carries), or when its last reply says "dismissed" and gives a reason; Kelpie's own triage summary is resolved

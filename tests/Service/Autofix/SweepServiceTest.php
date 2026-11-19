@@ -39,6 +39,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Enabled, the sweep only queues jobs for the worker and runs nothing
  * - A thread Kelpie already answered is not queued again
  * - At most the run limit of jobs is queued per sweep
+ * - A `kelpie::working` label left by a run that died (no live job, and older than two leases) is cleared; a recent one or one of unknown age is kept; one a live job explains is kept; disabled, it is only reported
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\SweepService
  */
@@ -52,6 +53,13 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
      * @var ArrayObject<int, string>
      */
     private ArrayObject $queries;
+
+    /**
+     * What the live-job count query answers, call by call; the last answer repeats
+     *
+     * @var non-empty-list<string>
+     */
+    private array $liveJobs = ['0'];
 
     /**
      * Test that the class is following uBix standards
@@ -132,6 +140,86 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->assertSame(['1!3 d1abc123  resolved: dismissed'], $this->service(true, settle: true)->sweep(new DateTimeImmutable()));
         $this->assertSame(['d1abc123'], $this->gitlab->resolved());
         $this->assertCount(0, $this->queries);
+    }
+
+    /**
+     * A working label with no live job behind it is left by a run that died: the sweep clears it (and the old claim label), only reporting it while disabled
+     *
+     * @return void
+     */
+    public function testStaleWorkingLabelIsCleared(): void
+    {
+        $this->gitlab->withLabels(['bug', 'kelpie::working', 'triage: working']);
+        $this->gitlab->labelAdded('kelpie::working', '-3 hours');
+
+        $this->assertSame(['ubixsys/ubixkelpie!3  stale kelpie::working label would be cleared (autofix disabled)'], $this->service(false)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['bug', 'kelpie::working', 'triage: working'], $this->gitlab->labels());
+
+        $this->assertSame(['ubixsys/ubixkelpie!3  stale kelpie::working label cleared'], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['bug'], $this->gitlab->labels());
+    }
+
+    /**
+     * A working label with no job row but put on recently is a run in progress (the `respond` command leaves no job): the sweep keeps it,
+     * and keeps one whose age it cannot read
+     *
+     * @return void
+     */
+    public function testRecentOrUnknownWorkingLabelIsKept(): void
+    {
+        $this->gitlab->withLabels(['kelpie::working']);
+        $this->gitlab->labelAdded('kelpie::working', '-5 minutes');
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+
+        $this->gitlab = new FakeGitlab();
+        $this->gitlab->withLabels(['kelpie::working']);
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+    }
+
+    /**
+     * A working label a pending or live running job explains is a run in progress: the sweep leaves it
+     *
+     * @return void
+     */
+    public function testWorkingLabelOfALiveRunIsKept(): void
+    {
+        $this->gitlab->withLabels(['kelpie::working']);
+        $this->liveJobs = ['1'];
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+    }
+
+    /**
+     * A run that took its job between the sweep's first look and the write keeps its label: the sweep looks again before it clears
+     *
+     * @return void
+     */
+    public function testRunStartingDuringTheSweepKeepsItsLabel(): void
+    {
+        $this->gitlab->withLabels(['kelpie::working']);
+        $this->gitlab->labelAdded('kelpie::working', '-3 hours');
+        $this->liveJobs = ['0', '1'];
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+    }
+
+    /**
+     * An outcome label is not a claim: the sweep never touches it
+     *
+     * @return void
+     */
+    public function testOutcomeLabelsAreLeft(): void
+    {
+        $this->gitlab->withLabels(['kelpie::pushed']);
+
+        $this->assertSame([], $this->service(true)->sweep(new DateTimeImmutable()));
+        $this->assertSame(['kelpie::pushed'], $this->gitlab->labels());
     }
 
     /**
@@ -352,7 +440,15 @@ final class SweepServiceTest extends UbixConcreteClassOrEnumTestCase implements 
             return 1;
         });
         $sql->method('lastInsertId')->willReturn('7');
-        $sql->method('getColumn')->willReturn('0');
+        $answers = new ArrayObject($this->liveJobs);
+        $sql->method('getColumn')->willReturnCallback(static function () use ($answers): string {
+            $answer = $answers->getArrayCopy()[0] ?? '0';
+            if ($answers->count() > 1) {
+                $answers->exchangeArray(array_slice($answers->getArrayCopy(), 1));
+            }
+
+            return $answer;
+        });
         $sql->method('getRows')->willReturnCallback(static function (string $statement) use ($queries): Generator {
             if (str_contains($statement, 'open_marker = 1') && str_contains(implode("\n", $queries->getArrayCopy()), 'INSERT INTO')) {
                 yield [

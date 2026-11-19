@@ -34,6 +34,11 @@ final class DiscussionReader
     private const int MAX_PAGES = 100;
 
     /**
+     * Pages of label events followed (the newest events come last: a longer history leaves the age unknown, and the label is kept)
+     */
+    private const int LABEL_EVENT_PAGES = 5;
+
+    /**
      * Constructor
      *
      * @param Logger         $logger         Logger
@@ -114,6 +119,54 @@ final class DiscussionReader
         }
 
         return $threads;
+    }
+
+    /**
+     * When a label was last put on the MR, from its label events
+     *
+     * @param int    $projectId The GitLab project ID
+     * @param int    $mrIid     The MR IID
+     * @param string $label     The label name
+     *
+     * @return ?DateTimeImmutable Null when no add event is found or the events could not be read
+     */
+    public function labelAddedAt(int $projectId, int $mrIid, string $label): ?DateTimeImmutable
+    {
+        $added = null;
+        $page  = 1;
+
+        while ($page > 0 && $page <= self::LABEL_EVENT_PAGES) {
+            $url      = sprintf('%s/projects/%d/merge_requests/%d/resource_label_events?per_page=%d&page=%d', $this->apiUrl, $projectId, $mrIid, self::PER_PAGE, $page);
+            $response = $this->httpClient->sendRequest($this->requestFactory->createRequest('GET', $url));
+
+            if ($response->getStatusCode() !== 200) {
+                $this->logger->error('GitLab label events: unexpected HTTP status', ['mr_iid' => $mrIid, 'status' => $response->getStatusCode()]);
+
+                return null;
+            }
+
+            try {
+                $events = $this->jsonService->decode((string) $response->getBody());
+            } catch (DtoException $e) {
+                $this->logger->error('GitLab label events: JSON decode failed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
+
+                return null;
+            }
+
+            foreach ($events as $event) {
+                $name = is_array($event) && is_array($event['label'] ?? null) ? ($event['label']['name'] ?? null) : null;
+                $at   = is_array($event) ? $this->parseDate($event['created_at'] ?? null) : null;
+                if ($name === $label && $at !== null && ($event['action'] ?? null) === 'add' && ($added === null || $at > $added)) {
+                    $added = $at;
+                }
+            }
+
+            $next = $response->getHeaderLine('X-Next-Page');
+            $page = ctype_digit($next) ? (int) $next : 0;
+        }
+
+        // Pages were left when the cap hit: the newest add may be among them, so the age is unknown, never an older add's.
+        return $page > 0 ? null : $added;
     }
 
     /**

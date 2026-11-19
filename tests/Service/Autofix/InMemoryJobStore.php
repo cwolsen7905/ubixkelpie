@@ -15,6 +15,11 @@ use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
 {
     /**
+     * What `hasLiveJob()` answers
+     */
+    private bool $live = false;
+
+    /**
      * Status of the job: pending, running, superseded, done or failed
      */
     private string $status;
@@ -137,6 +142,28 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
         $this->log[] = __FUNCTION__ . ':' . $projectPath . ',' . $since->format('c');
 
         return 0;
+    }
+
+    /**
+     * Make `hasLiveJob()` answer yes or no
+     *
+     * @param bool $live Whether a job is live
+     *
+     * @return void
+     */
+    public function setLive(bool $live): void
+    {
+        $this->live = $live;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function hasLiveJob(string $projectPath, int $mrIid, DateTimeImmutable $now): bool
+    {
+        $this->log[] = __FUNCTION__ . ':' . $projectPath . ',' . $mrIid . ',' . $now->format('c');
+
+        return $this->live;
     }
 
     /**

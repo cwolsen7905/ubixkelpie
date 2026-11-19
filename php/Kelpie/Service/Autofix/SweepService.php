@@ -9,6 +9,7 @@ use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\DataTransferObject\MergeRequestSummary;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\EnqueueOutcome;
+use Kelpie\Enum\TriageStatus;
 use Kelpie\GitLab\DiscussionReader;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\GitLab\JobLogReader;
@@ -36,6 +37,11 @@ use Throwable;
  */
 final class SweepService
 {
+    /**
+     * How long a working label must have been on an MR, with no live job, before it is taken for a dead run's: two job leases
+     */
+    private const int STALE_SECONDS = 2 * MrJobWorkerService::LOCK_SECONDS;
+
     private const string PIPELINE_MARKER = '<!-- kelpie:pipeline job=';
 
     /**
@@ -107,7 +113,7 @@ final class SweepService
      */
     public function sweepMr(string $path, MergeRequestSummary $mr, DateTimeImmutable $now, int $budget): array
     {
-        $lines  = $this->settle($mr, $now);
+        $lines  = [...$this->clearStale($path, $mr, $now), ...$this->settle($mr, $now)];
         $queued = 0;
 
         foreach ($this->candidates($path, $mr) as $candidate) {
@@ -151,6 +157,58 @@ final class SweepService
     }
 
     /**
+     * Take a stale `kelpie::working` label off the MR (only report it while autofix is disabled)
+     *
+     * The label is stale when no run can be behind it: the job table holds no pending job and no running job with a live lease
+     * for the MR, and the label was put on longer ago than a run can last (two job leases). The age matters because a run that
+     * leaves no job row, such as the `respond` command, or a fixer whose lease ran out before it ended, still holds the label.
+     * A run still going after two leases is taken for a dead one: a worker's lease is the longest a job is held, after which another
+     * worker may take it, so the label is cleared and the run's end sets the status again. When the age cannot be read the label is
+     * kept. The two checks are repeated right before the write, so a run that started in between keeps its label. Never throws: a failure is logged and the next pass tries again.
+     *
+     * @param string              $path The project path
+     * @param MergeRequestSummary $mr   The MR
+     * @param DateTimeImmutable   $now  The current time
+     *
+     * @return list<string> One line when the label was cleared, or would be
+     */
+    public function clearStale(string $path, MergeRequestSummary $mr, DateTimeImmutable $now): array
+    {
+        $claims = array_values(array_intersect([TriageStatus::Working->value, TriageStatus::LEGACY_CLAIM], $mr->labels));
+        if ($claims === []) {
+            return [];
+        }
+
+        try {
+            if (!$this->isStale($path, $mr, $claims, $now)) {
+                return [];
+            }
+
+            $line = sprintf('%s!%d  stale %s label', $path, $mr->iid, TriageStatus::Working->value);
+            if (!$this->enabled) {
+                return [$line . ' would be cleared (autofix disabled)'];
+            }
+            // A run may have started since the first look (its worker locks the job, then puts the label on): look again right before
+            // the write. GitLab cannot make the removal conditional, so this narrows the window to the gap between this read and the write.
+            if (!$this->isStale($path, $mr, $claims, $now)) {
+                return [];
+            }
+            if (!$this->writer->changeLabels((string) $mr->projectId, $mr->iid, [], $claims)) {
+                $this->logger->warning('Autofix sweep: stale working label could not be cleared', ['mr_iid' => $mr->iid, 'project_path' => $path]);
+
+                return [];
+            }
+            $this->logger->info('Autofix sweep: cleared a stale working label', ['mr_iid' => $mr->iid, 'project_path' => $path]);
+
+            return [$line . ' cleared'];
+        } catch (Throwable $e) {
+            $this->logger->error('Autofix sweep: stale working label could not be checked', ['error' => $e->getMessage(), 'mr_iid' => $mr->iid]);
+
+            return [];
+        }
+    }
+
+    /**
      * Resolve the MR's settled threads (only report them while autofix is disabled)
      *
      * Never throws: a failed read or resolve is logged and the next pass tries again.
@@ -173,6 +231,47 @@ final class SweepService
 
             return [];
         }
+    }
+
+    /**
+     * Whether no run can be behind the claim labels: no live job and the newest label older than a run can last
+     *
+     * It reads the job table and GitLab, so two calls can differ.
+     *
+     * @param string              $path   The project path
+     * @param MergeRequestSummary $mr     The MR
+     * @param string[]            $claims The claim labels on the MR
+     * @param DateTimeImmutable   $now    The current time
+     *
+     * @return bool
+     *
+     * @phpstan-impure
+     */
+    private function isStale(string $path, MergeRequestSummary $mr, array $claims, DateTimeImmutable $now): bool
+    {
+        return !$this->jobs->reader()->hasLiveJob($path, $mr->iid, $now) && $this->olderThanARun($mr, $claims, $now);
+    }
+
+    /**
+     * Whether the newest of the claim labels was put on longer ago than a run can last
+     *
+     * @param MergeRequestSummary $mr     The MR
+     * @param string[]            $claims The claim labels on the MR
+     * @param DateTimeImmutable   $now    The current time
+     *
+     * @return bool False when it is younger, or when its age is not known
+     */
+    private function olderThanARun(MergeRequestSummary $mr, array $claims, DateTimeImmutable $now): bool
+    {
+        $newest = null;
+        foreach ($claims as $claim) {
+            $at = $this->reader->labelAddedAt($mr->projectId, $mr->iid, $claim);
+            if ($at !== null && ($newest === null || $at > $newest)) {
+                $newest = $at;
+            }
+        }
+
+        return $newest !== null && $now->getTimestamp() - $newest->getTimestamp() >= self::STALE_SECONDS;
     }
 
     /**

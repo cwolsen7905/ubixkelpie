@@ -56,8 +56,8 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $run = $this->service()->start('1', 3, [$this->thread('d1', 11), $this->thread('d2', 12)]);
 
         $this->assertNotNull($run);
-        $this->assertSame(['triage: working'], $this->gitlab->labels());
-        $this->assertEqualsCanonicalizing(['triage: working', 'triage: pushed', 'triage: proposed', 'triage: needs you'], $this->gitlab->projectLabels());
+        $this->assertSame(['kelpie::working'], $this->gitlab->labels());
+        $this->assertEqualsCanonicalizing(['kelpie::working', 'kelpie::pushed', 'kelpie::proposed', 'kelpie::needs-you'], $this->gitlab->projectLabels());
         $this->assertSame(['11:eyes', '12:eyes'], $this->gitlab->awards());
         $this->assertStringContainsString('working on 2 threads', $this->gitlab->notes()[$run->discussionId][0]['body']);
         $this->assertSame($this->gitlab->notes()[$run->discussionId][0]['id'], $run->noteId);
@@ -90,7 +90,7 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $left = $service->finish('1', 3, $run, ['d1' => new ThreadResult(TriageStatus::Pushed, 'fixed in `abc`')]);
 
         $this->assertSame(TriageStatus::Pushed, $left);
-        $this->assertSame(['triage: pushed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::pushed'], $this->gitlab->labels());
         $this->assertNotNull($run);
         $this->assertCount(1, $this->gitlab->notes()[$run->discussionId]); // Edited, not a second note
         $body = $this->gitlab->notes()[$run->discussionId][0]['body'];
@@ -114,13 +114,49 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $needs   = new ThreadResult(TriageStatus::NeedsYou, 'could not answer: yours — c');
 
         $service->finish('1', 3, $service->start('1', 3, $threads), ['d1' => $pushed, 'd2' => $propose]);
-        $this->assertSame(['triage: proposed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::proposed'], $this->gitlab->labels());
 
         $service->finish('1', 3, $service->start('1', 3, $threads), ['d1' => $pushed, 'd2' => $propose, 'd3' => $needs]);
-        $this->assertSame(['triage: needs you'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
 
         $service->finish('1', 3, $service->start('1', 3, $threads), ['d1' => $pushed]);
-        $this->assertSame(['triage: pushed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::pushed'], $this->gitlab->labels());
+    }
+
+    /**
+     * Whatever the run ends in, `working` and every other scoped label (old ones too) are gone: exactly one stays
+     *
+     * @return void
+     */
+    public function testEachTransitionLeavesExactlyOneScopedLabel(): void
+    {
+        $service  = $this->service();
+        $outcomes = [TriageStatus::Pushed, TriageStatus::Proposed, TriageStatus::NeedsYou];
+
+        foreach ($outcomes as $outcome) {
+            $this->gitlab->withLabels(['bug']);
+            $run = $service->start('1', 3, [$this->thread('d1', 11)]);
+            $this->assertSame(['bug', 'kelpie::working'], $this->gitlab->labels());
+
+            $this->gitlab->withLabels([...$this->gitlab->labels(), 'kelpie::needs-human', 'triage: proposed']);
+            $service->finish('1', 3, $run, ['d1' => new ThreadResult($outcome, 'x')]);
+
+            $this->assertSame(['bug', $outcome->value], $this->gitlab->labels());
+        }
+    }
+
+    /**
+     * A run that ends with no result clears `working` and leaves no outcome
+     *
+     * @return void
+     */
+    public function testNoResultLeavesNoScopedLabel(): void
+    {
+        $service = $this->service();
+        $run     = $service->start('1', 3, [$this->thread('d1', 11)]);
+
+        $this->assertNull($service->finish('1', 3, $run, []));
+        $this->assertSame([], $this->gitlab->labels());
     }
 
     /**
@@ -130,11 +166,11 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
      */
     public function testALaterRoundResetsTheLabels(): void
     {
-        $this->gitlab->withLabels(['bug', 'triage: needs you', 'kelpie::working']);
+        $this->gitlab->withLabels(['bug', 'triage: needs you', 'kelpie::working', 'kelpie::needs-human', 'kelpie::pushed']);
 
         $this->service()->start('1', 3, [$this->thread('d1', 11)]);
 
-        $this->assertSame(['bug', 'triage: working'], $this->gitlab->labels());
+        $this->assertSame(['bug', 'kelpie::working'], $this->gitlab->labels());
     }
 
     /**
@@ -161,7 +197,7 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
     public function testFinishWithoutANote(): void
     {
         $this->assertSame(TriageStatus::Proposed, $this->service()->finish('1', 3, null, ['d1' => new ThreadResult(TriageStatus::Proposed, 'x')]));
-        $this->assertSame(['triage: proposed'], $this->gitlab->labels());
+        $this->assertSame(['kelpie::proposed'], $this->gitlab->labels());
     }
 
     /**
@@ -202,9 +238,10 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertFalse($service->isClaimed($this->mr()));
         $this->assertNotNull($service->skipReason($this->mr(labels: ['triage:off'])));
         $this->assertNotNull($service->skipReason($this->mr(draft: true)));
-        $this->assertTrue($service->isClaimed($this->mr(labels: ['triage: working'])));
         $this->assertTrue($service->isClaimed($this->mr(labels: ['kelpie::working'])));
-        $this->assertFalse($service->isClaimed($this->mr(labels: ['triage: pushed'])));
+        $this->assertTrue($service->isClaimed($this->mr(labels: ['kelpie::working'])));
+        $this->assertTrue($service->isClaimed($this->mr(labels: ['triage: working'])));
+        $this->assertFalse($service->isClaimed($this->mr(labels: ['kelpie::pushed'])));
     }
 
     /**

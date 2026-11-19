@@ -39,6 +39,13 @@ final class FakeGitlab implements HttpClient
     private array $labels = [];
 
     /**
+     * Label events of the MR
+     *
+     * @var list<array<string, mixed>>
+     */
+    private array $labelEvents = [];
+
+    /**
      * Labels the project has
      *
      * @var list<string>
@@ -259,6 +266,23 @@ final class FakeGitlab implements HttpClient
     }
 
     /**
+     * Record that a label was put on the MR at a time, as GitLab's label events show it
+     *
+     * @param string $label The label
+     * @param string $age   A relative time, e.g. `-3 hours`
+     *
+     * @return void
+     */
+    public function labelAdded(string $label, string $age): void
+    {
+        $this->labelEvents[] = [
+            'action'     => 'add',
+            'created_at' => (new DateTimeImmutable($age, new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z'),
+            'label'      => ['name' => $label],
+        ];
+    }
+
+    /**
      * The labels the project has
      *
      * @return list<string>
@@ -369,6 +393,7 @@ final class FakeGitlab implements HttpClient
                     'draft'         => false,
                     'head_pipeline' => $this->pipeline === null ? null : ['id' => $this->pipeline['id'], 'status' => $this->pipeline['status'], 'user' => ['username' => 'alice']],
                     'iid'           => 3,
+                    'labels'        => $this->labels,
                     'project_id'    => 1,
                     'sha'           => str_repeat('a', 40),
                     'source_branch' => 'feat/x',
@@ -377,6 +402,9 @@ final class FakeGitlab implements HttpClient
                     ...$this->mrFields,
                 ],
             ]));
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/resource_label_events$#', $path) === 1 && $method === 'GET') {
+            return $this->fakeJson($this->labelEvents);
         }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/commits$#', $path) === 1 && $method === 'GET') {
             if ($this->commitShas === null) {
@@ -540,8 +568,8 @@ final class FakeGitlab implements HttpClient
     }
 
     /**
-     * @param array<string, mixed> $data   The body
-     * @param int                  $status The status
+     * @param array<mixed> $data   The body
+     * @param int          $status The status
      *
      * @return Psr7Response
      */

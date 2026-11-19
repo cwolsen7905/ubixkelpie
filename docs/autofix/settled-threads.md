@@ -16,6 +16,8 @@ A thread needs at least one reply (a lone first note is never resolved) and one 
    marker is `<!-- kelpie:summary n=<count> t1=<id>.<id>... -->`, with the first ten characters of each discussion ID (five
    per attribute, up to 25 threads). A summary with no list (older ones, or a run of more than 25 threads) waits until the MR
    has no other open thread. A summary still saying "working on" is left for an hour, then treated like any other.
+   Since item 316 new summaries are plain MR notes, not discussions: nothing to resolve and nothing that blocks a merge, so
+   this rule only reaches summaries posted earlier as discussions.
 
 ## Who may settle a thread
 

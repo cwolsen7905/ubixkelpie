@@ -16,12 +16,10 @@ final readonly class TriageRun implements Dto
     /**
      * Constructor
      *
-     * @param string   $discussionId The discussion holding the summary note
-     * @param int      $noteId       The summary note
-     * @param Thread[] $threads      The threads picked up
+     * @param int      $noteId  The summary note, a plain MR note
+     * @param Thread[] $threads The threads picked up
      */
     public function __construct(
-        public string $discussionId,
         public int $noteId,
         public array $threads,
     ) {

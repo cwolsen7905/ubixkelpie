@@ -114,7 +114,7 @@ final class TriageStatusService
             return null;
         }
 
-        return new TriageRun($note[0], $note[1], $threads);
+        return new TriageRun($note, $threads);
     }
 
     /**
@@ -142,7 +142,7 @@ final class TriageStatusService
             $this->logger->warning('Triage status label could not be set', ['mr_iid' => $mrIid]);
         }
 
-        if ($run !== null && !$this->writer->editNote($project, $mrIid, $run->discussionId, $run->noteId, $this->summary($run, $results, $status))) {
+        if ($run !== null && !$this->writer->editPlainNote($project, $mrIid, $run->noteId, $this->summary($run, $results, $status))) {
             $this->logger->warning('Triage summary note could not be edited', ['mr_iid' => $mrIid]);
         }
 

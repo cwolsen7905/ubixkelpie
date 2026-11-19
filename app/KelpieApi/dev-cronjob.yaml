@@ -13,8 +13,7 @@
 # NOT verified: the key values in uBixVault `kelpie/dev/app` (KELPIE_BOT_GITLAB_TOKEN, OPENROUTER_API_KEY, GITLAB_API_URL).
 # No Vault access from the lane that made this change; the worker starting cleanly suggests they are set. A sweep fails
 # closed if one is missing.
-# Known gap: the image has no `claude` CLI, which the fixer runs, so the sweep queues and triages but no fix can run
-# until the image gets it (a Dockerfile change, tracked separately).
+# The image carries the `claude` CLI (the fixer runs it in the worker, not in this sweep).
 # To stop it, set suspend: true again (or KELPIE_AUTOFIX_ENABLED to anything but "true").
 # The sweep queues nothing for a project with no `projects` row (ubixsys/ubixshepherd has one, mode propose).
 # uBixCore's ci/bin/deploy.sh applies this file on every dev deploy; with suspend: true the

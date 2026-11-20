@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Generator;
 use Kelpie\DataTransferObject\AutofixCaps;
 use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\Enum\EnqueueOutcome;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
+use Kelpie\Service\Autofix\CapNoticeService;
+use Kelpie\Tests\GitLab\FakeGitlab;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
@@ -22,6 +25,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - A new job is enqueued and handed back pending
  * - A cap hit hands back no job
+ * - A daily-cap refusal tells the MR once; another cap, or a count under the cap, says nothing
  * - An open job at another head, or one that is already running, is not handed back
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\AutofixJobService
@@ -76,6 +80,63 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
 
         $this->assertSame(EnqueueOutcome::CapExceeded, $outcome);
         $this->assertNull($job);
+    }
+
+    /**
+     * A refusal for the daily cap leaves one note on the MR, and a second refusal leaves no second note
+     *
+     * @return void
+     */
+    public function testDailyCapNotesTheMrOnce(): void
+    {
+        $gitlab = new FakeGitlab();
+        $logger = $this->createStub(Logger::class);
+        $sql    = $this->createStub(SqlService::class);
+        $sql->method('getColumn')->willReturn('100');
+        $sql->method('getRows')->willReturnCallback(function (string $statement): Generator {
+            if (str_contains($statement, 'ORDER BY date_created')) {
+                yield ['date_created' => '2026-11-20 08:30:00'];
+
+                return;
+            }
+
+            yield from $this->rows(null);
+        });
+        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+        $input   = new AutofixJob('g/p', 3, self::SHA, 'note', 'd1');
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$first]  = $service->pendingJob($input, $now);
+        [$second] = $service->pendingJob($input, $now);
+
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertSame(EnqueueOutcome::CapExceeded, $first);
+        $this->assertSame(EnqueueOutcome::CapExceeded, $second);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString('(100 of 100 in 24 h)', $notes[0]['body']);
+        $this->assertStringContainsString('around 08:30 UTC', $notes[0]['body']);
+    }
+
+    /**
+     * A refusal for another cap, with the day's count under its cap, says nothing
+     *
+     * @return void
+     */
+    public function testOtherCapSaysNothing(): void
+    {
+        $gitlab = new FakeGitlab();
+        $logger = $this->createStub(Logger::class);
+        $sql    = $this->createStub(SqlService::class);
+        $sql->method('getColumn')->willReturn('99');
+        $sql->method('getRows')->willReturnCallback(function (): Generator {
+            return $this->rows(null);
+        });
+        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+
+        [$outcome] = $service->pendingJob($this->input(), new DateTimeImmutable());
+
+        $this->assertSame(EnqueueOutcome::CapExceeded, $outcome);
+        $this->assertSame([], $gitlab->requests());
     }
 
     /**

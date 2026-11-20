@@ -27,18 +27,24 @@ final class AutofixJobService
 {
     private readonly AutofixJobCoalescerService $coalescer;
 
+    private readonly int $dailyCap;
+
     /**
      * Constructor
      *
      * @param Logger                  $logger     Logger
      * @param AutofixJobSqlRepository $repository The job repository
-     * @param AutofixCaps             $caps       The caps
+     * @param ?AutofixCaps            $caps       The caps; null reads them from the environment (`AutofixCapsService`)
+     * @param ?CapNoticeService       $notice     Tells an MR its job was refused for the daily cap; null builds one on the environment, which posts nothing when GitLab is not configured
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly AutofixJobSqlRepository $repository,
-        AutofixCaps $caps = new AutofixCaps(),
+        ?AutofixCaps $caps = null,
+        private ?CapNoticeService $notice = null,
     ) {
+        $caps          ??= (new AutofixCapsService($this->logger))->fromEnvironment();
+        $this->dailyCap  = $caps->jobsPerDay;
         $this->coalescer = new AutofixJobCoalescerService($this->logger, $this->repository, $this->repository, $caps);
     }
 
@@ -54,6 +60,8 @@ final class AutofixJobService
     {
         $outcome = $this->coalescer->enqueue($input, $now);
         if ($outcome === EnqueueOutcome::CapExceeded) {
+            $this->noticeDailyCap($input, $now);
+
             return [$outcome, null];
         }
 
@@ -83,5 +91,29 @@ final class AutofixJobService
     public function writer(): AutofixJobWriter
     {
         return $this->repository;
+    }
+
+    /**
+     * When the refusal was for the daily cap, say so once on the MR
+     *
+     * Counts nothing new: it reads the same window the coalescer counted. Never throws.
+     *
+     * @param AutofixJob        $input The refused job
+     * @param DateTimeImmutable $now   The current time
+     *
+     * @return void
+     */
+    private function noticeDailyCap(AutofixJob $input, DateTimeImmutable $now): void
+    {
+        $since = $now->modify('-1 day');
+        $used  = $this->repository->countJobsSince($input->projectPath, $since);
+        if ($used < $this->dailyCap) {
+            return;
+        }
+
+        // The cap frees when enough of the oldest jobs age out of the window for the count to drop below it
+        $freesAt        = $this->repository->getJobCreatedAt($input->projectPath, $since, $used - $this->dailyCap);
+        $this->notice ??= new CapNoticeService($this->logger);
+        $this->notice->jobsPerDayExceeded($input->projectPath, $input->mrIid, $used, $this->dailyCap, $freesAt?->modify('+1 day'), $now);
     }
 }

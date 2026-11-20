@@ -145,6 +145,16 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset): ?DateTimeImmutable
+    {
+        $this->log[] = __FUNCTION__ . ':' . $projectPath . ',' . $since->format('c') . ',' . $offset;
+
+        return null;
+    }
+
+    /**
      * Make `hasLiveJob()` answer yes or no
      *
      * @param bool $live Whether a job is live

@@ -64,6 +64,8 @@ final class FakeGitlab implements HttpClient
      */
     private bool $resolveFails = false;
 
+    private bool $notesFail = false;
+
     /**
      * The per-file diffs a commit comparison answers with, null for a comparison that fails
      *
@@ -231,6 +233,16 @@ final class FakeGitlab implements HttpClient
     public function failResolve(): void
     {
         $this->resolveFails = true;
+    }
+
+    /**
+     * Make listing the MR's notes fail from now on
+     *
+     * @return void
+     */
+    public function failNotes(): void
+    {
+        $this->notesFail = true;
     }
 
     /**
@@ -442,6 +454,22 @@ final class FakeGitlab implements HttpClient
         }
         if (preg_match('#^/projects/\d+/jobs/\d+/trace$#', $path) === 1 && $method === 'GET') {
             return new Psr7Response(200, [], $this->trace);
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/notes$#', $path) === 1 && $method === 'GET') {
+            if ($this->notesFail) {
+                return $this->fakeJson(['message' => '500 Error'], 500);
+            }
+            $flat = [];
+            foreach ($this->notes as $notes) {
+                foreach ($notes as $note) {
+                    $flat[] = ['author' => ['username' => $note['author']], 'body' => $note['body'], 'created_at' => $note['created_at'], 'id' => $note['id'], 'system' => $note['system']];
+                }
+            }
+            usort($flat, static function (array $a, array $b): int {
+                return [$b['created_at'], $b['id']] <=> [$a['created_at'], $a['id']];
+            });
+
+            return new Psr7Response(200, [], (new JsonService(new NullLogger()))->encode($flat));
         }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/notes$#', $path) === 1 && $method === 'POST') {
             $id     = 'cd' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);

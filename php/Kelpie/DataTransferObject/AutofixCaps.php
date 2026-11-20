@@ -15,7 +15,7 @@ final readonly class AutofixCaps implements Dto
 {
     public const int DEFAULT_COMMITS_PER_MR      = 3;
     public const int DEFAULT_ATTEMPTS_PER_THREAD = 2;
-    public const int DEFAULT_JOBS_PER_DAY        = 20;
+    public const int DEFAULT_JOBS_PER_DAY        = 100;
 
     /**
      * Constructor

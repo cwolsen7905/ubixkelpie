@@ -64,6 +64,17 @@ interface AutofixJobReaderInterface
     public function countJobsSince(string $projectPath, DateTimeImmutable $since): int;
 
     /**
+     * When the job at a position in a project's window was created, oldest first, counted the way `countJobsSince()` counts
+     *
+     * @param string            $projectPath Project path with namespace
+     * @param DateTimeImmutable $since       The start of the window
+     * @param int               $offset      How many of the oldest jobs to skip (0 for the oldest)
+     *
+     * @return ?DateTimeImmutable Null when the window holds no such job
+     */
+    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset): ?DateTimeImmutable;
+
+    /**
      * Whether a run may still be working on the MR: a pending job, or a running one whose lease has not expired
      *
      * @param string            $projectPath The project path

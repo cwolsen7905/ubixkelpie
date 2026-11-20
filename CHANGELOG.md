@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Over the daily job cap, Kelpie now says so on the MR, and the caps are configurable.** A job refused for the
+  jobs-per-day cap leaves one note on the MR (the count, and about when it frees up) plus the label `kelpie::over-cap`,
+  at most once per MR per 24 hours, instead of being dropped silently. The caps are read from
+  `KELPIE_AUTOFIX_JOBS_PER_DAY`, `KELPIE_AUTOFIX_COMMITS_PER_MR` and `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD`; a missing or
+  invalid value gives the default and a logged warning. The default jobs per project per day rises from 20 to 100.
+  See `docs/autofix/caps.md`.
+
 - **Fixed: triage always answered "the model gave no answer".** The default `KELPIE_TRIAGE_MODEL`,
   `google/gemini-3-flash`, is not an OpenRouter model id, so every triage call failed and every thread became
   `needs_human`. The default is now `google/gemini-3.8-flash` (listed by OpenRouter's public

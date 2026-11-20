@@ -89,6 +89,22 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
     /**
      * {@inheritDoc}
      */
+    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset): ?DateTimeImmutable
+    {
+        $sql = 'SELECT date_created FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since AND source <> :issue_source AND discussion_id IS NOT NULL ORDER BY date_created ASC LIMIT 1 OFFSET ' . max(0, $offset);
+
+        foreach ($this->sqlService->getRows($sql, ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]) as $row) {
+            $value = $row['date_created'] ?? null;
+
+            return is_string($value) ? new DateTimeImmutable($value, $since->getTimezone()) : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function hasLiveJob(string $projectPath, int $mrIid, DateTimeImmutable $now): bool
     {
         $sql = "SELECT COUNT(*) FROM ubixkelpie.autofix_jobs

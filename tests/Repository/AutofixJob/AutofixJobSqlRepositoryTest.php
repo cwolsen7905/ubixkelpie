@@ -130,6 +130,29 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * The creation time at a position in the window is read oldest first, counting the way the daily cap counts
+     *
+     * @return void
+     */
+    public function testGetJobCreatedAt(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->exactly(2))->method('getRows')->with($this->logicalAnd($this->stringContains('source <> :issue_source'), $this->stringContains('discussion_id IS NOT NULL'), $this->stringContains('ORDER BY date_created ASC LIMIT 1 OFFSET 3')))->willReturnOnConsecutiveCalls(
+            (static function (): Generator {
+                yield ['date_created' => '2026-10-14 13:30:00'];
+            })(),
+            (static function (): Generator {
+                yield from [];
+            })(),
+        );
+        $repo  = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+        $since = new DateTimeImmutable('2026-10-14 12:00:00');
+
+        $this->assertSame('2026-10-14 13:30:00', $repo->getJobCreatedAt('g/p', $since, 3)?->format('Y-m-d H:i:s'));
+        $this->assertNull($repo->getJobCreatedAt('g/p', $since, 3));
+    }
+
+    /**
      * A live job is a pending one or a running one whose lease has not expired; issue jobs do not count
      *
      * @return void

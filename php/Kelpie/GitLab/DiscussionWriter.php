@@ -77,6 +77,34 @@ final class DiscussionWriter
     }
 
     /**
+     * Read the newest plain and discussion notes of an MR, newest first, system notes left out
+     *
+     * One page only: enough to ask whether Kelpie posted something lately.
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return ?list<DiscussionNote> Null when the notes could not be read
+     */
+    public function recentNotes(string $project, int $mrIid): ?array
+    {
+        $raws = $this->send('GET', $this->mrUrl($project, $mrIid) . '/notes?sort=desc&order_by=created_at&per_page=' . self::DIFF_PAGE_SIZE, null);
+        if ($raws === null) {
+            return null;
+        }
+
+        $notes = [];
+        foreach ($raws as $raw) {
+            $note = is_array($raw) && ($raw['system'] ?? false) !== true ? $this->toNote($raw) : null;
+            if ($note !== null) {
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
+    }
+
+    /**
      * Read the head commit sha of an MR's source branch
      *
      * @param string $project The project ID or URL-encodable path

@@ -118,7 +118,7 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
         $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps()))->enqueue($input, new DateTimeImmutable()));
 
         $reader = $this->createStub(AutofixJobReader::class);
-        $reader->method('countJobsSince')->willReturn(20);
+        $reader->method('countJobsSince')->willReturn(AutofixCaps::DEFAULT_JOBS_PER_DAY);
 
         $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps()))->enqueue($input, new DateTimeImmutable()));
     }

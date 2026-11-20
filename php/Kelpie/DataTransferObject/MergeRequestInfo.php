@@ -25,6 +25,7 @@ final readonly class MergeRequestInfo implements Dto
      * @param int      $targetProjectId The project the MR targets
      * @param string   $webUrl          The MR's web URL, empty when GitLab did not say
      * @param string[] $labels          The label titles on the MR
+     * @param string   $author          The MR author's username, empty when GitLab did not say
      */
     public function __construct(
         public string $sha,
@@ -36,6 +37,7 @@ final readonly class MergeRequestInfo implements Dto
         public int $targetProjectId,
         public string $webUrl = '',
         public array $labels = [],
+        public string $author = '',
     ) {
     }
 }

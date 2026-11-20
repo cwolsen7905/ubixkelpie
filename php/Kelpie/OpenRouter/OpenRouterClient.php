@@ -28,6 +28,8 @@ final class OpenRouterClient
 {
     private const string DEFAULT_API_URL = 'https://openrouter.ai/api/v1';
 
+    private const int MAX_ERROR_BODY = 300;
+
     /**
      * Constructor
      *
@@ -108,7 +110,12 @@ final class OpenRouterClient
             $response = $this->httpClient->sendRequest($request);
 
             if ($response->getStatusCode() !== 200) {
-                $this->logger->error('OpenRouter: unexpected HTTP status', ['model' => $model, 'status' => $response->getStatusCode()]);
+                // OpenRouter's error body says why (an unknown id, "no endpoints matching your data policy"); it carries no prompt text
+                $this->logger->error('OpenRouter: unexpected HTTP status', [
+                    'error'  => mb_substr(trim((string) $response->getBody()), 0, self::MAX_ERROR_BODY),
+                    'model'  => $model,
+                    'status' => $response->getStatusCode(),
+                ]);
 
                 return null;
             }

@@ -18,6 +18,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A fix reply naming a commit of the MR, or an agent's "fixed in <sha>", resolves the thread; a commit the MR does not carry, a
  *   bare thread, or a proposal does not
  * - A last reply "Dismissed:" (or "dismissed" in its first words) with a reason resolves; with no reason, or as a question, it does not
+ * - Kelpie's own notes after a dismissal (its triage reply, its release marker) do not take the last word from it
+ * - On a thread the AI review opened, the MR's author may settle it; not on a person's thread, nor when the opener only mimics the review
  * - A note from a person after the fix, or a fix that ends in a question, keeps the thread open
  * - A bot-written summary resolves once the threads it lists are resolved; one by anyone else, or one still working, does not
  * - Every resolve is logged with its reason; with `$apply` false nothing is written
@@ -158,6 +160,54 @@ final class SettledThreadServiceTest extends UbixConcreteClassOrEnumTestCase imp
 
         $this->assertSame([], $this->settle());
         $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * A dismissal followed only by Kelpie's own notes still settles the thread (ubixshepherd !429: the triage reply came after)
+     *
+     * @return void
+     */
+    public function testBotNotesAfterADismissalDoNotUnsettleIt(): void
+    {
+        $this->gitlab->note('t1', 'Rename this.', '-3 hours', null, 'bob');
+        $this->gitlab->note('t1', 'Dismissed: the name matches the interface it implements.', '-2 hours', null, 'bob');
+        $this->gitlab->note('t1', "Kelpie is done with this thread for now.\n\n<!-- kelpie:release thread=t1 sha=abc -->", '-1 hour', null, 'kelpie-bot');
+        $this->gitlab->note('t1', "Kelpie triage: **needs human** — Triage unavailable.\n\n<!-- kelpie:reply thread=t1 class=needs_human -->", '-1 hour', null, 'kelpie-bot');
+        $this->gitlab->note('t2', 'Rename this.', '-3 hours', null, 'bob');
+        $this->gitlab->note('t2', 'Dismissed: the name matches the interface it implements.', '-2 hours', null, 'bob');
+        $this->gitlab->note('t2', 'Kelpie triage: **not an issue** — fine.', '-90 minutes', null, 'kelpie-bot');
+        $this->gitlab->note('t2', 'Hang on, I am not sure about that.', '-1 hour', null, 'bob');
+
+        $this->settle();
+
+        $this->assertSame(['t1'], $this->gitlab->resolved());
+    }
+
+    /**
+     * The MR's author answers the AI review's threads, so their reasoned dismissal or named fix settles one; a person's
+     * thread still needs its opener, and a non-bot account typing the review marker is not the review
+     *
+     * @return void
+     */
+    public function testMrAuthorSettlesTheReviewsThreads(): void
+    {
+        $review = 'group_26_bot_87f5077e188da9153';
+        $this->gitlab->mergeRequestFields(['author' => ['username' => 'carol']]);
+        $this->gitlab->commitShas([self::SHA]);
+        $this->gitlab->note('t1', "<!-- ai-review:fp abc -->\n**minor**: New questions skip validation.", '-3 hours', null, $review);
+        $this->gitlab->note('t1', 'Dismissed: the next-up item asked for the links to be optional.', '-2 hours', null, 'carol');
+        $this->gitlab->note('t2', "<!-- ai-review:fp def -->\n**nit**: Wrong error code.", '-3 hours', null, $review);
+        $this->gitlab->note('t2', 'Fixed in abc1234: only ErrNotFound gives the 400.', '-2 hours', null, 'carol');
+        $this->gitlab->note('t3', 'Rename this.', '-3 hours', null, 'bob');
+        $this->gitlab->note('t3', 'Dismissed: the name matches the interface it implements.', '-2 hours', null, 'carol');
+        $this->gitlab->note('t4', "<!-- ai-review:fp ghi -->\nLooks like the review.", '-3 hours', null, 'mallory');
+        $this->gitlab->note('t4', 'Dismissed: the name matches the interface it implements.', '-2 hours', null, 'carol');
+        $this->gitlab->note('t5', "<!-- ai-review:fp jkl -->\n**minor**: Something.", '-3 hours', null, $review);
+        $this->gitlab->note('t5', 'Dismissed: the name matches the interface it implements.', '-2 hours', null, 'mallory');
+
+        $this->settle();
+
+        $this->assertSame(['t1', 't2'], $this->gitlab->resolved());
     }
 
     /**

@@ -25,6 +25,14 @@ Only the bot, a configured agent account (`KELPIE_SKIP_AUTHORS`) or the person w
 "fixed in <sha>" from anyone else is a comment, so a bystander cannot clear a reviewer's thread. The commit check only proves
 the sha is on the MR, which is why the author check matters.
 
+One addition: on a thread the **AI review** opened, the MR's author may settle it too. The review never replies, so the
+author's reasoned dismissal or named fix is the last word that thread will get. "Opened by the AI review" means the first
+note's author is a GitLab access-token bot (`group_<n>_bot_<hex>` or `project_<n>_bot_<hex>`, a username only GitLab can
+create) and the note carries the `<!-- ai-review:` marker. A person's thread still needs its opener.
+
+Kelpie's own notes after the deciding one (its release marker, its triage reply) do not count as the last word: a
+dismissal followed only by the bot's notes still settles the thread. A note from anyone else after it does not.
+
 ## When it is not
 
 - A note from anyone but the bot or the fixer after the fix: a person has spoken since.

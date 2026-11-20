@@ -148,10 +148,12 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertFalse($mr->draft);
         $this->assertSame($mr->sourceProjectId, $mr->targetProjectId);
         $this->assertSame('https://gitlab.test/g/p/-/merge_requests/3', $mr->webUrl);
+        $this->assertSame('', $mr->author);
 
-        $this->gitlab->mergeRequestFields(['draft' => true, 'source_project_id' => 7, 'state' => 'merged']);
+        $this->gitlab->mergeRequestFields(['author' => ['username' => 'carol'], 'draft' => true, 'source_project_id' => 7, 'state' => 'merged']);
         $mr = $writer->mergeRequest('1', 3);
         $this->assertNotNull($mr);
+        $this->assertSame('carol', $mr->author);
         $this->assertTrue($mr->draft);
         $this->assertFalse($mr->open);
         $this->assertNotSame($mr->sourceProjectId, $mr->targetProjectId);

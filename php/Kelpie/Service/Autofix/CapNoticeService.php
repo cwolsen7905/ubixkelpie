@@ -6,6 +6,7 @@ namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\HttpClient\BotHttpClient;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -17,7 +18,7 @@ use Ubix\Service\JsonService;
  * Tells an MR that Kelpie refused its job because the project is over the daily job cap
  *
  * One plain MR note (not a thread, so nothing to resolve) and the `kelpie::over-cap` label, at most once per MR per
- * 24 hours: a note of ours that carries the marker and is younger than that means it was said already. The bot posts
+ * 24 hours: a note of ours (the bot's, carrying the marker) and is younger than that means it was said already. The bot posts
  * it, and the event filter ignores the bot's own notes, so the notice never queues a job. A GitLab failure is
  * logged and swallowed; it must never break enqueueing.
  *
@@ -38,7 +39,8 @@ final class CapNoticeService
     private bool $writerResolved = false;
 
     /**
-     * The MRs looked at in this process, so repeated refusals do not each call GitLab
+     * The MRs looked at by this instance, so repeated refusals in a long-running process (the worker, a sweep) do not each call GitLab.
+     * A webhook request is its own process, so it starts empty: a refused webhook event costs one GET of the MR's notes
      *
      * @var array<string, DateTimeImmutable>
      */
@@ -91,8 +93,10 @@ final class CapNoticeService
         }
 
         $since = $now->modify(self::WINDOW);
+        $bot   = strtolower((string) (getenv('KELPIE_BOT_USERNAME') ?: AutofixSettings::DEFAULT_BOT));
         foreach ($recent as $note) {
-            if (str_contains($note->body, self::MARKER) && $note->createdAt > $since) {
+            // Only the bot's own note counts: a person quoting the marker must not silence the notice
+            if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER) && $note->createdAt > $since) {
                 return false;
             }
         }

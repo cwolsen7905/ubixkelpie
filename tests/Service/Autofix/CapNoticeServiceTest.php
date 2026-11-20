@@ -120,6 +120,18 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * A person quoting the marker does not count as the notice having been said
+     *
+     * @return void
+     */
+    public function testQuotedMarkerFromAPersonDoesNotSuppress(): void
+    {
+        $this->gitlab->note('d1', '> ' . CapNoticeService::MARKER . "\n> Kelpie is over its daily job cap", '-1 minutes', null, 'alice');
+
+        $this->assertTrue($this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
+    }
+
+    /**
      * The notice queues no job: it makes no job-creating call and carries the marker the event filter ignores
      *
      * @return void

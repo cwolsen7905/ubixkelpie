@@ -7,6 +7,7 @@ namespace Kelpie\Service\Autofix;
 use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\DataTransferObject\ProposedEdits;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\DataTransferObject\TriageLlmChoice;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Service\Triage\LlmFamilyService;
@@ -76,7 +77,19 @@ final class ProposeEditsService
      */
     public function refusal(?string $project): string
     {
-        return $this->llms->refusalFor($this->model(), $project);
+        return $this->choice($project)->refusal;
+    }
+
+    /**
+     * The model to use for this project's code, and why it may not be used if it may not
+     *
+     * @param ?string $project The GitLab project ID or path with namespace; null when not known
+     *
+     * @return TriageLlmChoice
+     */
+    public function choice(?string $project): TriageLlmChoice
+    {
+        return $this->llms->choosePropose($project, $this->model());
     }
 
     /**
@@ -92,8 +105,9 @@ final class ProposeEditsService
      */
     public function propose(Thread $thread, string $directory, string $reason, string $steering = '', ?string $project = null): ProposedEdits
     {
-        $model   = $this->model();
-        $refusal = $this->refusal($project);
+        $choice  = $this->choice($project);
+        $model   = $choice->model;
+        $refusal = $choice->refusal;
         if ($refusal !== '') {
             return new ProposedEdits([], '', $refusal);
         }

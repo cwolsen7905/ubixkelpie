@@ -19,7 +19,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\GitLab\ProjectInfoReader
  *
  * What must hold:
- * - The path and visibility are read with one GET, the project URL-encoded
+ * - The path, visibility and detected license are read with one GET, the project URL-encoded
  * - An error status, an unreadable body or a missing field is null, never an exception
  *
  * @coversDefaultClass \Kelpie\GitLab\ProjectInfoReader
@@ -46,17 +46,18 @@ final class ProjectInfoReaderTest extends UbixConcreteClassOrEnumTestCase implem
         $seen = new ArrayObject();
         $http = $this->createMock(HttpClient::class);
         $http->expects($this->once())->method('sendRequest')->willReturnCallback(static function (Request $request) use ($seen): Psr7Response {
-            $seen->append($request->getMethod() . ' ' . $request->getUri()->getPath());
+            $seen->append($request->getMethod() . ' ' . $request->getRequestTarget());
 
-            return new Psr7Response(200, [], '{"path_with_namespace":"ubixsys/ubixvault","visibility":"public"}');
+            return new Psr7Response(200, [], '{"path_with_namespace":"ubixsys/ubixvault","visibility":"private","license":{"key":"bsd-3-clause"}}');
         });
 
         $info = $this->reader($http)->get('ubixsys/ubixvault');
 
         $this->assertNotNull($info);
         $this->assertSame('ubixsys/ubixvault', $info->path);
-        $this->assertSame('public', $info->visibility);
-        $this->assertSame(['GET /api/v4/projects/ubixsys%2Fubixvault'], $seen->getArrayCopy());
+        $this->assertSame('private', $info->visibility);
+        $this->assertSame('bsd-3-clause', $info->license);
+        $this->assertSame(['GET /api/v4/projects/ubixsys%2Fubixvault?license=true'], $seen->getArrayCopy());
     }
 
     /**

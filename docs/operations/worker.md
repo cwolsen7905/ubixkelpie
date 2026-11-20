@@ -109,6 +109,8 @@ A reply starting `Triage:` from the author or a maintainer runs the thread again
 |---|---|---|
 | `KELPIE_TRIAGE_MODEL` | `google/gemini-3-flash` | classifies the thread; a project's `triage_model` (its `projects` row) wins over it |
 | `KELPIE_PROPOSE_MODEL` | `openai/gpt-5.5` | writes the edits |
+| `KELPIE_TRIAGE_MODEL_PUBLIC` | `meta/muse-spark-1.3-contributor` | classifies the thread on an **open-source** project (cheap; the tier trains on its prompts, which is fine for code that is published anyway) |
+| `KELPIE_PROPOSE_MODEL_PUBLIC` | unset (same as `KELPIE_PROPOSE_MODEL`) | writes the edits on an open-source project, when set |
 | `AI_REVIEW_MODEL` | the review's own default | the model that wrote the review; set it on the worker to the same value as the `kelpie-review` job |
 
 A model that fixes or judges a finding must not be from the family that wrote it. The family is the vendor
@@ -117,12 +119,24 @@ the triage or propose model is in the review's family, or an id has no vendor pa
 makes no call and the thread goes to a person with the reason. The defaults above are not Anthropic because the
 review default is.
 
+**Which projects are open source.** Kelpie asks GitLab which license it detected in the repository
+(`GET /projects/:id?license=true`). An OSI open-source license (BSD, MIT, Apache-2.0, GPL family, MPL, ISC and
+the like) makes the project open source; no license, or one GitLab cannot name, does not. GitLab visibility is
+not used: the canonical repos are private on GitLab and published by mirroring, so a `LICENSE` file is the
+statement that the code is public. Caveat: a repository that carries an open-source `LICENSE` before it is
+published is treated as open source too.
+
+**The balance.** Quality where it pays, cost where it does not: the review (`AI_REVIEW_MODEL`, Sonnet 5.5 through
+OpenRouter with the owner's Anthropic key, OpenRouter's own capacity as the fallback) and the edits
+(`openai/gpt-5.5`) use strong models; triage, which only classifies, uses a cheap one, the training-tier Muse
+Spark on open-source code and a non-training Flash model elsewhere. Neither triage nor the edits use the review's
+family, so each stays a second opinion.
+
 **Training tiers stay off private code.** An OpenRouter id ending in `-contributor` (for example
 `meta/muse-spark-1.3-contributor`) trains on the prompts it receives, the code in the thread included. Triage
-(threads and issues) and the edit proposals after it (`KELPIE_PROPOSE_MODEL`, threads and issues) ask GitLab
-for the project's visibility and use such a model only when it is `public`; for a private or internal project,
-or when the visibility cannot be read, Kelpie makes no call and the thread goes to a person with the reason (an
-issue is skipped). Write ids as OpenRouter's API names them, without a
+(threads and issues) and the edit proposals after it (threads and issues) use such a model only on an
+open-source project (above); for any other project, or when the license cannot be read, Kelpie makes no call and
+the thread goes to a person with the reason (an issue is skipped). Write ids as OpenRouter's API names them, without a
 leading `openrouter/`: the client sends the id as written (`TriageLlmService`).
 
 ### Outcome record

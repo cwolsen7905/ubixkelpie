@@ -144,7 +144,7 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
-     * A model that trains on its prompts never sees a private project's code; a public one's it may
+     * A model that trains on its prompts never sees a project without an open-source license; an open-source one's it may
      *
      * @return void
      */
@@ -152,11 +152,11 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
     {
         putenv('KELPIE_PROPOSE_MODEL=meta/muse-spark-1.3-contributor');
 
-        $refused = $this->service($this->answer('{"edits":[]}'), 'private')->propose($this->thread(), $this->dir, 'r', '', 'g/p');
+        $refused = $this->service($this->answer('{"edits":[]}'))->propose($this->thread(), $this->dir, 'r', '', 'g/p');
         $this->assertStringContainsString('trains on the prompts it receives', $refused->failure);
         $this->assertSame([], $this->sent);
 
-        $this->service($this->answer('{"summary":"none","edits":[]}'), 'public')->propose($this->thread(), $this->dir, 'r', '', 'g/p');
+        $this->service($this->answer('{"summary":"none","edits":[]}'), 'bsd-3-clause')->propose($this->thread(), $this->dir, 'r', '', 'g/p');
         putenv('KELPIE_PROPOSE_MODEL');
         $this->assertCount(1, $this->sent);
     }
@@ -251,12 +251,12 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
-     * @param Psr7Response $response   The canned response to every call
-     * @param ?string      $visibility The project's visibility for the training-tier guard
+     * @param Psr7Response $response The canned response to every call
+     * @param string       $license  The license GitLab reports for the project; empty for none
      *
      * @return ProposeEditsService
      */
-    private function service(Psr7Response $response, ?string $visibility = 'public'): ProposeEditsService
+    private function service(Psr7Response $response, string $license = ''): ProposeEditsService
     {
         $logger = $this->createStub(Logger::class);
         $json   = new JsonService($logger);
@@ -270,7 +270,7 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
             return $response;
         });
 
-        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger, $visibility));
+        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger, 'private', null, 'g/p', $license));
     }
 
     /**

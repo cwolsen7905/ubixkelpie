@@ -7,7 +7,7 @@ namespace Kelpie\DataTransferObject;
 use Ubix\DataTransferObject\DtoInterface as Dto;
 
 /**
- * What GitLab says about a project: its path and its visibility
+ * What GitLab says about a project: its path, its visibility and the license it detected
  *
  * @see \Kelpie\Tests\DataTransferObject\ProjectInfoTest PHPUnit test case
  */
@@ -18,10 +18,12 @@ final readonly class ProjectInfo implements Dto
      *
      * @param string $path       The project path with namespace
      * @param string $visibility GitLab's visibility: public, internal or private
+     * @param string $license    The license key GitLab detected in the repository (e.g. bsd-3-clause); empty when none
      */
     public function __construct(
         public string $path,
         public string $visibility,
+        public string $license = '',
     ) {
     }
 }

@@ -107,7 +107,7 @@ A reply starting `Triage:` from the author or a maintainer runs the thread again
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `KELPIE_TRIAGE_MODEL` | `google/gemini-3-flash` | classifies the thread; a project's `triage_model` (its `projects` row) wins over it |
+| `KELPIE_TRIAGE_MODEL` | `google/gemini-3.8-flash` | classifies the thread; a project's `triage_model` (its `projects` row) wins over it |
 | `KELPIE_PROPOSE_MODEL` | `openai/gpt-5.5` | writes the edits |
 | `AI_REVIEW_MODEL` | the review's own default | the model that wrote the review; set it on the worker to the same value as the `kelpie-review` job |
 

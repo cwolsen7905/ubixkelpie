@@ -19,7 +19,7 @@ use Ubix\Service\JsonService;
  * Classifies one review thread: prompt, model, parse, safety policy
  *
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
- * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3-flash`
+ * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3.8-flash`
  * (`TriageLlmService`), never from the family that wrote the review (`LlmFamilyService`) and never a tier that
  * trains on its prompts on a project not known to be public: either way the verdict is `needs_human`, not a guess.
  *
@@ -27,7 +27,9 @@ use Ubix\Service\JsonService;
  */
 final class TriageService
 {
-    private const string DEFAULT_MODEL = 'google/gemini-3-flash';
+    // An OpenRouter id that must exist there: an unknown id fails every call, which reads as "the model gave no
+    // answer". google/gemini-3-flash never existed; checked against openrouter.ai/api/v1/models on 2026-11-20.
+    private const string DEFAULT_MODEL = 'google/gemini-3.8-flash';
 
     private const int MAX_REASON_LENGTH = 500;
 

@@ -300,7 +300,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame('fix', $row->verdict);
         $this->assertSame('propose', $row->mode);
         $this->assertSame($this->sha, $row->headSha);
-        $this->assertSame('google/gemini-3-flash', $row->triageModel);
+        $this->assertSame('google/gemini-3.8-flash', $row->triageModel);
         $this->assertSame('openai/gpt-5.5', $row->proposeModel);
         $this->assertSame('anthropic', $row->reviewFamily);
         $this->assertSame(200, $row->promptTokens);
@@ -309,7 +309,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertNotNull($row->proposalNoteId);
         $this->assertStringContainsString('"old":"one"', $row->editsJson);
         $this->assertStringContainsString('+two', $row->diff);
-        $this->assertSame(['google/gemini-3-flash', 'openai/gpt-5.5'], $this->calls());
+        $this->assertSame(['google/gemini-3.8-flash', 'openai/gpt-5.5'], $this->calls());
     }
 
     /**
@@ -325,7 +325,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertStringContainsString('Kelpie proposes dismissing this: It is a typo.', $this->lastNote());
         $this->assertSame([], $this->gitlab->resolved());
-        $this->assertSame(['google/gemini-3-flash'], $this->calls());
+        $this->assertSame(['google/gemini-3.8-flash'], $this->calls());
         $this->assertSame('not_an_issue', $this->row()->verdict);
         $this->assertSame(ThreadOutcome::Proposed, $this->row()->outcome);
     }
@@ -357,7 +357,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
         $this->assertSame([], $this->gitlab->resolved());
-        $this->assertSame(['google/gemini-3-flash'], $this->calls());
+        $this->assertSame(['google/gemini-3.8-flash'], $this->calls());
         $this->assertSame(ThreadOutcome::Answered, $this->row()->outcome);
         $this->assertSame('done', $this->jobs->status());
     }
@@ -373,7 +373,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(FixOutcome::NotAFix, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
         $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
-        $this->assertSame(['google/gemini-3-flash'], $this->calls());
+        $this->assertSame(['google/gemini-3.8-flash'], $this->calls());
         $this->assertSame('done', $this->jobs->status());
     }
 
@@ -484,7 +484,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         putenv('KELPIE_PROPOSE_MODEL=anthropic/claude-sonnet-5.5');
 
         $this->assertSame(FixOutcome::EditsRejected, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
-        $this->assertSame(['google/gemini-3-flash'], $this->calls());
+        $this->assertSame(['google/gemini-3.8-flash'], $this->calls());
         $this->assertStringContainsString('same family as the review', $this->lastNote());
     }
 

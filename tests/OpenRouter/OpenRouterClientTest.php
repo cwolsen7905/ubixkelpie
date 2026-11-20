@@ -73,11 +73,11 @@ final class OpenRouterClientTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $body = '{"choices":[{"message":{"content":"{}"}}],"usage":{"prompt_tokens":210,"completion_tokens":18,"cost":0.0042}}';
 
-        $completion = $this->client(new Psr7Response(200, [], $body))->chat('google/gemini-3-flash', 'S', 'U');
+        $completion = $this->client(new Psr7Response(200, [], $body))->chat('google/gemini-3.8-flash', 'S', 'U');
 
         $this->assertNotNull($completion);
         $this->assertSame('{}', $completion->text);
-        $this->assertSame('google/gemini-3-flash', $completion->model);
+        $this->assertSame('google/gemini-3.8-flash', $completion->model);
         $this->assertSame(210, $completion->promptTokens);
         $this->assertSame(18, $completion->completionTokens);
         $this->assertSame(0.0042, $completion->costUsd);

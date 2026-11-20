@@ -37,7 +37,7 @@ final class LlmFamilyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $this->assertSame('anthropic', $service->family('anthropic/claude-haiku-5.5'));
         $this->assertSame('anthropic', $service->family('openrouter/Anthropic/claude-haiku-5.5'));
-        $this->assertSame('google', $service->family(' google/gemini-3-flash '));
+        $this->assertSame('google', $service->family(' google/gemini-3.8-flash '));
     }
 
     /**
@@ -79,10 +79,10 @@ final class LlmFamilyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertTrue($service->sameAsReview('anthropic/claude-sonnet-5.5'));
         $this->assertTrue($service->sameAsReview('openrouter/anthropic/claude-haiku-5.5'));
         $this->assertTrue($service->sameAsReview('mystery'));
-        $this->assertFalse($service->sameAsReview('google/gemini-3-flash'));
+        $this->assertFalse($service->sameAsReview('google/gemini-3.8-flash'));
 
         putenv('AI_REVIEW_MODEL=mystery');
-        $this->assertTrue($service->sameAsReview('google/gemini-3-flash'));
+        $this->assertTrue($service->sameAsReview('google/gemini-3.8-flash'));
         putenv('AI_REVIEW_MODEL');
     }
 }

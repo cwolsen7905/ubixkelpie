@@ -105,7 +105,7 @@ final class ThreadOutcomeSqlRepositoryTest extends UbixConcreteClassOrEnumTestCa
                 'proposal_note_id'  => '105',
                 'reason'            => 'Adds a line.',
                 'review_family'     => 'anthropic',
-                'triage_model'      => 'google/gemini-3-flash',
+                'triage_model'      => 'google/gemini-3.8-flash',
                 'verdict'           => 'fix',
             ];
         });
@@ -247,7 +247,7 @@ final class ThreadOutcomeSqlRepositoryTest extends UbixConcreteClassOrEnumTestCa
             'propose',
             ThreadOutcome::Proposed,
             'Adds a line.',
-            'google/gemini-3-flash',
+            'google/gemini-3.8-flash',
             'openai/gpt-5.5',
             'anthropic',
             200,

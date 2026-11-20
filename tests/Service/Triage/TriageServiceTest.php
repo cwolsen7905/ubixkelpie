@@ -129,7 +129,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
 
         $this->assertSame(TriageClass::Defer, $verdict->class);
         $this->assertNotNull($verdict->completion);
-        $this->assertSame('google/gemini-3-flash', $verdict->completion->model);
+        $this->assertSame('google/gemini-3.8-flash', $verdict->completion->model);
         $this->assertSame(0.0001, $verdict->completion->costUsd);
     }
 

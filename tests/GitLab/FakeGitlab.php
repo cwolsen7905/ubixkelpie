@@ -443,6 +443,25 @@ final class FakeGitlab implements HttpClient
         if (preg_match('#^/projects/\d+/jobs/\d+/trace$#', $path) === 1 && $method === 'GET') {
             return new Psr7Response(200, [], $this->trace);
         }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/notes$#', $path) === 1 && $method === 'POST') {
+            $id     = 'cd' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);
+            $noteId = $this->note($id, $this->fakeString($body['body'] ?? null), 'now', null, 'kelpie-bot');
+
+            return $this->fakeJson(['id' => $noteId, 'body' => $this->fakeString($body['body'] ?? null)], 201);
+        }
+        if (preg_match('#^/projects/[^/]+/merge_requests/3/notes/(\d+)$#', $path, $m) === 1 && $method === 'PUT') {
+            foreach ($this->notes as $discussionId => $notes) {
+                foreach ($notes as $i => $note) {
+                    if ($note['id'] === (int) $m[1]) {
+                        $this->notes[$discussionId][$i]['body'] = $this->fakeString($body['body'] ?? null);
+
+                        return $this->fakeJson(['id' => (int) $m[1]]);
+                    }
+                }
+            }
+
+            return $this->fakeJson(['message' => '404 Not found'], 404);
+        }
         if (preg_match('#^/projects/[^/]+/merge_requests/3/discussions$#', $path) === 1 && $method === 'POST') {
             $id     = 'ab' . str_pad((string) $this->nextId, 6, '0', STR_PAD_LEFT);
             $noteId = $this->note($id, $this->fakeString($body['body'] ?? null), 'now', null, 'kelpie-bot');

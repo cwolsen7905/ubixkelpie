@@ -105,7 +105,11 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $opened = $writer->openNote('1', 3, 'summary');
         $this->assertNotNull($opened);
-        $this->assertSame($this->gitlab->notes()[$opened[0]][0]['id'], $opened[1]);
+        $this->assertContains('POST /projects/1/merge_requests/3/notes', $this->gitlab->requests());
+        $this->assertNotContains('POST /projects/1/merge_requests/3/discussions', $this->gitlab->requests());
+        $this->assertTrue($writer->editPlainNote('1', 3, $opened, 'edited summary'));
+        $this->assertContains('edited summary', array_column(array_merge(...array_values($this->gitlab->notes())), 'body'));
+        $this->assertFalse($writer->editPlainNote('1', 3, 99999, 'x'));
     }
 
     /**

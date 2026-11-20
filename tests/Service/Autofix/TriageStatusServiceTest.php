@@ -59,8 +59,9 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertSame(['kelpie::working'], $this->gitlab->labels());
         $this->assertEqualsCanonicalizing(['kelpie::working', 'kelpie::pushed', 'kelpie::proposed', 'kelpie::needs-you'], $this->gitlab->projectLabels());
         $this->assertSame(['11:eyes', '12:eyes'], $this->gitlab->awards());
-        $this->assertStringContainsString('working on 2 threads', $this->gitlab->notes()[$run->discussionId][0]['body']);
-        $this->assertSame($this->gitlab->notes()[$run->discussionId][0]['id'], $run->noteId);
+        $this->assertStringContainsString('working on 2 threads', $this->summaryNote($run->noteId)['body']);
+        $this->assertContains('POST /projects/1/merge_requests/3/notes', $this->gitlab->requests());
+        $this->assertNotContains('POST /projects/1/merge_requests/3/discussions', $this->gitlab->requests());
     }
 
     /**
@@ -92,8 +93,9 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertSame(TriageStatus::Pushed, $left);
         $this->assertSame(['kelpie::pushed'], $this->gitlab->labels());
         $this->assertNotNull($run);
-        $this->assertCount(1, $this->gitlab->notes()[$run->discussionId]); // Edited, not a second note
-        $body = $this->gitlab->notes()[$run->discussionId][0]['body'];
+        $this->assertCount(1, array_merge(...array_values($this->gitlab->notes()))); // Edited, not a second note
+        $this->assertContains('PUT /projects/1/merge_requests/3/notes/' . $run->noteId, $this->gitlab->requests());
+        $body = $this->summaryNote($run->noteId)['body'];
         $this->assertStringContainsString('src/A.php:3', $body);
         $this->assertStringContainsString('fixed in `abc`', $body);
         $this->assertStringContainsString('**pushed**', $body);
@@ -186,7 +188,7 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertNull($service->finish('1', 3, $run, []));
         $this->assertSame([], $this->gitlab->labels());
         $this->assertNotNull($run);
-        $this->assertStringContainsString('left for now', $this->gitlab->notes()[$run->discussionId][0]['body']);
+        $this->assertStringContainsString('left for now', $this->summaryNote($run->noteId)['body']);
     }
 
     /**
@@ -252,6 +254,26 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
     protected function setUp(): void
     {
         $this->gitlab = new FakeGitlab();
+    }
+
+    /**
+     * The stored summary note
+     *
+     * @param int $noteId The note ID
+     *
+     * @return array{body: string, id: int, author: string, system: bool, created_at: string}
+     */
+    private function summaryNote(int $noteId): array
+    {
+        foreach ($this->gitlab->notes() as $notes) {
+            foreach ($notes as $note) {
+                if ($note['id'] === $noteId) {
+                    return $note;
+                }
+            }
+        }
+
+        $this->fail('No note ' . $noteId);
     }
 
     /**

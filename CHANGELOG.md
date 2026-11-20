@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Kelpie's triage summary ("Kelpie triage looked at N thread(s): ...") is now a plain MR note, not a resolvable discussion
+  (item 316), so one left open no longer blocks auto-merge. It is still edited in place when the run ends. Replies in a
+  thread stay replies. A new summary is no longer a thread the settle step (item 290) can see, so its "summary settled" rule
+  applies only to summaries posted earlier as discussions.
 - MR status labels are now the scoped `kelpie::` set (item 311). While a run works on an MR it carries `kelpie::working`;
   when it ends, exactly one of `kelpie::pushed` (it pushed a fix), `kelpie::proposed` (it proposed a change) or
   `kelpie::needs-you` (a person must act) replaces it. `kelpie::needs-you` replaces the MR label `kelpie::needs-human`, and

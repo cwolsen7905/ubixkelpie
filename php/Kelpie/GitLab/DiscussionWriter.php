@@ -256,22 +256,35 @@ final class DiscussionWriter
     }
 
     /**
-     * Open a new MR-level discussion and say which note it starts with
+     * Post a plain MR note: not a discussion, so nothing to resolve and nothing to block a merge
      *
      * @param string $project The project ID or URL-encodable path
      * @param int    $mrIid   The MR IID
-     * @param string $body    The first note
+     * @param string $body    The note
      *
-     * @return ?array{0: string, 1: int} The discussion ID and the first note's ID, null on failure
+     * @return ?int The new note ID, null on failure
      */
-    public function openNote(string $project, int $mrIid, string $body): ?array
+    public function openNote(string $project, int $mrIid, string $body): ?int
     {
-        $created = $this->send('POST', $this->mrUrl($project, $mrIid) . '/discussions', ['body' => $body]);
+        $created = $this->send('POST', $this->mrUrl($project, $mrIid) . '/notes', ['body' => $body]);
         $id      = $created['id'] ?? null;
-        $notes   = is_array($created['notes'] ?? null) ? $created['notes'] : [];
-        $first   = is_array($notes[0] ?? null) ? ($notes[0]['id'] ?? null) : null;
 
-        return is_string($id) && $id !== '' && is_int($first) ? [$id, $first] : null;
+        return is_int($id) ? $id : null;
+    }
+
+    /**
+     * Rewrite the body of a plain MR note the bot posted with `openNote()`
+     *
+     * @param string $project The project ID or URL-encodable path
+     * @param int    $mrIid   The MR IID
+     * @param int    $noteId  The note ID
+     * @param string $body    The new body
+     *
+     * @return bool Whether GitLab accepted it
+     */
+    public function editPlainNote(string $project, int $mrIid, int $noteId, string $body): bool
+    {
+        return $this->send('PUT', $this->mrUrl($project, $mrIid) . '/notes/' . $noteId, ['body' => $body]) !== null;
     }
 
     /**

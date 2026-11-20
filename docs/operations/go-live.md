@@ -130,7 +130,7 @@ URL (issue, merge request and note events on); `ubixcore` also has a merge-reque
 
 | Project | Default branch | Kelpie hook | `ci/kelpie.yml` | Review today |
 | --- | --- | --- | --- | --- |
-| `ubixkelpie` | `dev` | yes (own) | yes (local include) | `kelpie-review` + `ai-review-mr` |
+| `ubixkelpie` | `dev` | yes (own) | yes (local include) | `kelpie-review` (the template's `ai-review-mr` is switched off) |
 | `ubixshepherd` | `dev` | yes (own) | no | shell `ai-review-mr` at `v0.1.0-beta.1` |
 | `ubixcore` | `main` | yes (own, plus uBixOps hook) | no | none |
 | `ubixvault` | `main` | yes (own) | no | none |

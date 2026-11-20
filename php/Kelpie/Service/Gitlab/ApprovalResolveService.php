@@ -80,7 +80,7 @@ final class ApprovalResolveService
         if ($owners === []) {
             return 'ignored: KELPIE_APPROVAL_OWNERS is not set';
         }
-        if (!in_array($approver, $owners, true)) {
+        if (!in_array(strtolower($approver), $owners, true)) { // GitLab usernames are unique regardless of case
             return 'ignored: ' . $approver . ' is not an approval owner';
         }
 
@@ -159,13 +159,13 @@ final class ApprovalResolveService
     }
 
     /**
-     * The usernames whose approval resolves threads
+     * The usernames whose approval resolves threads, lower case
      *
      * @return list<string>
      */
     private function owners(): array
     {
-        $names = array_map('trim', explode(',', (string) getenv('KELPIE_APPROVAL_OWNERS')));
+        $names = array_map('trim', explode(',', strtolower((string) getenv('KELPIE_APPROVAL_OWNERS'))));
 
         return array_values(array_filter($names, static function (string $name): bool {
             return $name !== '';

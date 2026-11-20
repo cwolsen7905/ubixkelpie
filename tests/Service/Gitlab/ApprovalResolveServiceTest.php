@@ -46,13 +46,13 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
-     * The owner's Approve answers and resolves every open thread, and only those
+     * The owner's Approve answers and resolves every open thread, and only those; owners match regardless of case
      *
      * @return void
      */
     public function testOwnerApprovalResolvesOpenThreads(): void
     {
-        putenv('KELPIE_APPROVAL_OWNERS=cwolsen, other');
+        putenv('KELPIE_APPROVAL_OWNERS=CWolsen, other');
         $outcome = $this->service()->handle('Merge Request Hook', $this->approved('cwolsen'));
 
         $this->assertSame('resolved 2 of 2 open threads on approval by cwolsen', $outcome);

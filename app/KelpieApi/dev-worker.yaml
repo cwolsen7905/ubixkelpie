@@ -105,8 +105,12 @@ spec:
         - name: LOGGER_PATH
           value: "/tmp/logs"
         resources:
-          requests: {cpu: 50m, memory: 128Mi}
-          limits: {cpu: 500m, memory: 256Mi}
+          # The fixer runs the node-based `claude` CLI, and the gate runs phpstan and phpunit, as child processes of
+          # this container. 256Mi was far too small for that: the kernel OOM-kills the container mid-job, the lease is
+          # left to expire and the job is later ended as "the worker died on the last attempt". The roughly hourly
+          # restart is not this: it is the worker's own clean exit after --max-seconds (default 3600).
+          requests: {cpu: 100m, memory: 512Mi}
+          limits: {cpu: 1000m, memory: 2Gi}
         securityContext:
           allowPrivilegeEscalation: false
           privileged: false

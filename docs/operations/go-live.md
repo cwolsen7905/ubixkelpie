@@ -75,7 +75,7 @@ Checked first (read only): in `kelpie-dev` the `kelpie-api` and `kelpie-worker` 
 answers 200, `KELPIE_AUTOFIX_ENABLED=true`, and the `ubixshepherd` project hook (id 5) to `kelpie.dev.ubixsys.com` gets 200s.
 The worker's roughly hourly restart is a clean exit 0, not a crash. Changed: `dev-cronjob.yaml` is `suspend: false`, so
 `kelpie:sweep` runs every 15 minutes over enrolled projects (`ubixshepherd`, mode `propose`: proposes, never pushes).
-Spend is bounded by the code default of 10.00 USD a day (`KELPIE_MAX_COST_USD_DAY_GLOBAL` is unset); "No spend caps were changed" above refers to the earlier worker work. The person approved the switch-on (Shepherd decision 459). The entrypoint's Vault hydration for a command override is evidenced by the worker, which uses the same override. Still missing: the image has no `claude` CLI, so the fixer cannot run; the Vault key values were not read (no Vault access
+Spend is bounded by the code default of 10.00 USD a day (`KELPIE_MAX_COST_USD_DAY_GLOBAL` is unset); "No spend caps were changed" above refers to the earlier worker work. The person approved the switch-on (Shepherd decision 459). The entrypoint's Vault hydration for a command override is evidenced by the worker, which uses the same override. The image has carried the `claude` CLI since 44b672d, so the fixer can run; the Vault key values were not read (no Vault access
 from this lane). Revert by setting `suspend: true`.
 
 ### What credential the fixer needs (checked 2026-11-17, nothing to add in Vault)
@@ -85,7 +85,7 @@ The fixer runs the `claude` CLI headless and gives it the **OpenRouter key** as 
 `https://openrouter.ai/api`), so it needs no Anthropic key and no OAuth token. `OPENROUTER_API_KEY` is already in
 `kelpie/dev/app` and the worker already reads it. The Vault client (`VAULT_APP_KV_PATH`) turns every UPPER_SNAKE_CASE key of
 that secret into an environment variable at start-up for every container that uses the entrypoint, so the worker and the sweep
-pod get it with no manifest change. What the fixer lacks in dev is the `claude` binary in the image (lane `ops/image-claude-cli`).
+pod get it with no manifest change. The image already has the `claude` binary.
 Needed besides: the OpenRouter account behind the key must have credit and allow the fixer model.
 
 ---

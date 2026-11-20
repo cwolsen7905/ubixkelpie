@@ -13,7 +13,9 @@
   no longer uses up the day for the others. A job refused for either leaves one note on the MR naming the cap that was hit
   (the count, and about when it frees up) plus the label `kelpie::over-cap`, at most once per MR per 24 hours, instead of
   being dropped silently. `KELPIE_AUTOFIX_COMMITS_PER_MR` and `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD` are settings too; a
-  missing or invalid value gives the default and a logged warning. See `docs/autofix/caps.md`.
+  missing or invalid value gives the default and a logged warning. See `docs/autofix/caps.md`. The notice runs in the webhook
+  request, so its GitLab calls share one 4 s budget (2 s each at most): a slow GitLab skips the label, then the note,
+  rather than holding the delivery past GitLab's webhook timeout.
 
 - **Fixed: triage always answered "the model gave no answer".** The default `KELPIE_TRIAGE_MODEL`,
   `google/gemini-3-flash`, is not an OpenRouter model id, so every triage call failed and every thread became

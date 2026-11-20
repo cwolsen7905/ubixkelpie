@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Autofix;
 
+use ArrayIterator;
 use DateTimeImmutable;
 use DateTimeZone;
 use Kelpie\Service\Autofix\CapNoticeService;
@@ -20,6 +21,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A second refusal in the same 24 hours posts nothing more
  * - After 24 hours it may post again
  * - Without GitLab settings, or when GitLab fails, nothing is posted and nothing is thrown
+ * - A slow GitLab spends the notice's time budget: the label goes first, then the note; the retry reply likewise
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\CapNoticeService
  */
@@ -217,6 +219,38 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * A slow GitLab spends the budget: past it after the note, the label is skipped; past it after the read, the note too
+     *
+     * @return void
+     */
+    public function testSlowGitlabSpendsTheBudget(): void
+    {
+        $now = new DateTimeImmutable('2026-11-20 10:00:00', new DateTimeZone('UTC'));
+
+        // Clock reads: start, before the note, before the label
+        $this->assertTrue($this->service([0.0, 1.0, 4.5])->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now));
+        $this->assertCount(1, array_merge(...array_values($this->gitlab->notes())));
+        $this->assertNotContains(CapNoticeService::LABEL, $this->gitlab->labels());
+
+        $this->setUp();
+        $this->assertFalse($this->service([0.0, 4.0])->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now));
+        $this->assertSame([], array_merge(...array_values($this->gitlab->notes())));
+    }
+
+    /**
+     * The retry reply is skipped when reading the thread used up the budget
+     *
+     * @return void
+     */
+    public function testSlowGitlabSkipsTheRetryReply(): void
+    {
+        $this->gitlab->note('t1', 'Triage: retry', '-1 minute', null, 'bob');
+
+        $this->assertFalse($this->service([0.0, 5.0])->retryNotQueued('g/p', 3, 't1', 'the job cap is reached'));
+        $this->assertCount(1, $this->gitlab->notes()['t1']);
+    }
+
+    /**
      * Build the fake GitLab
      *
      * @return void
@@ -227,12 +261,24 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * @param float[] $clock The clock's readings in order, the last one repeating; empty for the real clock
+     *
      * @return CapNoticeService
      */
-    private function service(): CapNoticeService
+    private function service(array $clock = []): CapNoticeService
     {
         $logger = $this->createStub(Logger::class);
+        $reads  = new ArrayIterator(array_values($clock));
+        $last   = $clock === [] ? 0.0 : (float) end($clock);
 
-        return new CapNoticeService($logger, $this->gitlab->writer($logger));
+        return new CapNoticeService($logger, $this->gitlab->writer($logger), $clock === [] ? null : static function () use ($reads, $last): float {
+            if (!$reads->valid()) {
+                return $last;
+            }
+            $value = $reads->current();
+            $reads->next();
+
+            return $value;
+        });
     }
 }

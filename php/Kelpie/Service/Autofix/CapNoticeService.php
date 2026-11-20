@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
 use Kelpie\DataTransferObject\AutofixSettings;
@@ -22,6 +23,11 @@ use Ubix\Service\JsonService;
  * it, and the event filter ignores the bot's own notes, so the notice never queues a job. A GitLab failure is
  * logged and swallowed; it must never break enqueueing.
  *
+ * It runs inside the webhook request, so each notice has one time budget for all its GitLab calls (`BUDGET_SECONDS`), not one
+ * per call: a slow GitLab must not hold a delivery past GitLab's webhook timeout, which can make GitLab retry or disable the
+ * hook. The calls go in order of what matters (read, then the note, then the label) and whatever is left when the budget is
+ * spent is skipped and logged. With a 2 s cap per call the worst case is about the budget plus one call.
+ *
  * @see \Kelpie\Tests\Service\Autofix\CapNoticeServiceTest PHPUnit test case
  */
 final class CapNoticeService
@@ -36,7 +42,9 @@ final class CapNoticeService
 
     private const string MEMO = '-10 minutes';
 
-    private const int HTTP_TIMEOUT = 4; // Under GitLab's webhook response timeout: a slow GitLab must not make a delivery fail
+    private const int HTTP_TIMEOUT = 2; // Per call; the budget bounds the notice as a whole
+
+    private const float BUDGET_SECONDS = 4.0; // With one call's timeout on top, well under GitLab's 10 s webhook timeout
 
     private bool $writerResolved = false;
 
@@ -49,17 +57,27 @@ final class CapNoticeService
     private array $looked = [];
 
     /**
+     * @var Closure(): float Seconds, for the budget
+     */
+    private readonly Closure $seconds;
+
+    /**
      * Constructor
      *
      * @param Logger            $logger Logger
      * @param ?DiscussionWriter $writer The bot's writer; null builds one on the bot token and API URL of the process
      *                                  environment, and with neither set nothing is posted
+     * @param ?Closure          $clock  Seconds as a float (`Closure(): float`); null uses `microtime(true)`
      */
     public function __construct(
         private readonly Logger $logger,
         private ?DiscussionWriter $writer = null,
+        ?Closure $clock = null,
     ) {
         $this->writerResolved = $writer !== null;
+        $this->seconds        = $clock ?? static function (): float {
+            return microtime(true);
+        };
     }
 
     /**
@@ -88,6 +106,7 @@ final class CapNoticeService
         }
         $this->looked[$key] = $now;
 
+        $start  = $this->now();
         $recent = $writer->recentNotes($project, $mrIid);
         if ($recent === null) {
             $this->logger->warning('Cap notice skipped: the MR notes could not be read', ['mr_iid' => $mrIid, 'project_path' => $project]);
@@ -104,12 +123,18 @@ final class CapNoticeService
             }
         }
 
+        if ($this->spent($start, 'the note', $project, $mrIid)) {
+            return false;
+        }
         $noteId = $writer->openNote($project, $mrIid, $this->body($cap, $used, $limit, $freesAt));
         if ($noteId === null) {
             return false;
         }
 
-        $writer->addLabel($project, $mrIid, self::LABEL);
+        // The note is what tells people; the label only helps filtering, so it is the first thing a slow GitLab costs
+        if (!$this->spent($start, 'the label', $project, $mrIid)) {
+            $writer->addLabel($project, $mrIid, self::LABEL);
+        }
         $this->logger->info('Cap notice posted', ['mr_iid' => $mrIid, 'project_path' => $project]);
 
         return true;
@@ -134,6 +159,7 @@ final class CapNoticeService
             return false;
         }
 
+        $start = $this->now();
         $notes = $writer->notes($project, $mrIid, $discussionId);
         if ($notes === null) {
             $this->logger->warning('Retry reply skipped: the thread could not be read', ['discussion_id' => $discussionId, 'mr_iid' => $mrIid, 'project_path' => $project]);
@@ -148,7 +174,45 @@ final class CapNoticeService
             }
         }
 
+        if ($this->spent($start, 'the retry reply', $project, $mrIid)) {
+            return false;
+        }
+
         return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::RETRY_MARKER, $reason)) !== null;
+    }
+
+    /**
+     * Whether the notice's time budget is used up, logging what is skipped when it is
+     *
+     * @param float  $start   When the notice made its first call, in clock seconds
+     * @param string $skipped What would be posted next, for the log
+     * @param string $project The project path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return bool
+     */
+    private function spent(float $start, string $skipped, string $project, int $mrIid): bool
+    {
+        $elapsed = $this->now() - $start;
+        if ($elapsed < self::BUDGET_SECONDS) {
+            return false;
+        }
+
+        $this->logger->warning('Cap notice: time budget spent, skipping ' . $skipped, ['elapsed_seconds' => round($elapsed, 2), 'mr_iid' => $mrIid, 'project_path' => $project]);
+
+        return true;
+    }
+
+    /**
+     * The clock's reading, in seconds
+     *
+     * @return float
+     */
+    private function now(): float
+    {
+        $seconds = ($this->seconds)();
+
+        return is_float($seconds) ? $seconds : microtime(true);
     }
 
     /**

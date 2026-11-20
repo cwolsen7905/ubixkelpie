@@ -248,7 +248,7 @@ final class FixerRunnerService
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The scratch checkout could not be made.')];
         }
 
-        $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering);
+        $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering, $projectPath);
         $this->paid = $edits->completion;
         if ($edits->failure !== '') {
             return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $edits->failure, $edits->completion);

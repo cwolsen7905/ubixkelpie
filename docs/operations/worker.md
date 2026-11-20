@@ -119,9 +119,10 @@ review default is.
 
 **Training tiers stay off private code.** An OpenRouter id ending in `-contributor` (for example
 `meta/muse-spark-1.3-contributor`) trains on the prompts it receives, the code in the thread included. Triage
-(threads and issues) asks GitLab for the project's visibility and uses such a model only when it is `public`;
-for a private or internal project, or when the visibility cannot be read, Kelpie makes no call and the thread
-goes to a person with the reason (an issue is skipped). Write ids as OpenRouter's API names them, without a
+(threads and issues) and the edit proposals after it (`KELPIE_PROPOSE_MODEL`, threads and issues) ask GitLab
+for the project's visibility and use such a model only when it is `public`; for a private or internal project,
+or when the visibility cannot be read, Kelpie makes no call and the thread goes to a person with the reason (an
+issue is skipped). Write ids as OpenRouter's API names them, without a
 leading `openrouter/`: the client sends the id as written (`TriageLlmService`).
 
 ### Outcome record

@@ -10,6 +10,7 @@ use Kelpie\DataTransferObject\Thread;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Service\Triage\TriageLlmService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
@@ -44,6 +45,7 @@ final class ProposeEditsService
      * @param ProposePrompt    $prompt           The prompt
      * @param LlmFamilyService $families         Keeps the model out of the review's family
      * @param JsonService      $jsonService      JSON service
+     * @param TriageLlmService $llms             Keeps a model that trains on its prompts off private code
      */
     public function __construct(
         private readonly Logger $logger,
@@ -51,6 +53,7 @@ final class ProposeEditsService
         private readonly ProposePrompt $prompt,
         private readonly LlmFamilyService $families,
         private readonly JsonService $jsonService,
+        private readonly TriageLlmService $llms,
     ) {
     }
 
@@ -65,18 +68,35 @@ final class ProposeEditsService
     }
 
     /**
+     * Why the propose model must not see this project's code, or empty when it may
+     *
+     * @param ?string $project The GitLab project ID or path with namespace; null when not known
+     *
+     * @return string
+     */
+    public function refusal(?string $project): string
+    {
+        return $this->llms->refusalFor($this->model(), $project);
+    }
+
+    /**
      * Ask for edits
      *
-     * @param Thread $thread    The thread
-     * @param string $directory The scratch checkout at the head
-     * @param string $reason    Triage's reason for a fix
-     * @param string $steering  What the author or a maintainer asked for with "Triage:", empty when nothing
+     * @param Thread  $thread    The thread
+     * @param string  $directory The scratch checkout at the head
+     * @param string  $reason    Triage's reason for a fix
+     * @param string  $steering  What the author or a maintainer asked for with "Triage:", empty when nothing
+     * @param ?string $project   The GitLab project ID or path with namespace; null when not known
      *
      * @return ProposedEdits
      */
-    public function propose(Thread $thread, string $directory, string $reason, string $steering = ''): ProposedEdits
+    public function propose(Thread $thread, string $directory, string $reason, string $steering = '', ?string $project = null): ProposedEdits
     {
-        $model = $this->model();
+        $model   = $this->model();
+        $refusal = $this->refusal($project);
+        if ($refusal !== '') {
+            return new ProposedEdits([], '', $refusal);
+        }
         if ($this->families->sameAsReview($model)) {
             $this->logger->warning('Propose: model is from the review\'s family', ['model' => $model]);
 

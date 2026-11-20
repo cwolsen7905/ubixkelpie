@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Triage;
 
+use Kelpie\DataTransferObject\ProjectInfo;
 use Kelpie\DataTransferObject\TriageLlmChoice;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
@@ -11,6 +12,8 @@ use Psr\Log\LoggerInterface as Logger;
 
 /**
  * Picks the triage model for a project, and keeps a model that trains on its prompts off private code
+ *
+ * The guard (`refusalFor`) also covers the edit-proposal model (`ProposeEditsService`).
  *
  * The model is the project's `triage_model` (its `projects` row), else `KELPIE_TRIAGE_MODEL`, else the caller's
  * default. A model id ending in `-contributor` is an OpenRouter tier that trains on the prompts it receives, the
@@ -56,13 +59,34 @@ final class TriageLlmService
             $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: $defaultModel;
         }
 
-        if (!$this->trainsOnPrompts($model) || $info?->visibility === 'public') {
-            return new TriageLlmChoice($model);
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info));
+    }
+
+    /**
+     * Why a model must not see a project's code, or empty when it may
+     *
+     * Used for every call that sends code to a model: triage, and the edit proposals that follow it.
+     *
+     * @param string       $model   The model id
+     * @param ?string      $project The GitLab project ID or path with namespace; null when not known
+     * @param ?ProjectInfo $info    What GitLab already said about the project, to save a second read
+     *
+     * @return string
+     */
+    public function refusalFor(string $model, ?string $project, ?ProjectInfo $info = null): string
+    {
+        if (!$this->trainsOnPrompts($model)) {
+            return '';
         }
 
-        $this->logger->warning('Triage: a training-tier model was refused for a project not known to be public', ['model' => $model, 'project' => $project, 'visibility' => $info?->visibility]);
+        $info ??= $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
+        if ($info?->visibility === 'public') {
+            return '';
+        }
 
-        return new TriageLlmChoice($model, sprintf('Triage refused: %s trains on the prompts it receives, and this project is not known to be public, so its code may not be sent to it.', $model));
+        $this->logger->warning('A training-tier model was refused for a project not known to be public', ['model' => $model, 'project' => $project, 'visibility' => $info?->visibility]);
+
+        return sprintf('Refused: %s trains on the prompts it receives, and this project is not known to be public, so its code may not be sent to it.', $model);
     }
 
     /**

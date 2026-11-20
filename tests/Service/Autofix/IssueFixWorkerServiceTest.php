@@ -32,6 +32,7 @@ use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use RuntimeException;
@@ -245,7 +246,7 @@ final class IssueFixWorkerServiceTest extends UbixConcreteClassOrEnumTestCase im
         $factory  = new Psr17Factory();
         $settings = new AutofixSettings('https://gitlab.test/api/v4', 'bot-token', enabled: true, gitBaseUrl: $this->base . '/git');
         $client   = new OpenRouterClient($logger, new ScriptedModelHttp(['{"files":["src/a.php"]}', '{"summary":"Fixed the typo in the doc comment.","edits":[{"file":"src/a.php","old":"teh typo","new":"the typo"}]}']), $factory, $factory, $json);
-        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
         $projects = $this->createStub(ProjectReader::class);
         if ($throwing) {
             $projects->method('getByPath')->willThrowException(new RuntimeException('database down'));

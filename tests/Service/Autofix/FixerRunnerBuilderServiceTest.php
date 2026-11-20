@@ -70,7 +70,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
             $triage,
             $jobs,
             $runner,
-            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json),
+            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
             new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class)),
             new SpendCapService($logger, new InMemoryProjects(), new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class))),
             $settings,

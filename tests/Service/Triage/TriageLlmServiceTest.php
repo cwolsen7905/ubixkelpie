@@ -101,6 +101,19 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The shared guard: only a training tier is checked, and only a public project lets it through
+     *
+     * @return void
+     */
+    public function testRefusalFor(): void
+    {
+        $this->assertSame('', TriageLlms::make($this->logger(), 'private')->refusalFor('openai/gpt-5.5', 'g/p'));
+        $this->assertSame('', TriageLlms::make($this->logger(), 'public')->refusalFor(self::MUSE, 'g/p'));
+        $this->assertStringContainsString('not known to be public', TriageLlms::make($this->logger(), 'private')->refusalFor(self::MUSE, 'g/p'));
+        $this->assertStringContainsString('not known to be public', TriageLlms::make($this->logger(), 'public')->refusalFor(self::MUSE, null));
+    }
+
+    /**
      * Only a -contributor suffix counts as a training tier
      *
      * @return void

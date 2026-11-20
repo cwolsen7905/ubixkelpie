@@ -75,6 +75,27 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A training-tier model on a private project is skipped: no model call, no comment, no label
+     *
+     * @return void
+     */
+    public function testTrainingTierOnPrivateProjectIsSkipped(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
+        $gitlab = new FakeIssueGitlab();
+
+        $result = $this->service($gitlab, $this->answer('{"class": "bug", "reason": "would be asked"}'), 'private')->triage('org/proj', 7);
+        putenv('KELPIE_TRIAGE_MODEL');
+
+        $this->assertSame(IssueTriageOutcome::Skipped, $result->outcome);
+        $this->assertStringContainsString('trains on the prompts it receives', $result->detail);
+        $this->assertSame([], $gitlab->labels());
+        $this->assertSame([], $gitlab->notesBy('kelpie-bot'));
+        $this->assertCount(1, $this->models);
+        $this->assertSame(0, $this->models[0]->calls());
+    }
+
+    /**
      * The comment carries the usage footer, above the marker, and shows tokens only when OpenRouter gave no cost
      *
      * @return void
@@ -299,12 +320,13 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
     /**
      * Build the service over the fake GitLab and a model that gives one canned response
      *
-     * @param FakeIssueGitlab $gitlab   The fake GitLab
-     * @param Psr7Response    $response The model's response
+     * @param FakeIssueGitlab $gitlab     The fake GitLab
+     * @param Psr7Response    $response   The model's response
+     * @param ?string         $visibility The project's visibility for the model chooser
      *
      * @return IssueTriageService
      */
-    private function service(FakeIssueGitlab $gitlab, Psr7Response $response): IssueTriageService
+    private function service(FakeIssueGitlab $gitlab, Psr7Response $response, ?string $visibility = 'public'): IssueTriageService
     {
         $logger         = $this->createStub(Logger::class);
         $json           = new JsonService($logger);
@@ -319,6 +341,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
             new IssueTriagePrompt($logger),
             $json,
             new UsageStampService($logger),
+            TriageLlms::make($logger, $visibility),
         );
     }
 }

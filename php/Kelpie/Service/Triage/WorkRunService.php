@@ -56,6 +56,7 @@ final class WorkRunService
      * @param ProposalReactionBuilderService $reactions        Builds what acts on a thumbs on a proposal
      * @param ProjectModeService             $modes            Which projects are enrolled, read again on every pass
      * @param IssueFixBuilderService         $issueFix         Builds the issue fix service the fix jobs run
+     * @param TriageLlmService               $models           Picks the issue triage model per project
      * @param int                            $pollSeconds      Seconds to sleep when nothing is due
      */
     public function __construct(
@@ -73,6 +74,7 @@ final class WorkRunService
         private readonly ProposalReactionBuilderService $reactions,
         private readonly ProjectModeService $modes,
         private readonly IssueFixBuilderService $issueFix,
+        private readonly TriageLlmService $models,
         private readonly int $pollSeconds = 5,
     ) {
     }
@@ -104,7 +106,7 @@ final class WorkRunService
             $this->logger,
             $this->reader,
             $this->writer,
-            new IssueTriageService($this->logger, $this->gitlab->issueClient(), $this->openRouterClient, $this->prompt, $this->jsonService, new UsageStampService($this->logger), $settings->botUsername),
+            new IssueTriageService($this->logger, $this->gitlab->issueClient(), $this->openRouterClient, $this->prompt, $this->jsonService, new UsageStampService($this->logger), $this->models, $settings->botUsername),
             $workerId,
         );
 

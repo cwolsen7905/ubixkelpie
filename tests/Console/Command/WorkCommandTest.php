@@ -12,6 +12,7 @@ use Kelpie\Prompt\IssueTriagePrompt;
 use Kelpie\Service\Triage\WorkRunService;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Kelpie\Tests\Service\Autofix\IssueFixFixtures;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -112,6 +113,7 @@ final class WorkCommandTest extends UbixConcreteClassOrEnumTestCase implements I
             $services->reactions(),
             $services->modes(),
             IssueFixFixtures::builder($logger, $http, $settings),
+            TriageLlms::make($logger),
             0,
         ));
     }

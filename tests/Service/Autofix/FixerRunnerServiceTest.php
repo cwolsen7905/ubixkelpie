@@ -28,6 +28,7 @@ use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -749,7 +750,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $writer,
             new ClaimService($logger, $writer, 1800),
             new ReplyService($logger, $writer, 'kelpie-bot'),
-            new TriageService($logger, $open, new TriagePrompt($logger), new SafetyPolicy($logger), $json, $families),
+            new TriageService($logger, $open, new TriagePrompt($logger), new SafetyPolicy($logger), $json, $families, TriageLlms::make($logger)),
             new ProposeEditsService($logger, $open, new ProposePrompt($logger), $families, $json),
             new EditApplyService($logger),
             new TriageStatusService($logger, $writer),

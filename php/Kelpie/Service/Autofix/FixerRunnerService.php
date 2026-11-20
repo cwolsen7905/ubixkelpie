@@ -174,7 +174,7 @@ final class FixerRunnerService
         $this->paid = null;
 
         try {
-            $verdict = $this->triageService->triage($thread, null, $steering);
+            $verdict = $this->triageService->triage($thread, null, $steering, $projectPath);
             $class   = $verdict->class->value;
 
             [$outcome, $result, $record] = match ($verdict->class) {

@@ -103,7 +103,7 @@ final class ThreadResponderService
                 $id = $thread->discussionId;
 
                 try {
-                    $verdict       = $this->triageService->triage($thread);
+                    $verdict       = $this->triageService->triage($thread, null, '', $project);
                     $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $verdict, $thread);
                     $results[$id]  = $this->status->resultFor($verdict, $outcomes[$id]);
                 } finally {

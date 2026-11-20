@@ -20,6 +20,7 @@ use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
@@ -61,7 +62,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
         $factory  = new Psr17Factory();
         $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-bot', gitBaseUrl: 'https://gitlab.test');
         $runner   = new ScriptedProcessRunner();
-        $triage   = new TriageService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new TriagePrompt($logger), new SafetyPolicy($logger), $json, new LlmFamilyService($logger));
+        $triage   = new TriageService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new TriagePrompt($logger), new SafetyPolicy($logger), $json, new LlmFamilyService($logger), TriageLlms::make($logger));
         $jobs     = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $this->createStub(SqlService::class)));
         $runners  = new FixerRunnerBuilderService(
             $logger,

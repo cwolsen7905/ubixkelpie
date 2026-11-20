@@ -208,6 +208,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             $services->reactions(),
             InMemoryProjects::service($modes),
             IssueFixFixtures::builder($logger, $gitlab, $settings),
+            TriageLlms::make($logger),
             0,
         );
     }

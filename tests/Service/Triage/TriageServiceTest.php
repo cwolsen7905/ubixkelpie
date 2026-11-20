@@ -12,6 +12,7 @@ use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Service\Triage\TriageLlmService;
 use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -151,6 +152,56 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * A model that trains on its prompts is refused for a project that is not public, and no model is called
+     *
+     * @return void
+     */
+    public function testTrainingTierOnPrivateProjectIsRefused(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
+        $models = TriageLlms::make($this->createStub(Logger::class), 'private');
+
+        $verdict = $this->service($this->answer('{"class":"fix","reason":"would be asked"}'), $models)->triage($this->thread(), null, '', 'g/p');
+        putenv('KELPIE_TRIAGE_MODEL');
+
+        $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+        $this->assertStringContainsString('trains on the prompts it receives', $verdict->reason);
+        $this->assertNull($verdict->completion);
+    }
+
+    /**
+     * The same model is asked for a public project
+     *
+     * @return void
+     */
+    public function testTrainingTierOnPublicProjectIsAsked(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
+        $models = TriageLlms::make($this->createStub(Logger::class), 'public');
+
+        $verdict = $this->service($this->answer('{"class":"not_an_issue","reason":"fine as is"}'), $models)->triage($this->thread(), null, '', 'g/p');
+        putenv('KELPIE_TRIAGE_MODEL');
+
+        $this->assertSame(TriageClass::NotAnIssue, $verdict->class);
+    }
+
+    /**
+     * Without a project the visibility is unknown, so a training-tier model is refused
+     *
+     * @return void
+     */
+    public function testTrainingTierWithoutProjectIsRefused(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
+
+        $verdict = $this->service($this->answer('{"class":"fix","reason":"would be asked"}'))->triage($this->thread());
+        putenv('KELPIE_TRIAGE_MODEL');
+
+        $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+        $this->assertStringContainsString('not known to be public', $verdict->reason);
+    }
+
+    /**
      * Set a dummy key
      *
      * @return void
@@ -187,11 +238,12 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     /**
      * Build a service whose model always answers with the given response
      *
-     * @param Psr7Response $response The canned response
+     * @param Psr7Response      $response The canned response
+     * @param ?TriageLlmService $models   The model chooser; a public project with no override when null
      *
      * @return TriageService
      */
-    private function service(Psr7Response $response): TriageService
+    private function service(Psr7Response $response, ?TriageLlmService $models = null): TriageService
     {
         $logger     = $this->createStub(Logger::class);
         $httpClient = $this->createStub(HttpClient::class);
@@ -205,6 +257,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
             new SafetyPolicy($logger),
             $json,
             new LlmFamilyService($logger),
+            $models ?? TriageLlms::make($logger),
         );
     }
 

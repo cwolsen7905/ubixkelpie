@@ -1,0 +1,27 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Kelpie\DataTransferObject;
+
+use Ubix\DataTransferObject\DtoInterface as Dto;
+
+/**
+ * The model a triage call should use, or why no model may be called
+ *
+ * @see \Kelpie\Tests\DataTransferObject\TriageLlmChoiceTest PHPUnit test case
+ */
+final readonly class TriageLlmChoice implements Dto
+{
+    /**
+     * Constructor
+     *
+     * @param string $model   The model id
+     * @param string $refusal Why the model must not be called, safe to show to a human; empty when it may
+     */
+    public function __construct(
+        public string $model,
+        public string $refusal = '',
+    ) {
+    }
+}

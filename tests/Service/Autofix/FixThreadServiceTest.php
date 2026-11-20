@@ -25,6 +25,7 @@ use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -250,6 +251,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             new SafetyPolicy($logger),
             $json,
             new LlmFamilyService($logger),
+            TriageLlms::make($logger),
         );
 
         $queries = $this->queries;

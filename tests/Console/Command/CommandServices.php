@@ -27,6 +27,7 @@ use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
@@ -83,6 +84,7 @@ final class CommandServices
             new SafetyPolicy($this->logger),
             $this->json,
             new LlmFamilyService($this->logger),
+            TriageLlms::make($this->logger),
         );
         $this->gitlab    = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
         $open            = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);

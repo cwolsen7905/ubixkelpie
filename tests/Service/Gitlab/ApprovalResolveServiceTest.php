@@ -54,7 +54,6 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     {
         putenv('KELPIE_APPROVAL_OWNERS=cwolsen, other');
         $outcome = $this->service()->handle('Merge Request Hook', $this->approved('cwolsen'));
-        putenv('KELPIE_APPROVAL_OWNERS');
 
         $this->assertSame('resolved 2 of 2 open threads on approval by cwolsen', $outcome);
         $this->assertSame([
@@ -78,7 +77,6 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
         $this->assertStringStartsWith('resolved 2 of 2', $this->service()->handle('Emoji Hook', $this->emoji('MergeRequest', 'award')));
         $this->assertStringStartsWith('ignored', $this->service()->handle('Emoji Hook', $this->emoji('MergeRequest', 'revoke')));
         $this->assertStringStartsWith('ignored', $this->service()->handle('Emoji Hook', $this->emoji('Note', 'award')));
-        putenv('KELPIE_APPROVAL_OWNERS');
     }
 
     /**
@@ -107,7 +105,6 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     {
         putenv('KELPIE_APPROVAL_OWNERS=cwolsen');
         $outcome = $this->service(true)->handle('Merge Request Hook', $this->approved('cwolsen'));
-        putenv('KELPIE_APPROVAL_OWNERS');
 
         $this->assertStringStartsWith('error: could not resolve open threads', $outcome);
     }
@@ -121,7 +118,6 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     {
         putenv('KELPIE_APPROVAL_OWNERS=cwolsen');
         $outcome = $this->service(false, true)->handle('Merge Request Hook', $this->approved('cwolsen'));
-        putenv('KELPIE_APPROVAL_OWNERS');
 
         $this->assertSame('resolved 2 of 2 open threads on approval by cwolsen', $outcome);
         $this->assertSame([
@@ -130,6 +126,16 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
             'POST /api/v4/projects/7/merge_requests/3/discussions/open2/notes',
             'PUT /api/v4/projects/7/merge_requests/3/discussions/open2',
         ], $this->requests->getArrayCopy());
+    }
+
+    /**
+     * Unset the owner list even when a test fails, so it never leaks into later tests
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        putenv('KELPIE_APPROVAL_OWNERS');
     }
 
     /**

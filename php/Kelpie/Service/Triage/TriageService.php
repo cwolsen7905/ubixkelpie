@@ -31,6 +31,10 @@ final class TriageService
     // answer". google/gemini-3-flash never existed; checked against openrouter.ai/api/v1/models on 2026-11-20.
     private const string DEFAULT_MODEL = 'google/gemini-3.8-flash';
 
+    // Room for a reasoning model's thinking: Gemini 3.x Flash spends reasoning tokens inside max_tokens, so the
+    // client's default of 400 can end with empty content, which also reads as "the model gave no answer".
+    private const int MAX_TOKENS = 2000;
+
     private const int MAX_REASON_LENGTH = 500;
 
     /**
@@ -81,7 +85,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
         }
 
-        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering));
+        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering), self::MAX_TOKENS);
         $answer     = $completion?->text;
 
         if ($answer === null) {

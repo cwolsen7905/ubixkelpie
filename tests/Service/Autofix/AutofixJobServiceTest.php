@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use DI\ContainerBuilder;
 use Generator;
 use Kelpie\DataTransferObject\AutofixCaps;
 use Kelpie\DataTransferObject\AutofixJob;
@@ -92,7 +93,9 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $gitlab = new FakeGitlab();
         $logger = $this->createStub(Logger::class);
         $sql    = $this->createStub(SqlService::class);
-        $sql->method('getColumn')->willReturn('100');
+        $sql->method('getColumn')->willReturnCallback(static function (string $statement): string {
+            return str_contains($statement, 'date_created >= :since') ? '100' : '0';
+        });
         $sql->method('getRows')->willReturnCallback(function (string $statement): Generator {
             if (str_contains($statement, 'ORDER BY date_created')) {
                 yield ['date_created' => '2026-11-20 08:30:00'];
@@ -137,6 +140,56 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
 
         $this->assertSame(EnqueueOutcome::CapExceeded, $outcome);
         $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
+     * A refusal by the commit cap says nothing, even when the day's count is also at its cap
+     *
+     * @return void
+     */
+    public function testCommitCapSaysNothingEvenWhenTheDayIsFull(): void
+    {
+        $gitlab = new FakeGitlab();
+        $logger = $this->createStub(Logger::class);
+        $sql    = $this->createStub(SqlService::class);
+        $sql->method('getColumn')->willReturn('100');
+        $sql->method('getRows')->willReturnCallback(function (): Generator {
+            return $this->rows(null);
+        });
+        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+
+        [$outcome] = $service->pendingJob($this->input(), new DateTimeImmutable());
+
+        $this->assertSame(EnqueueOutcome::CapExceeded, $outcome);
+        $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
+     * The service built by the container reads the caps from the environment, not the DTO defaults
+     *
+     * @return void
+     */
+    public function testContainerBuiltServiceReadsTheEnvironment(): void
+    {
+        $logger = $this->createStub(Logger::class);
+        $sql    = $this->createStub(SqlService::class);
+        $sql->method('getColumn')->willReturn('2');
+        $sql->method('query')->willReturn(1);
+        $sql->method('getRows')->willReturnOnConsecutiveCalls($this->rows(null), $this->rows('pending', self::SHA));
+        $container = (new ContainerBuilder())->addDefinitions([Logger::class => $logger, SqlService::class => $sql])->build();
+
+        // Two attempts on the thread break the default cap of 2; the override allows them
+        putenv('KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD=5');
+
+        try {
+            $service = $container->get(AutofixJobService::class);
+            $this->assertInstanceOf(AutofixJobService::class, $service);
+            [$outcome] = $service->pendingJob($this->input(), new DateTimeImmutable());
+        } finally {
+            putenv('KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD');
+        }
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
     }
 
     /**

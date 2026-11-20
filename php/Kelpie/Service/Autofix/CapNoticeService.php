@@ -31,9 +31,18 @@ final class CapNoticeService
 
     private const string WINDOW = '-1 day';
 
-    private const int HTTP_TIMEOUT = 20;
+    private const string MEMO = '-10 minutes';
+
+    private const int HTTP_TIMEOUT = 4; // Under GitLab's webhook response timeout: a slow GitLab must not make a delivery fail
 
     private bool $writerResolved = false;
+
+    /**
+     * The MRs looked at in this process, so repeated refusals do not each call GitLab
+     *
+     * @var array<string, DateTimeImmutable>
+     */
+    private array $looked = [];
 
     /**
      * Constructor
@@ -67,6 +76,12 @@ final class CapNoticeService
         if ($writer === null || $mrIid < 1) {
             return false;
         }
+
+        $key = $project . '!' . $mrIid;
+        if (isset($this->looked[$key]) && $this->looked[$key] > $now->modify(self::MEMO)) {
+            return false;
+        }
+        $this->looked[$key] = $now;
 
         $recent = $writer->recentNotes($project, $mrIid);
         if ($recent === null) {

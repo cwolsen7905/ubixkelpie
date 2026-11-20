@@ -63,11 +63,7 @@ final class AutofixJobCoalescerService
         }
 
         // A fan-out or round job takes no thread; the caps bind the thread jobs, and the round's own caps are the push round's
-        $exceeded = $input->discussionId === null ? null : $this->exceededCap(
-            $this->reader->countFixCommitsForMr($input->projectPath, $input->mrIid),
-            $this->reader->countAttemptsForThread($input->projectPath, $input->mrIid, $threadKey),
-            $this->reader->countJobsSince($input->projectPath, $now->modify('-1 day')),
-        );
+        $exceeded = $this->exceededCapFor($input, $now);
 
         if ($exceeded !== null) {
             $this->logger->warning('Autofix job over cap', ['cap' => $exceeded, 'mr_iid' => $input->mrIid, 'project_path' => $input->projectPath]);
@@ -102,6 +98,27 @@ final class AutofixJobCoalescerService
         }
 
         return EnqueueOutcome::Enqueued;
+    }
+
+    /**
+     * Which cap, if any, a job would break right now
+     *
+     * @param AutofixJob        $job The job
+     * @param DateTimeImmutable $now The current time, for the daily cap
+     *
+     * @return ?string `commits_per_mr`, `attempts_per_thread` or `jobs_per_day` (the first that is hit, in that order); null when within the caps or the job takes no thread
+     */
+    public function exceededCapFor(AutofixJob $job, DateTimeImmutable $now): ?string
+    {
+        if ($job->discussionId === null) {
+            return null;
+        }
+
+        return $this->exceededCap(
+            $this->reader->countFixCommitsForMr($job->projectPath, $job->mrIid),
+            $this->reader->countAttemptsForThread($job->projectPath, $job->mrIid, $this->threadKey($job)),
+            $this->reader->countJobsSince($job->projectPath, $now->modify('-1 day')),
+        );
     }
 
     /**

@@ -105,11 +105,13 @@ final class AutofixJobService
      */
     private function noticeDailyCap(AutofixJob $input, DateTimeImmutable $now): void
     {
-        $since = $now->modify('-1 day');
-        $used  = $this->repository->countJobsSince($input->projectPath, $since);
-        if ($used < $this->dailyCap) {
+        // Only when the daily cap is the one that refused it: another cap keeps the MR blocked after the window frees
+        if ($this->coalescer->exceededCapFor($input, $now) !== 'jobs_per_day') {
             return;
         }
+
+        $since = $now->modify('-1 day');
+        $used  = $this->repository->countJobsSince($input->projectPath, $since);
 
         // The cap frees when enough of the oldest jobs age out of the window for the count to drop below it
         $freesAt        = $this->repository->getJobCreatedAt($input->projectPath, $since, $used - $this->dailyCap);

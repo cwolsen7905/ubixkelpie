@@ -75,6 +75,26 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * Refusals in quick succession look at GitLab once for the MR
+     *
+     * @return void
+     */
+    public function testRepeatedRefusalsCallGitlabOnce(): void
+    {
+        $service = $this->service();
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now);
+        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now->modify('+1 minute'));
+        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now->modify('+2 minutes'));
+
+        $gets = array_filter($this->gitlab->requests(), static function (string $request): bool {
+            return str_starts_with($request, 'GET ');
+        });
+        $this->assertCount(1, $gets);
+    }
+
+    /**
      * Past the window the note may come again
      *
      * @return void

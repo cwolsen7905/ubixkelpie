@@ -132,6 +132,22 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The retry reply and the MR note have their own markers: neither suppresses the other
+     *
+     * @return void
+     */
+    public function testRetryReplyAndMrNoteDoNotSuppressEachOther(): void
+    {
+        $service = $this->service();
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $this->gitlab->note('t1', 'Triage: retry', '-5 minutes');
+
+        $this->assertTrue($service->retryNotQueued('g/p', 3, 't1', 'a reason'));
+        $this->assertTrue($service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now));
+        $this->assertFalse($service->retryNotQueued('g/p', 3, 't1', 'a reason'));
+    }
+
+    /**
      * The notice queues no job: it makes no job-creating call and carries the marker the event filter ignores
      *
      * @return void

@@ -23,12 +23,11 @@ Nothing happens while `KELPIE_AUTOFIX_ENABLED` is off.
 
 ## Once only, and never a loop
 
-The reply carries the same hidden marker as the over-cap MR note (`<!-- kelpie:over-cap -->`). Before
-replying, Kelpie reads the thread and posts nothing if a note by the bot with that marker is already there,
-however old: a second `Triage: retry` on the same thread is not answered again. The reply is the bot's own
+The reply carries its own hidden marker (`<!-- kelpie:retry-not-queued -->`), not the over-cap MR note's.
+Before replying, Kelpie reads the thread and posts nothing if a note by the bot with that marker is already
+there, however old: a second `Triage: retry` on the same thread is not answered again. The reply is the bot's own
 and carries the `<!-- kelpie:` marker, and the `Triage:` command guard refuses the bot, so it cannot queue a
 job.
 
-When the cause is the daily cap, the MR-level over-cap note (`caps.md`) is posted as well, by its own rule.
-Because both carry the same marker, a thread reply made in the last 24 hours also counts as the MR note
-having been said.
+When the cause is a daily cap, the MR-level over-cap note (`caps.md`) is posted as well, by its own rule. The
+two markers differ, so neither suppresses the other.

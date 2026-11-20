@@ -28,6 +28,8 @@ final class CapNoticeService
 {
     public const string MARKER = '<!-- kelpie:over-cap -->';
 
+    public const string RETRY_MARKER = '<!-- kelpie:retry-not-queued -->';
+
     public const string LABEL = 'kelpie::over-cap';
 
     private const string WINDOW = '-1 day';
@@ -115,7 +117,7 @@ final class CapNoticeService
     /**
      * Answer a "Triage: retry" that could not be queued, in the thread it was posted in
      *
-     * Same bot-authored marker as the MR note; once the bot has answered in the thread, it does not answer again.
+     * Its own bot-authored marker, not the MR note's, so neither suppresses the other; once the bot has answered in the thread, it does not answer again.
      *
      * @param string $project      The project path
      * @param int    $mrIid        The MR IID
@@ -140,12 +142,12 @@ final class CapNoticeService
 
         $bot = $this->botUsername();
         foreach ($notes as $note) {
-            if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER)) {
+            if (strtolower($note->author) === $bot && str_contains($note->body, self::RETRY_MARKER)) {
                 return false;
             }
         }
 
-        return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::MARKER, $reason)) !== null;
+        return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::RETRY_MARKER, $reason)) !== null;
     }
 
     /**

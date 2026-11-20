@@ -200,7 +200,8 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertCount(0, $this->inserts);
         $replies = $this->botNotes('other');
         $this->assertCount(1, $replies);
-        $this->assertStringContainsString(CapNoticeService::MARKER, $replies[0]['body']);
+        $this->assertStringContainsString(CapNoticeService::RETRY_MARKER, $replies[0]['body']);
+        $this->assertStringNotContainsString(CapNoticeService::MARKER, $replies[0]['body']);
         $this->assertStringContainsString("hasn't looked at this thread yet", $replies[0]['body']);
         $this->assertStringContainsString('not enrolled', $replies[0]['body']);
     }

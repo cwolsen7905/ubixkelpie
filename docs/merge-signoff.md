@@ -30,6 +30,16 @@ in `CLAUDE.md`. Reference: uBixCore `docs/architecture/ubix-ops.md` and
 The same endpoint also takes `Note Hook` (on merge requests) and `Issue Hook` (open); those
 only log what they saw.
 
+### Owner approval resolves what is left
+
+When the approver is listed in `KELPIE_APPROVAL_OWNERS` (set in each `*-deploy.yaml`), Kelpie first
+answers every still-open thread on the MR ("Resolved on owner approval", with the
+`kelpie:resolved-on-approval` marker) and resolves it as the Kelpie bot, then the sign-off job is retried.
+The approval means "I read this, it may merge"; open threads would otherwise still hold the merge with
+"All threads must be resolved" on. A thumbs-up on the MR counts the same; a thumbs-up taken back, an
+unapproval, or anyone not listed changes nothing, and with the variable empty nothing is ever resolved.
+Kelpie still never merges: the merge button stays a person's click (`ApprovalResolveService`).
+
 ### Kelpie never approves or 👍s
 
 The API token the receiver holds (Developer, `api`) *could* approve or award an emoji, so the

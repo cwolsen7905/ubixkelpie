@@ -87,6 +87,9 @@ spec:
         # On, in propose mode: what Kelpie may do on a project is its row in `projects` (no row, off); this flag is the kill switch.
         - name: KELPIE_AUTOFIX_ENABLED
           value: "true"
+        # Whose Approve or thumbs-up on an MR resolves its remaining open threads (ApprovalResolveService).
+        - name: KELPIE_APPROVAL_OWNERS
+          value: "cwolsen"
         # The bot account whose notes mark a thread as Kelpie's own (the code default is not the real account).
         - name: KELPIE_BOT_USERNAME
           value: "group_223_bot_b747917a6c6e1334faf2e8ca743faae9"

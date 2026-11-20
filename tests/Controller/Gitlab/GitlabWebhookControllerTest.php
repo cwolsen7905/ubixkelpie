@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Controller\Gitlab;
 
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
+use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\Enum\ThreadOutcome;
+use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Policy\EventFilter;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\TriageReplyService;
+use Kelpie\Service\Gitlab\ApprovalResolveService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
@@ -788,6 +791,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
             new EnqueueService($logger, new EventFilter($logger), new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql)), true),
             $reaction,
             $triage,
+            new ApprovalResolveService($logger, new GitlabClientFactory($logger, $this->createStub(HttpClient::class), new Psr17Factory(), new Psr17Factory(), $jsonService, new AutofixSettings('https://gitlab.example.com/api/v4', 'tok-bot'))),
             $secret,
         );
     }

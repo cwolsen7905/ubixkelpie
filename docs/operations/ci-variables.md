@@ -84,7 +84,7 @@ project in GitLab. Check in Settings, CI/CD, Variables before relying on this ta
 | `UBIXVAULT_CI_TOKEN_DEV`, `UBIXVAULT_CI_TOKEN_PROD` | Read-only vault tokens (policy `kelpie-ci-ro`); dev and staging use the dev one, prod the prod one | masked; the prod one should be protected | jobs that read vault (`vault_kv`) |
 | `GITLAB_PROMOTE_TOKEN` | Pushes the fast-forward to the next branch | masked, protected (it writes protected branches) | `promote-to-*` |
 | `APPROVAL_GITLAB_TOKEN` | Optional. Token for `require-approval-mr`, ahead of `AI_REVIEW_GITLAB_TOKEN` | masked, not protected | `require-approval-mr` |
-| `GEMINI_API_KEY` | Key for uBixCore's own Gemini review job, not Kelpie's | masked, not protected | `ai-review-mr` from the template |
+| `GEMINI_API_KEY` | Key for uBixCore's own Gemini review job, not Kelpie's. Unused here since that job is switched off in `.gitlab-ci.yml` | masked, not protected | `ai-review-mr` from the template (off in ubixkelpie) |
 
 ## Older shell job (`ci/ai-review/ai-review.yml`)
 

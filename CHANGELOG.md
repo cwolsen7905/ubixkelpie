@@ -17,6 +17,10 @@
   request, so its GitLab calls share one 4 s budget (2 s each at most): a slow GitLab skips the label, then the note,
   rather than holding the delivery past GitLab's webhook timeout.
 
+- **CI: uBixCore's Gemini review (`ai-review-mr`) is switched off.** `kelpie-review` is the only review on Kelpie's
+  MRs. The Gemini job ran on the free tier, failed now and then, and doubled the findings to answer. The
+  template has no setting for it, so `.gitlab-ci.yml` overrides its rules with `when: never`.
+
 - **Fixed: Kelpie left dismissed and fixed threads open on ubixshepherd.** Three causes, seen on ubixshepherd !429:
   - On open-source projects triage asked `meta/muse-spark-1.3-contributor`, which OpenRouter answered with 404 while the
     workspace was restricted to BYOK providers (since lifted), so every thread became `needs_human` ("the model gave no answer"). When the open-source model gives no

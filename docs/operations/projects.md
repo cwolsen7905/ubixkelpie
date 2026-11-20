@@ -24,7 +24,8 @@ fallback to the environment list when the table is empty: an unenrolled project 
 | `mode` | `off`, `propose` or `push` | `off` |
 | `gate_command` | The project's own gate | the default gate |
 | `protected_paths` | JSON list of extra globs the fixer must not touch | none |
-| `triage_model`, `review_model` | Model overrides | `KELPIE_FIXER_MODEL` |
+| `triage_model` | Triage model for this project (threads and issues); a `-contributor` model is refused unless the project is public | `KELPIE_TRIAGE_MODEL` |
+| `review_model` | Review model override (stored, not read yet) | the review's default |
 | `max_issues_per_day`, `max_issues_per_author_day` | Triage caps | 30, 10 |
 | `max_cost_usd_day` | Daily spend cap (stored; enforced once run cost is recorded) | 2.00 |
 | `max_fix_commits_per_mr` | Fix commits per merge request | 3 |

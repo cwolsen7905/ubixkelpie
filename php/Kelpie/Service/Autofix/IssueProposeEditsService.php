@@ -69,12 +69,17 @@ final class IssueProposeEditsService
      *
      * @param IssueDetails $issue     The issue
      * @param string       $directory The scratch checkout
+     * @param ?string      $project   The project path with namespace; null when not known
      *
      * @return ProposedEdits
      */
-    public function propose(IssueDetails $issue, string $directory): ProposedEdits
+    public function propose(IssueDetails $issue, string $directory, ?string $project = null): ProposedEdits
     {
-        $model = $this->propose->model();
+        $model   = $this->propose->model();
+        $refusal = $this->propose->refusal($project);
+        if ($refusal !== '') {
+            return new ProposedEdits([], '', $refusal);
+        }
         $paths = $this->paths($directory);
         if ($paths === []) {
             return new ProposedEdits([], '', 'The checkout has no files to read.');

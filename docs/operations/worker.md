@@ -107,7 +107,7 @@ A reply starting `Triage:` from the author or a maintainer runs the thread again
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `KELPIE_TRIAGE_MODEL` | `google/gemini-3-flash` | classifies the thread |
+| `KELPIE_TRIAGE_MODEL` | `google/gemini-3-flash` | classifies the thread; a project's `triage_model` (its `projects` row) wins over it |
 | `KELPIE_PROPOSE_MODEL` | `openai/gpt-5.5` | writes the edits |
 | `AI_REVIEW_MODEL` | the review's own default | the model that wrote the review; set it on the worker to the same value as the `kelpie-review` job |
 
@@ -116,6 +116,14 @@ part of the OpenRouter id (`anthropic/claude-sonnet-5.5` is `anthropic`; a leadi
 the triage or propose model is in the review's family, or an id has no vendor part and cannot be placed, Kelpie
 makes no call and the thread goes to a person with the reason. The defaults above are not Anthropic because the
 review default is.
+
+**Training tiers stay off private code.** An OpenRouter id ending in `-contributor` (for example
+`meta/muse-spark-1.3-contributor`) trains on the prompts it receives, the code in the thread included. Triage
+(threads and issues) and the edit proposals after it (`KELPIE_PROPOSE_MODEL`, threads and issues) ask GitLab
+for the project's visibility and use such a model only when it is `public`; for a private or internal project,
+or when the visibility cannot be read, Kelpie makes no call and the thread goes to a person with the reason (an
+issue is skipped). Write ids as OpenRouter's API names them, without a
+leading `openrouter/`: the client sends the id as written (`TriageLlmService`).
 
 ### Outcome record
 

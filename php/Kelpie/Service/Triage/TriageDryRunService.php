@@ -78,7 +78,7 @@ final class TriageDryRunService
 
         $lines = [];
         foreach ($threads as $thread) {
-            $verdict  = $this->triageService->triage($thread);
+            $verdict  = $this->triageService->triage($thread, null, '', $project);
             $location = $thread->filePath === null ? 'general' : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
 
             $lines[] = sprintf('%s  %s  [%s]', $thread->discussionId, $location, $verdict->class->value);

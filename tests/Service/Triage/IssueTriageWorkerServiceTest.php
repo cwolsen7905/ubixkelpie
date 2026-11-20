@@ -199,6 +199,7 @@ final class IssueTriageWorkerServiceTest extends UbixConcreteClassOrEnumTestCase
             new IssueTriagePrompt($logger),
             $json,
             new UsageStampService($logger),
+            TriageLlms::make($logger),
         );
 
         return new IssueTriageWorkerService($logger, $queue, $queue, $triage);

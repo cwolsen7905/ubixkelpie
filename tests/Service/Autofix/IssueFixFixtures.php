@@ -20,6 +20,7 @@ use Kelpie\Service\Autofix\IssueProposeEditsService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -47,7 +48,7 @@ final class IssueFixFixtures extends TestCase
         $json     = new JsonService($logger);
         $factory  = new Psr17Factory();
         $client   = new OpenRouterClient($logger, $http, $factory, $factory, $json);
-        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
         $projects = $self->createStub(ProjectReader::class);
         if ($enrolled) {
             $projects->method('getByPath')->willReturn(new Project('org/proj', ProjectMode::Propose));

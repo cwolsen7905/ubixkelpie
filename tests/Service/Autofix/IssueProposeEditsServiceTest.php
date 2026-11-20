@@ -11,6 +11,7 @@ use Kelpie\Service\Autofix\IssueFixPromptService;
 use Kelpie\Service\Autofix\IssueProposeEditsService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -185,7 +186,7 @@ final class IssueProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase
         $json    = new JsonService($logger);
         $factory = new Psr17Factory();
         $client  = new OpenRouterClient($logger, $http, $factory, $factory, $json);
-        $propose = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        $propose = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
         return new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger), $propose, $json);
     }

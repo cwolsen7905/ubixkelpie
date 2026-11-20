@@ -10,6 +10,7 @@ use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -143,6 +144,24 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
+     * A model that trains on its prompts never sees a private project's code; a public one's it may
+     *
+     * @return void
+     */
+    public function testTrainingTierNeedsPublicProject(): void
+    {
+        putenv('KELPIE_PROPOSE_MODEL=meta/muse-spark-1.3-contributor');
+
+        $refused = $this->service($this->answer('{"edits":[]}'), 'private')->propose($this->thread(), $this->dir, 'r', '', 'g/p');
+        $this->assertStringContainsString('trains on the prompts it receives', $refused->failure);
+        $this->assertSame([], $this->sent);
+
+        $this->service($this->answer('{"summary":"none","edits":[]}'), 'public')->propose($this->thread(), $this->dir, 'r', '', 'g/p');
+        putenv('KELPIE_PROPOSE_MODEL');
+        $this->assertCount(1, $this->sent);
+    }
+
+    /**
      * A thread with no file, or a file that is not in the checkout, is not asked about
      *
      * @return void
@@ -232,11 +251,12 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
-     * @param Psr7Response $response The canned response to every call
+     * @param Psr7Response $response   The canned response to every call
+     * @param ?string      $visibility The project's visibility for the training-tier guard
      *
      * @return ProposeEditsService
      */
-    private function service(Psr7Response $response): ProposeEditsService
+    private function service(Psr7Response $response, ?string $visibility = 'public'): ProposeEditsService
     {
         $logger = $this->createStub(Logger::class);
         $json   = new JsonService($logger);
@@ -250,7 +270,7 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
             return $response;
         });
 
-        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger, $visibility));
     }
 
     /**

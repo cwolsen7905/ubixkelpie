@@ -199,7 +199,7 @@ final class IssueFixService
         $project   = $config->path;
         $directory = $this->checkout->directory();
 
-        $edits      = $this->propose->propose($issue, $directory);
+        $edits      = $this->propose->propose($issue, $directory, $project);
         $this->paid = $edits->completion;
         if ($edits->failure !== '') {
             if ($edits->completion === null) {

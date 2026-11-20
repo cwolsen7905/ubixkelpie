@@ -161,6 +161,7 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
             new SafetyPolicy($logger),
             $json,
             new LlmFamilyService($logger),
+            TriageLlms::make($logger),
         );
 
         return new TriageDryRunService($logger, $httpClient, new Psr17Factory(), $json, $triage, $settings);

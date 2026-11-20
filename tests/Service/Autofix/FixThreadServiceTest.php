@@ -25,6 +25,7 @@ use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
@@ -250,6 +251,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             new SafetyPolicy($logger),
             $json,
             new LlmFamilyService($logger),
+            TriageLlms::make($logger),
         );
 
         $queries = $this->queries;
@@ -285,7 +287,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $jobs    = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
         $gitlab  = new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings);
         $open    = new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json);
-        $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
         return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), new SpendCapService($logger, new InMemoryProjects($modes), new ThreadOutcomeSqlRepository($logger, $sql)), $settings), $settings, InMemoryProjects::service($modes));
     }

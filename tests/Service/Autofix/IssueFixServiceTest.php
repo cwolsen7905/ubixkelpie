@@ -30,6 +30,7 @@ use Kelpie\Service\Autofix\IssueProposeEditsService;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -480,7 +481,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $factory  = new Psr17Factory();
         $settings = new AutofixSettings('https://gitlab.test/api/v4', 'bot-token', enabled: $enabled, gitBaseUrl: $gitBase ?? $this->base . '/git');
         $client   = new OpenRouterClient($logger, $model, $factory, $factory, $json);
-        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json);
+        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
         $row      = $project === false ? null : ($project ?? new Project('org/proj', ProjectMode::Propose, maxCostUsdDay: '5.00'));
         $projects = $this->createStub(ProjectReader::class);

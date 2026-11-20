@@ -44,6 +44,7 @@ final class IssueTriageService
      * @param IssueTriagePrompt $prompt            The issue prompt
      * @param JsonService       $jsonService       JSON service
      * @param UsageStampService $usageStampService The usage footer
+     * @param TriageLlmService  $models            Picks the model per project, keeps training tiers off private code
      * @param string            $botUsername       The bot's username; only its notes count as an earlier triage
      */
     public function __construct(
@@ -53,6 +54,7 @@ final class IssueTriageService
         private readonly IssueTriagePrompt $prompt,
         private readonly JsonService $jsonService,
         private readonly UsageStampService $usageStampService,
+        private readonly TriageLlmService $models,
         private readonly string $botUsername = 'kelpie-bot',
     ) {
     }
@@ -86,7 +88,14 @@ final class IssueTriageService
 
         $class = $this->earlierClass($notes, $iid);
         if ($class === null) {
-            $verdict = $this->classify($issue);
+            $choice = $this->models->choose($project, self::DEFAULT_MODEL);
+            if ($choice->refusal !== '') {
+                $this->logger->warning('Issue triage: skipped, model refused', ['issue_iid' => $iid, 'project_path' => $project, 'reason' => $choice->refusal]);
+
+                return new IssueTriageResult(IssueTriageOutcome::Skipped, detail: $choice->refusal);
+            }
+
+            $verdict = $this->classify($issue, $choice->model);
             if ($verdict === null) {
                 return new IssueTriageResult(IssueTriageOutcome::Failed, detail: 'no usable model answer');
             }
@@ -144,12 +153,12 @@ final class IssueTriageService
 
     /**
      * @param IssueDetails $issue The issue
+     * @param string       $model The model to ask (`TriageLlmService`)
      *
      * @return ?IssueTriageVerdict Null when the model gave nothing usable
      */
-    private function classify(IssueDetails $issue): ?IssueTriageVerdict
+    private function classify(IssueDetails $issue, string $model): ?IssueTriageVerdict
     {
-        $model      = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
         $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forIssue($issue));
         $answer     = $completion?->text;
         if ($answer === null) {

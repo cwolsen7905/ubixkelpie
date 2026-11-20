@@ -27,6 +27,7 @@ use Kelpie\Service\Triage\TriageDryRunService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
+use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Log\LoggerInterface as Logger;
@@ -83,10 +84,11 @@ final class CommandServices
             new SafetyPolicy($this->logger),
             $this->json,
             new LlmFamilyService($this->logger),
+            TriageLlms::make($this->logger),
         );
         $this->gitlab    = new GitlabClientFactory($this->logger, $this->http, $factory, $factory, $this->json, $settings);
         $open            = new OpenRouterClient($this->logger, $this->http, $factory, $factory, $this->json);
-        $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json);
+        $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger), new LlmFamilyService($this->logger), $this->json, TriageLlms::make($this->logger));
         $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), new SpendCapService($this->logger, new InMemoryProjects($modes), new ThreadOutcomeSqlRepository($this->logger, $sql)), $settings);
         $outcomes        = new ThreadOutcomeSqlRepository($this->logger, $sql);
         $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings, $this->modes);

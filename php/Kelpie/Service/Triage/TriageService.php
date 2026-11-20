@@ -19,8 +19,9 @@ use Ubix\Service\JsonService;
  * Classifies one review thread: prompt, model, parse, safety policy
  *
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
- * The model is `KELPIE_TRIAGE_MODEL`, default `google/gemini-3-flash` and never from the family that wrote the review
- * (`LlmFamilyService`): then the verdict is `needs_human`, not a guess.
+ * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3-flash`
+ * (`TriageLlmService`), never from the family that wrote the review (`LlmFamilyService`) and never a tier that
+ * trains on its prompts on a project not known to be public: either way the verdict is `needs_human`, not a guess.
  *
  * @see \Kelpie\Tests\Service\Triage\TriageServiceTest PHPUnit test case
  */
@@ -39,6 +40,7 @@ final class TriageService
      * @param SafetyPolicy     $safetyPolicy     The hard limits
      * @param JsonService      $jsonService      JSON service
      * @param LlmFamilyService $families         Keeps the model out of the review's family
+     * @param TriageLlmService $models           Picks the model per project, keeps training tiers off private code
      */
     public function __construct(
         private readonly Logger $logger,
@@ -47,6 +49,7 @@ final class TriageService
         private readonly SafetyPolicy $safetyPolicy,
         private readonly JsonService $jsonService,
         private readonly LlmFamilyService $families,
+        private readonly TriageLlmService $models,
     ) {
     }
 
@@ -56,12 +59,19 @@ final class TriageService
      * @param Thread       $thread   The thread
      * @param ?FixProposal $proposal The proposed fix, when one exists (checked by the safety policy)
      * @param string       $steering What the author or a maintainer asked for with "Triage:", empty when nothing
+     * @param ?string      $project  The GitLab project ID or path with namespace; null when not known, which keeps
+     *                               a model that trains on its prompts from being called
      *
      * @return TriageVerdict
      */
-    public function triage(Thread $thread, ?FixProposal $proposal = null, string $steering = ''): TriageVerdict
+    public function triage(Thread $thread, ?FixProposal $proposal = null, string $steering = '', ?string $project = null): TriageVerdict
     {
-        $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: self::DEFAULT_MODEL;
+        $choice = $this->models->choose($project, self::DEFAULT_MODEL);
+        $model  = $choice->model;
+
+        if ($choice->refusal !== '') {
+            return new TriageVerdict(TriageClass::NeedsHuman, $choice->refusal);
+        }
 
         if ($this->families->sameAsReview($model)) {
             $this->logger->warning('Triage: model is from the review\'s family', ['model' => $model]);

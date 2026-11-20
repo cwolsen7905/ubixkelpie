@@ -73,6 +73,16 @@ final class GitlabClientFactory
     }
 
     /**
+     * A reader for a project's path and visibility
+     *
+     * @return ProjectInfoReader
+     */
+    public function projectInfo(): ProjectInfoReader
+    {
+        return new ProjectInfoReader($this->logger, $this->client(), $this->requestFactory, $this->settings->apiUrl, $this->jsonService);
+    }
+
+    /**
      * The merge request lister
      *
      * @return MergeRequestLister

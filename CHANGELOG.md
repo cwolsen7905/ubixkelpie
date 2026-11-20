@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fixed: triage always answered "the model gave no answer".** The default `KELPIE_TRIAGE_MODEL`,
+  `google/gemini-3-flash`, is not an OpenRouter model id, so every triage call failed and every thread became
+  `needs_human`. The default is now `google/gemini-3.8-flash` (listed by OpenRouter's public
+  `GET /api/v1/models`): not the review's family, and not a `-contributor` tier, the suffix `TriageLlmService`
+  treats as training on prompts. A thread triage request now allows 2000 tokens instead of the client's 400, since
+  a Gemini 3.x Flash model spends its reasoning inside that cap and could otherwise return empty content.
+
 - Kelpie's triage summary ("Kelpie triage looked at N thread(s): ...") is now a plain MR note, not a resolvable discussion
   (item 316), so one left open no longer blocks auto-merge. It is still edited in place when the run ends. Replies in a
   thread stay replies. A new summary is no longer a thread the settle step (item 290) can see, so its "summary settled" rule

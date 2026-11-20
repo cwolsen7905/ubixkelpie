@@ -19,7 +19,7 @@ use Ubix\Service\JsonService;
  * Classifies one review thread: prompt, model, parse, safety policy
  *
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
- * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3-flash`
+ * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3.8-flash`
  * (`TriageLlmService`), never from the family that wrote the review (`LlmFamilyService`) and never a tier that
  * trains on its prompts on a project not known to be public: either way the verdict is `needs_human`, not a guess.
  *
@@ -27,7 +27,13 @@ use Ubix\Service\JsonService;
  */
 final class TriageService
 {
-    private const string DEFAULT_MODEL = 'google/gemini-3-flash';
+    // An OpenRouter id that must exist there: an unknown id fails every call, which reads as "the model gave no
+    // answer". google/gemini-3-flash never existed; checked against openrouter.ai/api/v1/models on 2026-11-20.
+    private const string DEFAULT_MODEL = 'google/gemini-3.8-flash';
+
+    // Room for a reasoning model's thinking: Gemini 3.x Flash spends reasoning tokens inside max_tokens, so the
+    // client's default of 400 can end with empty content, which also reads as "the model gave no answer".
+    private const int MAX_TOKENS = 2000;
 
     private const int MAX_REASON_LENGTH = 500;
 
@@ -79,7 +85,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
         }
 
-        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering));
+        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering), self::MAX_TOKENS);
         $answer     = $completion?->text;
 
         if ($answer === null) {

@@ -44,9 +44,9 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     public function testDefaultModel(): void
     {
         putenv('KELPIE_TRIAGE_MODEL');
-        $choice = TriageLlms::make($this->logger())->choose('g/p', 'google/gemini-3-flash');
+        $choice = TriageLlms::make($this->logger())->choose('g/p', 'google/gemini-3.8-flash');
 
-        $this->assertSame('google/gemini-3-flash', $choice->model);
+        $this->assertSame('google/gemini-3.8-flash', $choice->model);
         $this->assertSame('', $choice->refusal);
     }
 
@@ -58,7 +58,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     public function testEnvModel(): void
     {
         putenv('KELPIE_TRIAGE_MODEL=openai/gpt-5.5-mini');
-        $choice = TriageLlms::make($this->logger())->choose('g/p', 'google/gemini-3-flash');
+        $choice = TriageLlms::make($this->logger())->choose('g/p', 'google/gemini-3.8-flash');
         putenv('KELPIE_TRIAGE_MODEL');
 
         $this->assertSame('openai/gpt-5.5-mini', $choice->model);
@@ -71,7 +71,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
      */
     public function testProjectOverrideWins(): void
     {
-        putenv('KELPIE_TRIAGE_MODEL=google/gemini-3-flash');
+        putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
         $projects = $this->createStub(ProjectReader::class);
         $projects->method('getByPath')->willReturnCallback(static function (string $path): ?Project {
             return $path === 'ubixsys/replikate' ? new Project($path, triageModel: self::MUSE) : null;
@@ -158,7 +158,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $this->assertTrue($models->trainsOnPrompts(self::MUSE));
         $this->assertTrue($models->trainsOnPrompts(' Meta/Muse-Spark-1.3-CONTRIBUTOR '));
-        $this->assertFalse($models->trainsOnPrompts('google/gemini-3-flash'));
+        $this->assertFalse($models->trainsOnPrompts('google/gemini-3.8-flash'));
         $this->assertFalse($models->trainsOnPrompts('acme/contributor-model'));
     }
 

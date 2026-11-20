@@ -17,6 +17,7 @@ use Kelpie\Service\Triage\TriageService;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
+use Psr\Http\Message\RequestInterface as Request;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
@@ -34,6 +35,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
+    private string $sentBody = '';
+
     /**
      * Test that the class is following uBix standards
      *
@@ -129,8 +132,20 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
 
         $this->assertSame(TriageClass::Defer, $verdict->class);
         $this->assertNotNull($verdict->completion);
-        $this->assertSame('google/gemini-3-flash', $verdict->completion->model);
+        $this->assertSame('google/gemini-3.8-flash', $verdict->completion->model);
         $this->assertSame(0.0001, $verdict->completion->costUsd);
+    }
+
+    /**
+     * The request leaves a reasoning model room to answer: well above the client's default cap of 400
+     *
+     * @return void
+     */
+    public function testRequestLeavesRoomForReasoning(): void
+    {
+        $this->service($this->answer('{"class": "defer", "reason": "later"}'))->triage($this->thread());
+
+        $this->assertStringContainsString('"max_tokens":2000', $this->sentBody);
     }
 
     /**
@@ -247,7 +262,11 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     {
         $logger     = $this->createStub(Logger::class);
         $httpClient = $this->createStub(HttpClient::class);
-        $httpClient->method('sendRequest')->willReturn($response);
+        $httpClient->method('sendRequest')->willReturnCallback(function (Request $request) use ($response): Psr7Response {
+            $this->sentBody = (string) $request->getBody();
+
+            return $response;
+        });
         $json = new JsonService($logger);
 
         return new TriageService(

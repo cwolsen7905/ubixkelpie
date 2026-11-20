@@ -6,6 +6,7 @@ namespace Kelpie\Service\Gitlab;
 
 use Kelpie\GitLab\GitlabClientFactory;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 
 /**
  * Resolves a merge request's open threads when an owner approves it
@@ -49,6 +50,26 @@ final class ApprovalResolveService
      */
     public function handle(string $event, array $payload): string
     {
+        // Never let a GitLab failure here escape: the webhook must still re-run the sign-off job.
+        try {
+            return $this->resolve($event, $payload);
+        } catch (Throwable $e) {
+            $this->logger->error('Approval: resolving open threads failed', ['error' => $e->getMessage()]);
+
+            return 'error: could not resolve open threads (' . $e->getMessage() . ')';
+        }
+    }
+
+    /**
+     * The work behind handle(), which may throw on a GitLab failure
+     *
+     * @param string                   $event   The X-Gitlab-Event header value
+     * @param array<int|string, mixed> $payload The decoded webhook payload
+     *
+     * @return string What happened
+     */
+    private function resolve(string $event, array $payload): string
+    {
         $approval = $this->approval(strtolower($event), $payload);
         if (is_string($approval)) {
             return $approval;
@@ -63,10 +84,16 @@ final class ApprovalResolveService
             return 'ignored: ' . $approver . ' is not an approval owner';
         }
 
-        $open = [];
+        $open     = [];
+        $answered = [];
         foreach ($this->gitlab->reader()->discussions($projectId, $mrIid) as $thread) {
             if ($thread->resolvable && !$thread->resolved) {
                 $open[] = $thread->discussionId;
+                foreach ($thread->notes as $note) {
+                    if (str_contains($note->body, self::MARKER)) {
+                        $answered[$thread->discussionId] = true; // Replied on an earlier approval; only resolve
+                    }
+                }
             }
         }
         if ($open === []) {
@@ -78,14 +105,21 @@ final class ApprovalResolveService
         $body     = sprintf("Resolved on owner approval: `%s` approved this merge request with this thread still open, so it is resolved to let the merge through. Reopen it if it still needs work.\n\n%s", $approver, self::MARKER);
         $resolved = 0;
         foreach (array_slice($open, 0, self::MAX_THREADS) as $discussionId) {
-            if ($writer->reply($project, $mrIid, $discussionId, $body) !== null && $writer->resolve($project, $mrIid, $discussionId)) {
+            $replied = isset($answered[$discussionId]) || $writer->reply($project, $mrIid, $discussionId, $body) !== null;
+            if ($replied && $writer->resolve($project, $mrIid, $discussionId)) {
                 $resolved++;
             }
+        }
+        if (count($open) > self::MAX_THREADS) {
+            // A note on the MR would itself be an open discussion and hold the merge, so this is logged instead.
+            $this->logger->warning('Approval: more open threads than one event resolves; approve again for the rest', ['project_id' => $projectId, 'mr_iid' => $mrIid, 'open' => count($open), 'cap' => self::MAX_THREADS]);
         }
 
         $this->logger->info('Approval: resolved open threads', ['project_id' => $projectId, 'mr_iid' => $mrIid, 'approver' => $approver, 'resolved' => $resolved, 'open' => count($open)]);
 
-        return sprintf('resolved %d of %d open threads on approval by %s', $resolved, count($open), $approver);
+        $left = count($open) > self::MAX_THREADS ? sprintf('; %d left open past the cap of %d, approve again', count($open) - self::MAX_THREADS, self::MAX_THREADS) : '';
+
+        return sprintf('resolved %d of %d open threads on approval by %s%s', $resolved, count($open), $approver, $left);
     }
 
     /**

@@ -13,6 +13,7 @@ use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestInterface as Request;
 use Psr\Log\LoggerInterface as Logger;
+use RuntimeException;
 use Ubix\Service\JsonService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
@@ -98,6 +99,40 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
+     * A GitLab failure is reported, never thrown, so the webhook still re-runs the sign-off job
+     *
+     * @return void
+     */
+    public function testAGitlabFailureIsReportedNotThrown(): void
+    {
+        putenv('KELPIE_APPROVAL_OWNERS=cwolsen');
+        $outcome = $this->service(true)->handle('Merge Request Hook', $this->approved('cwolsen'));
+        putenv('KELPIE_APPROVAL_OWNERS');
+
+        $this->assertStringStartsWith('error: could not resolve open threads', $outcome);
+    }
+
+    /**
+     * A thread already answered on an earlier approval is only resolved, not answered again
+     *
+     * @return void
+     */
+    public function testAnEarlierAnswerIsNotRepeated(): void
+    {
+        putenv('KELPIE_APPROVAL_OWNERS=cwolsen');
+        $outcome = $this->service(false, true)->handle('Merge Request Hook', $this->approved('cwolsen'));
+        putenv('KELPIE_APPROVAL_OWNERS');
+
+        $this->assertSame('resolved 2 of 2 open threads on approval by cwolsen', $outcome);
+        $this->assertSame([
+            'GET /api/v4/projects/7/merge_requests/3/discussions',
+            'PUT /api/v4/projects/7/merge_requests/3/discussions/open1',
+            'POST /api/v4/projects/7/merge_requests/3/discussions/open2/notes',
+            'PUT /api/v4/projects/7/merge_requests/3/discussions/open2',
+        ], $this->requests->getArrayCopy());
+    }
+
+    /**
      * @param string $user   The approver
      * @param string $action The merge request action
      *
@@ -122,26 +157,32 @@ final class ApprovalResolveServiceTest extends UbixConcreteClassOrEnumTestCase i
     /**
      * A service over a fake GitLab with two open threads, one resolved and one that cannot be resolved
      *
+     * @param bool $fail     Whether every request throws, as on a connection failure
+     * @param bool $answered Whether the first open thread already carries the approval reply
+     *
      * @return ApprovalResolveService
      */
-    private function service(): ApprovalResolveService
+    private function service(bool $fail = false, bool $answered = false): ApprovalResolveService
     {
         $logger         = $this->createStub(Logger::class);
         $json           = new JsonService($logger);
         $this->requests = new ArrayObject();
         $requests       = $this->requests;
-        $note           = static function (int $id, bool $resolvable, bool $resolved): array {
-            return ['id' => $id, 'body' => 'finding', 'author' => ['username' => 'reviewer'], 'created_at' => '2026-11-20T01:00:00.000Z', 'system' => false, 'resolvable' => $resolvable, 'resolved' => $resolved];
+        $note           = static function (int $id, bool $resolvable, bool $resolved, string $body = 'finding'): array {
+            return ['id' => $id, 'body' => $body, 'author' => ['username' => 'reviewer'], 'created_at' => '2026-11-20T01:00:00.000Z', 'system' => false, 'resolvable' => $resolvable, 'resolved' => $resolved];
         };
         $discussions    = $json->encode([
-            ['id' => 'open1', 'notes' => [$note(1, true, false)]],
+            ['id' => 'open1', 'notes' => $answered ? [$note(1, true, false), $note(5, true, false, 'Resolved on owner approval. ' . ApprovalResolveService::MARKER)] : [$note(1, true, false)]],
             ['id' => 'done', 'notes' => [$note(2, true, true)]],
             ['id' => 'plain', 'notes' => [$note(3, false, false)]],
             ['id' => 'open2', 'notes' => [$note(4, true, false)]],
         ]);
 
         $http = $this->createStub(HttpClient::class);
-        $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($requests, $discussions): Psr7Response {
+        $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($requests, $discussions, $fail): Psr7Response {
+            if ($fail) {
+                throw new RuntimeException('connection refused');
+            }
             $requests->append($request->getMethod() . ' ' . $request->getUri()->getPath());
             if ($request->getMethod() === 'GET') {
                 return new Psr7Response(200, [], $discussions);

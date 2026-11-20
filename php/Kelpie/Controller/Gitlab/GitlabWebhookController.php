@@ -6,6 +6,7 @@ namespace Kelpie\Controller\Gitlab;
 
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\TriageReplyService;
+use Kelpie\Service\Gitlab\ApprovalResolveService;
 use Kelpie\Service\Gitlab\IssueOpenWebhookService;
 use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
 use Kelpie\Service\Gitlab\ProposalReactionWebhookService;
@@ -25,7 +26,8 @@ use Ubix\Service\JsonService;
  *
  * Verifies X-Gitlab-Token against GITLAB_WEBHOOK_SECRET, dispatches by
  * X-Gitlab-Event header. Note, Pipeline and Job hooks also feed the autofix event filter, which writes a job row for `kelpie:work`; the webhook does no other work. Merge Request and Emoji hooks are handed to uBixCore's
- * ApprovalWebhookService, which re-runs the MR's sign-off job on an approval or a thumbs-up. An Emoji Hook also goes to
+ * ApprovalWebhookService, which re-runs the MR's sign-off job on an approval or a thumbs-up, after ApprovalResolveService
+ * has resolved the open threads when the approver is an owner. An Emoji Hook also goes to
  * ProposalReactionWebhookService, which queues a thumbs on one of Kelpie's proposals, and a Note Hook that starts with
  * "Triage:" goes to TriageReplyService instead of the ordinary autofix filter.
  *
@@ -45,6 +47,7 @@ final class GitlabWebhookController extends Controller
      * @param EnqueueService                 $enqueueService          Filters Note, Pipeline and Job hooks into autofix jobs and writes them
      * @param ProposalReactionWebhookService $reactionService         Queues a thumbs-up or thumbs-down on a proposal
      * @param TriageReplyService             $triageReplyService      Queues a re-run for a "Triage:" reply from the author or a maintainer
+     * @param ApprovalResolveService         $approvalResolveService  Resolves the open threads when an owner approves
      * @param string                         $secret                  The webhook secret token
      */
     public function __construct(
@@ -57,6 +60,7 @@ final class GitlabWebhookController extends Controller
         private readonly EnqueueService $enqueueService,
         private readonly ProposalReactionWebhookService $reactionService,
         private readonly TriageReplyService $triageReplyService,
+        private readonly ApprovalResolveService $approvalResolveService,
         private readonly string $secret,
     ) {
         parent::__construct($logger, $templateRenderer, $jsonService);
@@ -111,10 +115,10 @@ final class GitlabWebhookController extends Controller
         }
 
         if ($eventLower === 'emoji hook') {
-            return $this->emoji($request, $body, $payload, $response);
+            return $this->emoji($request, $body, $payload, $response, $this->approvalResolveService->handle($event, $payload));
         }
         if ($eventLower === 'merge request hook') {
-            return $this->approval($request, $body, $response);
+            return $this->approval($request, $body, $response, $this->approvalResolveService->handle($event, $payload));
         }
 
         return match ($eventLower) {
@@ -188,10 +192,11 @@ final class GitlabWebhookController extends Controller
      * @param string                   $body     The raw payload
      * @param array<int|string, mixed> $payload  The decoded payload
      * @param Response                 $response The PSR response
+     * @param string                   $resolved What resolving on approval did (resolved first, so the retried job sees it)
      *
      * @return Response
      */
-    private function emoji(Request $request, string $body, array $payload, Response $response): Response
+    private function emoji(Request $request, string $body, array $payload, Response $response, string $resolved): Response
     {
         $approval = $this->approvalWebhookService->handle($request->getHeaderLine('X-Gitlab-Token'), $body);
         if ($approval['status'] === 401) {
@@ -200,9 +205,9 @@ final class GitlabWebhookController extends Controller
 
         $reaction = $this->reactionService->handle($payload);
 
-        $this->logger->info('GitLab webhook: emoji', ['approval' => $approval['outcome'], 'reaction' => $reaction]);
+        $this->logger->info('GitLab webhook: emoji', ['approval' => $approval['outcome'], 'reaction' => $reaction, 'resolved' => $resolved]);
 
-        return $this->renderJson($response, ['outcome' => $approval['outcome'], 'reaction' => $reaction], StatusCode::OK);
+        return $this->renderJson($response, ['outcome' => $approval['outcome'], 'reaction' => $reaction, 'resolved' => $resolved], StatusCode::OK);
     }
 
     /**
@@ -214,15 +219,16 @@ final class GitlabWebhookController extends Controller
      * @param Request  $request  The webhook delivery
      * @param string   $body     The raw payload
      * @param Response $response The PSR response
+     * @param string   $resolved What resolving on approval did (resolved first, so the retried job sees it)
      *
      * @return Response
      */
-    private function approval(Request $request, string $body, Response $response): Response
+    private function approval(Request $request, string $body, Response $response, string $resolved): Response
     {
         $result = $this->approvalWebhookService->handle($request->getHeaderLine('X-Gitlab-Token'), $body);
 
-        $this->logger->info('GitLab webhook: approval', ['result' => $result['outcome']]);
+        $this->logger->info('GitLab webhook: approval', ['result' => $result['outcome'], 'resolved' => $resolved]);
 
-        return $this->renderJson($response, ['outcome' => $result['outcome']], $result['status'] === 401 ? StatusCode::UNAUTHORIZED : StatusCode::OK);
+        return $this->renderJson($response, ['outcome' => $result['outcome'], 'resolved' => $resolved], $result['status'] === 401 ? StatusCode::UNAUTHORIZED : StatusCode::OK);
     }
 }

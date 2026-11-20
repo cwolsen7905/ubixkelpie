@@ -15,7 +15,7 @@ use Ubix\HttpClient\CurlHttpClient;
 use Ubix\Service\JsonService;
 
 /**
- * Tells an MR that Kelpie refused its job because the project is over the daily job cap, and a thread that its "Triage: retry" could not be queued
+ * Tells an MR that Kelpie refused its job because the MR or the project is over a daily job cap, and a thread that its "Triage: retry" could not be queued
  *
  * One plain MR note (not a thread, so nothing to resolve) and the `kelpie::over-cap` label, at most once per MR per
  * 24 hours: a note of ours (the bot's, carrying the marker) and is younger than that means it was said already. The bot posts
@@ -65,16 +65,17 @@ final class CapNoticeService
     /**
      * Say it on the MR, unless it was said within the last 24 hours
      *
+     * @param string             $cap     Which cap: `jobs_per_mr` or `jobs_per_project`
      * @param string             $project The project path
      * @param int                $mrIid   The MR IID
-     * @param int                $used    Jobs the project created in the last 24 hours
-     * @param int                $limit   The jobs-per-day cap
+     * @param int                $used    Jobs in the window the cap counts
+     * @param int                $limit   The cap
      * @param ?DateTimeImmutable $freesAt When the cap frees up, when known
      * @param DateTimeImmutable  $now     The current time
      *
      * @return bool Whether a note was posted
      */
-    public function jobsPerDayExceeded(string $project, int $mrIid, int $used, int $limit, ?DateTimeImmutable $freesAt, DateTimeImmutable $now): bool
+    public function jobsExceeded(string $cap, string $project, int $mrIid, int $used, int $limit, ?DateTimeImmutable $freesAt, DateTimeImmutable $now): bool
     {
         $writer = $this->writer();
         if ($writer === null || $mrIid < 1) {
@@ -103,7 +104,7 @@ final class CapNoticeService
             }
         }
 
-        $noteId = $writer->openNote($project, $mrIid, $this->body($used, $limit, $freesAt));
+        $noteId = $writer->openNote($project, $mrIid, $this->body($cap, $used, $limit, $freesAt));
         if ($noteId === null) {
             return false;
         }
@@ -184,18 +185,29 @@ final class CapNoticeService
     }
 
     /**
+     * @param string             $cap     Which cap
      * @param int                $used    Jobs in the window
      * @param int                $limit   The cap
      * @param ?DateTimeImmutable $freesAt When it frees up
      *
      * @return string
      */
-    private function body(int $used, int $limit, ?DateTimeImmutable $freesAt): string
+    private function body(string $cap, int $used, int $limit, ?DateTimeImmutable $freesAt): string
     {
         $when = $freesAt === null ? 'within 24 h' : 'around ' . $freesAt->setTimezone(new DateTimeZone('UTC'))->format('H:i') . ' UTC';
 
+        if ($cap === 'jobs_per_project') {
+            return sprintf(
+                "%s\nKelpie is over its project-wide daily job ceiling (%d of %d in 24 h, across all MRs). Nothing in this project is triaged until it frees up, %s.",
+                self::MARKER,
+                $used,
+                $limit,
+                $when,
+            );
+        }
+
         return sprintf(
-            "%s\nKelpie is over its daily job cap for this project (%d of %d in 24 h). Threads here are not triaged until it frees up, %s.",
+            "%s\nKelpie is over its daily job cap for this MR (%d of %d in 24 h). Threads here are not triaged until it frees up, %s.",
             self::MARKER,
             $used,
             $limit,

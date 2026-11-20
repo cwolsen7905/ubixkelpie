@@ -27,7 +27,9 @@ final class AutofixJobService
 {
     private readonly AutofixJobCoalescerService $coalescer;
 
-    private readonly int $dailyCap;
+    private readonly int $mrCap;
+
+    private readonly int $projectCap;
 
     /**
      * Constructor
@@ -43,9 +45,10 @@ final class AutofixJobService
         ?AutofixCaps $caps = null,
         private ?CapNoticeService $notice = null,
     ) {
-        $caps          ??= (new AutofixCapsService($this->logger))->fromEnvironment();
-        $this->dailyCap  = $caps->jobsPerDay;
-        $this->coalescer = new AutofixJobCoalescerService($this->logger, $this->repository, $this->repository, $caps);
+        $caps           ??= (new AutofixCapsService($this->logger))->fromEnvironment();
+        $this->mrCap      = $caps->jobsPerMr;
+        $this->projectCap = $caps->jobsPerProject;
+        $this->coalescer  = new AutofixJobCoalescerService($this->logger, $this->repository, $this->repository, $caps);
     }
 
     /**
@@ -79,7 +82,7 @@ final class AutofixJobService
      * @param AutofixJob        $input The job
      * @param DateTimeImmutable $now   The current time
      *
-     * @return ?string `commits_per_mr`, `attempts_per_thread`, `jobs_per_day`, or null
+     * @return ?string `commits_per_mr`, `attempts_per_thread`, `jobs_per_project`, `jobs_per_mr`, or null
      */
     public function refusedCap(AutofixJob $input, DateTimeImmutable $now): ?string
     {
@@ -107,9 +110,9 @@ final class AutofixJobService
     }
 
     /**
-     * When the refusal was for the daily cap, say so once on the MR
+     * When the refusal was for a daily job cap (the MR's or the project's), say so once on the MR
      *
-     * Counts nothing new: it reads the same window the coalescer counted. Never throws.
+     * Reads the same windows the coalescer counted. Never throws.
      *
      * @param AutofixJob        $input The refused job
      * @param DateTimeImmutable $now   The current time
@@ -118,17 +121,20 @@ final class AutofixJobService
      */
     private function noticeDailyCap(AutofixJob $input, DateTimeImmutable $now): void
     {
-        // Only when the daily cap is the one that refused it: another cap keeps the MR blocked after the window frees
-        if ($this->coalescer->exceededCapFor($input, $now) !== 'jobs_per_day') {
+        // Only when a daily cap is the one that refused it: another cap keeps the MR blocked after the window frees
+        $cap = $this->coalescer->exceededCapFor($input, $now);
+        if ($cap !== 'jobs_per_mr' && $cap !== 'jobs_per_project') {
             return;
         }
 
         $since = $now->modify('-1 day');
-        $used  = $this->repository->countJobsSince($input->projectPath, $since);
+        $mrIid = $cap === 'jobs_per_mr' ? $input->mrIid : null;
+        $limit = $cap === 'jobs_per_mr' ? $this->mrCap : $this->projectCap;
+        $used  = $mrIid === null ? $this->repository->countJobsSince($input->projectPath, $since) : $this->repository->countJobsForMrSince($input->projectPath, $mrIid, $since);
 
         // The cap frees when enough of the oldest jobs age out of the window for the count to drop below it
-        $freesAt        = $this->repository->getJobCreatedAt($input->projectPath, $since, $used - $this->dailyCap);
+        $freesAt        = $this->repository->getJobCreatedAt($input->projectPath, $since, $used - $limit, $mrIid);
         $this->notice ??= new CapNoticeService($this->logger);
-        $this->notice->jobsPerDayExceeded($input->projectPath, $input->mrIid, $used, $this->dailyCap, $freesAt?->modify('+1 day'), $now);
+        $this->notice->jobsExceeded($cap, $input->projectPath, $input->mrIid, $used, $limit, $freesAt?->modify('+1 day'), $now);
     }
 }

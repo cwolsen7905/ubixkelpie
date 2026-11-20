@@ -130,6 +130,40 @@ final class AutofixJobSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
+     * One MR's jobs in the window are counted the way the project's are, with the MR in the query
+     *
+     * @return void
+     */
+    public function testCountJobsForMrSince(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getColumn')->with($this->logicalAnd($this->stringContains('mr_iid = :mr_iid AND date_created >= :since'), $this->stringContains('source <> :issue_source'), $this->stringContains('discussion_id IS NOT NULL')), ['issue_source' => 'issue_triage', 'mr_iid' => 7, 'project_path' => 'g/p', 'since' => '2026-10-14 12:00:00'])->willReturn('9');
+
+        $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+
+        $this->assertSame(9, $repo->countJobsForMrSince('g/p', 7, new DateTimeImmutable('2026-10-14 12:00:00')));
+    }
+
+    /**
+     * Asked for one MR, the creation time is read from that MR's jobs
+     *
+     * @return void
+     */
+    public function testGetJobCreatedAtForOneMr(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRows')->with($this->stringContains('AND mr_iid = :mr_iid AND date_created >= :since'), $this->callback(static function (array $parameters): bool {
+            return $parameters['mr_iid'] === 7;
+        }))->willReturn((static function (): Generator {
+            yield ['date_created' => '2026-10-14 13:30:00'];
+        })());
+
+        $repo = new AutofixJobSqlRepository($this->createStub(Logger::class), $sql);
+
+        $this->assertNotNull($repo->getJobCreatedAt('g/p', new DateTimeImmutable('2026-10-14 12:00:00'), 0, 7));
+    }
+
+    /**
      * The creation time at a position in the window is read oldest first, counting the way the daily cap counts
      *
      * @return void

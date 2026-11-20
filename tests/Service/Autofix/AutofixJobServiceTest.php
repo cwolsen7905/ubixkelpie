@@ -84,28 +84,14 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * A refusal for the daily cap leaves one note on the MR, and a second refusal leaves no second note
+     * A refusal for the MR's own cap leaves one note on that MR, naming the MR cap, and a second refusal leaves no second note
      *
      * @return void
      */
-    public function testDailyCapNotesTheMrOnce(): void
+    public function testMrCapNotesTheMrOnce(): void
     {
-        $gitlab = new FakeGitlab();
-        $logger = $this->createStub(Logger::class);
-        $sql    = $this->createStub(SqlService::class);
-        $sql->method('getColumn')->willReturnCallback(static function (string $statement): string {
-            return str_contains($statement, 'date_created >= :since') ? '100' : '0';
-        });
-        $sql->method('getRows')->willReturnCallback(function (string $statement): Generator {
-            if (str_contains($statement, 'ORDER BY date_created')) {
-                yield ['date_created' => '2026-11-20 08:30:00'];
-
-                return;
-            }
-
-            yield from $this->rows(null);
-        });
-        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+        $gitlab  = new FakeGitlab();
+        $service = $this->countingService(['project' => 50, 'mr3' => 30], $gitlab, new AutofixCaps());
         $input   = new AutofixJob('g/p', 3, self::SHA, 'note', 'd1');
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
@@ -116,8 +102,85 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $this->assertSame(EnqueueOutcome::CapExceeded, $first);
         $this->assertSame(EnqueueOutcome::CapExceeded, $second);
         $this->assertCount(1, $notes);
-        $this->assertStringContainsString('(100 of 100 in 24 h)', $notes[0]['body']);
+        $this->assertStringContainsString('daily job cap for this MR (30 of 30 in 24 h)', $notes[0]['body']);
         $this->assertStringContainsString('around 08:30 UTC', $notes[0]['body']);
+    }
+
+    /**
+     * The project ceiling stops every MR in it, and the note names the ceiling
+     *
+     * @return void
+     */
+    public function testProjectCeilingStopsEveryMr(): void
+    {
+        $gitlab  = new FakeGitlab();
+        $service = $this->countingService(['project' => 200, 'mr3' => 1, 'mr4' => 0], $gitlab, new AutofixCaps());
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$three] = $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+        [$four]  = $service->pendingJob(new AutofixJob('g/p', 4, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::CapExceeded, $three);
+        $this->assertSame(EnqueueOutcome::CapExceeded, $four);
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertStringContainsString('project-wide daily job ceiling (200 of 200 in 24 h, across all MRs)', $notes[0]['body']);
+    }
+
+    /**
+     * One MR at its cap does not stop another MR in the same project
+     *
+     * @return void
+     */
+    public function testAnotherMrStillRunsWhenOneIsCapped(): void
+    {
+        $gitlab  = new FakeGitlab();
+        $service = $this->countingService(['project' => 31, 'mr3' => 30, 'mr4' => 0], $gitlab, new AutofixCaps());
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$capped]  = $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+        [$running] = $service->pendingJob(new AutofixJob('g/p', 4, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::CapExceeded, $capped);
+        $this->assertSame(EnqueueOutcome::Enqueued, $running);
+    }
+
+    /**
+     * With nothing set the defaults apply: 29 jobs on the MR and 199 in the project still run, the 30th and the 200th do not
+     *
+     * @return void
+     */
+    public function testDefaultsApplyWhenUnset(): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY');
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->countingService(['project' => 199, 'mr3' => 29])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+        $this->assertSame(EnqueueOutcome::CapExceeded, $this->countingService(['project' => 50, 'mr3' => 30])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+        $this->assertSame(EnqueueOutcome::CapExceeded, $this->countingService(['project' => 200, 'mr3' => 1])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+    }
+
+    /**
+     * The settings change the caps
+     *
+     * @return void
+     */
+    public function testSettingsOverrideTheCaps(): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY=5');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY=500');
+
+        try {
+            $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+            $refused = $this->countingService(['project' => 100, 'mr3' => 5])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0];
+            $allowed = $this->countingService(['project' => 300, 'mr3' => 4])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0];
+        } finally {
+            putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY');
+            putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY');
+        }
+
+        $this->assertSame(EnqueueOutcome::CapExceeded, $refused);
+        $this->assertSame(EnqueueOutcome::Enqueued, $allowed);
     }
 
     /**
@@ -221,6 +284,42 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $service = $this->service($this->createStub(SqlService::class));
 
         $this->assertSame($service->reader(), $service->writer());
+    }
+
+    /**
+     * A job service over a job table with these counts
+     *
+     * @param array<string, int> $counts Jobs in 24 hours: `project` for the project, `mrN` for MR N
+     * @param ?FakeGitlab        $gitlab The GitLab the notice writes to
+     * @param ?AutofixCaps       $caps   The caps; null reads them from the environment
+     *
+     * @return AutofixJobService
+     */
+    private function countingService(array $counts, ?FakeGitlab $gitlab = null, ?AutofixCaps $caps = null): AutofixJobService
+    {
+        $logger = $this->createStub(Logger::class);
+        $sql    = $this->createStub(SqlService::class);
+        $sql->method('query')->willReturn(1);
+        $sql->method('getColumn')->willReturnCallback(static function (string $statement, array $parameters = []) use ($counts): string {
+            if (str_contains($statement, 'mr_iid = :mr_iid AND date_created >= :since')) {
+                $mr = $parameters['mr_iid'] ?? 0;
+
+                return (string) ($counts['mr' . (is_int($mr) ? $mr : 0)] ?? 0);
+            }
+
+            return str_contains($statement, 'date_created >= :since') ? (string) ($counts['project'] ?? 0) : '0';
+        });
+        $sql->method('getRows')->willReturnCallback(function (string $statement): Generator {
+            if (str_contains($statement, 'ORDER BY date_created')) {
+                yield ['date_created' => '2026-11-20 08:30:00'];
+
+                return;
+            }
+
+            yield from $this->rows(null);
+        });
+
+        return new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), $caps, new CapNoticeService($logger, ($gitlab ?? new FakeGitlab())->writer($logger)));
     }
 
     /**

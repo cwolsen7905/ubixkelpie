@@ -15,7 +15,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Service\Autofix\AutofixCapsService
  *
  * What must hold:
- * - With nothing set the caps are the defaults (100 jobs a day), and nothing is logged
+ * - With nothing set the caps are the defaults (30 jobs per MR and 200 per project a day), and nothing is logged
  * - A valid override is taken, per cap
  * - A value that is not a whole number of at least 1 gives the default and a warning
  *
@@ -23,7 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_DAY'];
+    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY'];
 
     /**
      * Test that the class is following uBix standards
@@ -47,8 +47,10 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $caps = (new AutofixCapsService($logger))->fromEnvironment();
 
-        $this->assertSame(100, $caps->jobsPerDay);
-        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_DAY, $caps->jobsPerDay);
+        $this->assertSame(30, $caps->jobsPerMr);
+        $this->assertSame(200, $caps->jobsPerProject);
+        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_MR, $caps->jobsPerMr);
+        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_PROJECT, $caps->jobsPerProject);
         $this->assertSame(AutofixCaps::DEFAULT_COMMITS_PER_MR, $caps->commitsPerMr);
         $this->assertSame(AutofixCaps::DEFAULT_ATTEMPTS_PER_THREAD, $caps->attemptsPerThread);
     }
@@ -60,7 +62,8 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
      */
     public function testOverride(): void
     {
-        putenv('KELPIE_AUTOFIX_JOBS_PER_DAY=250');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY=60');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY=500');
         putenv('KELPIE_AUTOFIX_COMMITS_PER_MR= 5 ');
         putenv('KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD=4');
         $logger = $this->createMock(Logger::class);
@@ -68,7 +71,8 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $caps = (new AutofixCapsService($logger))->fromEnvironment();
 
-        $this->assertSame(250, $caps->jobsPerDay);
+        $this->assertSame(60, $caps->jobsPerMr);
+        $this->assertSame(500, $caps->jobsPerProject);
         $this->assertSame(5, $caps->commitsPerMr);
         $this->assertSame(4, $caps->attemptsPerThread);
     }
@@ -83,15 +87,16 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
     #[DataProvider('invalidValues')]
     public function testInvalidFallsBackAndWarns(string $value): void
     {
-        putenv('KELPIE_AUTOFIX_JOBS_PER_DAY=' . $value);
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY=' . $value);
         $logger = $this->createMock(Logger::class);
         $logger->expects($this->once())->method('warning')->with($this->anything(), $this->callback(static function (array $context): bool {
-            return $context['name'] === 'KELPIE_AUTOFIX_JOBS_PER_DAY';
+            return $context['name'] === 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY';
         }));
 
         $caps = (new AutofixCapsService($logger))->fromEnvironment();
 
-        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_DAY, $caps->jobsPerDay);
+        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_PROJECT, $caps->jobsPerProject);
+        $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_MR, $caps->jobsPerMr);
     }
 
     /**
@@ -101,11 +106,11 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
      */
     public function testEmptyIsNotSet(): void
     {
-        putenv('KELPIE_AUTOFIX_JOBS_PER_DAY=');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY=');
         $logger = $this->createMock(Logger::class);
         $logger->expects($this->never())->method('warning');
 
-        $this->assertSame(100, (new AutofixCapsService($logger))->fromEnvironment()->jobsPerDay);
+        $this->assertSame(30, (new AutofixCapsService($logger))->fromEnvironment()->jobsPerMr);
     }
 
     /**

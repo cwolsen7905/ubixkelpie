@@ -16,7 +16,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Service\Autofix\CapNoticeService
  *
  * What must hold:
- * - A refusal for the daily cap posts one plain MR note with the counts and the time it frees, and the label
+ * - A refusal for a daily job cap posts one plain MR note with the counts and the time it frees, and the label
  * - A second refusal in the same 24 hours posts nothing more
  * - After 24 hours it may post again
  * - Without GitLab settings, or when GitLab fails, nothing is posted and nothing is thrown
@@ -46,15 +46,42 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $now = new DateTimeImmutable('2026-11-20 10:00:00', new DateTimeZone('UTC'));
 
-        $posted = $this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, $now->modify('+3 hours 5 minutes'), $now);
+        $posted = $this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, $now->modify('+3 hours 5 minutes'), $now);
 
         $notes = array_merge(...array_values($this->gitlab->notes()));
         $this->assertTrue($posted);
         $this->assertCount(1, $notes);
         $this->assertStringContainsString(CapNoticeService::MARKER, $notes[0]['body']);
-        $this->assertStringContainsString('(100 of 100 in 24 h)', $notes[0]['body']);
+        $this->assertStringContainsString('(30 of 30 in 24 h)', $notes[0]['body']);
         $this->assertStringContainsString('around 13:05 UTC', $notes[0]['body']);
         $this->assertContains(CapNoticeService::LABEL, $this->gitlab->labels());
+    }
+
+    /**
+     * The project ceiling's note names the ceiling and says nothing in the project is triaged
+     *
+     * @return void
+     */
+    public function testProjectCeilingNoteNamesTheCeiling(): void
+    {
+        $this->service()->jobsExceeded('jobs_per_project', 'g/p', 3, 200, 200, null, new DateTimeImmutable('now', new DateTimeZone('UTC')));
+
+        $notes = array_merge(...array_values($this->gitlab->notes()));
+        $this->assertStringContainsString('project-wide daily job ceiling (200 of 200 in 24 h, across all MRs)', $notes[0]['body']);
+        $this->assertStringContainsString('Nothing in this project is triaged', $notes[0]['body']);
+    }
+
+    /**
+     * The MR cap's note names the MR
+     *
+     * @return void
+     */
+    public function testMrCapNoteNamesTheMr(): void
+    {
+        $this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC')));
+
+        $notes = array_merge(...array_values($this->gitlab->notes()));
+        $this->assertStringContainsString('daily job cap for this MR (30 of 30 in 24 h)', $notes[0]['body']);
     }
 
     /**
@@ -67,9 +94,9 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $service = $this->service();
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
-        $this->assertTrue($service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now));
-        $this->assertFalse($service->jobsPerDayExceeded('g/p', 3, 101, 100, null, $now->modify('+2 hours')));
-        $this->assertFalse($service->jobsPerDayExceeded('g/p', 3, 101, 100, null, $now->modify('+23 hours')));
+        $this->assertTrue($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now));
+        $this->assertFalse($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 31, 30, null, $now->modify('+2 hours')));
+        $this->assertFalse($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 31, 30, null, $now->modify('+23 hours')));
 
         $this->assertCount(1, array_merge(...array_values($this->gitlab->notes())));
     }
@@ -84,9 +111,9 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $service = $this->service();
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
-        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now);
-        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now->modify('+1 minute'));
-        $service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now->modify('+2 minutes'));
+        $service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now);
+        $service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now->modify('+1 minute'));
+        $service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now->modify('+2 minutes'));
 
         $gets = array_filter($this->gitlab->requests(), static function (string $request): bool {
             return str_starts_with($request, 'GET ');
@@ -104,7 +131,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $service = $this->service();
         $this->gitlab->note('old', CapNoticeService::MARKER . "\nold", '-25 hours', null, 'kelpie-bot');
 
-        $this->assertTrue($service->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
+        $this->assertTrue($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
     }
 
     /**
@@ -116,7 +143,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $this->gitlab->note('d1', 'looks good', '-1 minutes');
 
-        $this->assertTrue($this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
+        $this->assertTrue($this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
     }
 
     /**
@@ -128,7 +155,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $this->gitlab->note('d1', '> ' . CapNoticeService::MARKER . "\n> Kelpie is over its daily job cap", '-1 minutes', null, 'alice');
 
-        $this->assertTrue($this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
+        $this->assertTrue($this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
     }
 
     /**
@@ -143,7 +170,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->gitlab->note('t1', 'Triage: retry', '-5 minutes');
 
         $this->assertTrue($service->retryNotQueued('g/p', 3, 't1', 'a reason'));
-        $this->assertTrue($service->jobsPerDayExceeded('g/p', 3, 100, 100, null, $now));
+        $this->assertTrue($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, $now));
         $this->assertFalse($service->retryNotQueued('g/p', 3, 't1', 'a reason'));
     }
 
@@ -154,7 +181,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
      */
     public function testNoLoop(): void
     {
-        $this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC')));
+        $this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC')));
 
         $notes = array_merge(...array_values($this->gitlab->notes()));
         $this->assertSame('kelpie-bot', $notes[0]['author']);
@@ -172,7 +199,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         putenv('KELPIE_BOT_GITLAB_TOKEN');
         $service = new CapNoticeService($this->createStub(Logger::class));
 
-        $this->assertFalse($service->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable()));
+        $this->assertFalse($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable()));
         $this->assertSame([], $this->gitlab->requests());
     }
 
@@ -185,7 +212,7 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $this->gitlab->failNotes();
 
-        $this->assertFalse($this->service()->jobsPerDayExceeded('g/p', 3, 100, 100, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
+        $this->assertFalse($this->service()->jobsExceeded('jobs_per_mr', 'g/p', 3, 30, 30, null, new DateTimeImmutable('now', new DateTimeZone('UTC'))));
         $this->assertSame([], $this->gitlab->notes());
     }
 

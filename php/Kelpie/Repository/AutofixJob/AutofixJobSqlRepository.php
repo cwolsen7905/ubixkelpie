@@ -89,11 +89,25 @@ final class AutofixJobSqlRepository implements AutofixJobReader, AutofixJobWrite
     /**
      * {@inheritDoc}
      */
-    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset): ?DateTimeImmutable
+    public function countJobsForMrSince(string $projectPath, int $mrIid, DateTimeImmutable $since): int
     {
-        $sql = 'SELECT date_created FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND date_created >= :since AND source <> :issue_source AND discussion_id IS NOT NULL ORDER BY date_created ASC LIMIT 1 OFFSET ' . max(0, $offset);
+        $sql = 'SELECT COUNT(*) FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path AND mr_iid = :mr_iid AND date_created >= :since AND source <> :issue_source AND discussion_id IS NOT NULL';
 
-        foreach ($this->sqlService->getRows($sql, ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]) as $row) {
+        return (int) $this->sqlService->getColumn($sql, ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'mr_iid' => $mrIid, 'project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')]);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset, ?int $mrIid = null): ?DateTimeImmutable
+    {
+        $sql        = 'SELECT date_created FROM ubixkelpie.autofix_jobs WHERE project_path = :project_path' . ($mrIid === null ? '' : ' AND mr_iid = :mr_iid') . ' AND date_created >= :since AND source <> :issue_source AND discussion_id IS NOT NULL ORDER BY date_created ASC LIMIT 1 OFFSET ' . max(0, $offset);
+        $parameters = ['issue_source' => IssueTriageJobSqlRepository::SOURCE, 'project_path' => $projectPath, 'since' => $since->format('Y-m-d H:i:s')];
+        if ($mrIid !== null) {
+            $parameters['mr_iid'] = $mrIid;
+        }
+
+        foreach ($this->sqlService->getRows($sql, $parameters) as $row) {
             $value = $row['date_created'] ?? null;
 
             return is_string($value) ? new DateTimeImmutable($value, $since->getTimezone()) : null;

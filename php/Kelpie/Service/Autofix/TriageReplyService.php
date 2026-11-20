@@ -178,7 +178,8 @@ final class TriageReplyService
     private function capRefused(string $path, int $mrIid, string $thread, ?string $cap): string
     {
         $reason = match ($cap) {
-            'jobs_per_day'        => 'this project is over its daily job cap',
+            'jobs_per_mr'         => 'this MR is over its daily job cap',
+            'jobs_per_project'    => 'this project is over its project-wide daily job ceiling',
             'commits_per_mr'      => 'this MR has reached its limit of fix commits',
             'attempts_per_thread' => 'this thread has reached its limit of attempts',
             default               => 'Kelpie is over a cap',

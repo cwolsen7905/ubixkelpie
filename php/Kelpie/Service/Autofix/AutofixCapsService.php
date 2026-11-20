@@ -10,7 +10,8 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Reads the autofix caps from the process environment
  *
- * `KELPIE_AUTOFIX_JOBS_PER_DAY`, `KELPIE_AUTOFIX_COMMITS_PER_MR` and `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD`, each a
+ * `KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY`, `KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY`, `KELPIE_AUTOFIX_COMMITS_PER_MR` and
+ * `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD`, each a
  * whole number of at least 1. A variable that is not set (or empty) gives the default; one that is not a valid
  * number gives the default and a logged warning, so a typo in Vault never switches a cap off.
  *
@@ -40,7 +41,8 @@ final class AutofixCapsService
         return new AutofixCaps(
             commitsPerMr:      $this->read('KELPIE_AUTOFIX_COMMITS_PER_MR', AutofixCaps::DEFAULT_COMMITS_PER_MR),
             attemptsPerThread: $this->read('KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', AutofixCaps::DEFAULT_ATTEMPTS_PER_THREAD),
-            jobsPerDay:        $this->read('KELPIE_AUTOFIX_JOBS_PER_DAY', AutofixCaps::DEFAULT_JOBS_PER_DAY),
+            jobsPerMr:         $this->read('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', AutofixCaps::DEFAULT_JOBS_PER_MR),
+            jobsPerProject:    $this->read('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY', AutofixCaps::DEFAULT_JOBS_PER_PROJECT),
         );
     }
 

@@ -18,7 +18,7 @@ Nothing happens while `KELPIE_AUTOFIX_ENABLED` is off.
 
   The reason is one of:
   - this project is not enrolled in Kelpie (it has no `projects` row, or its mode is `off`);
-  - this project is over its daily job cap (see `caps.md`);
+  - this MR is over its daily job cap, or this project is over its project-wide daily job ceiling (see `caps.md`);
   - this MR has reached its limit of fix commits, or this thread its limit of attempts.
 
 ## Once only, and never a loop

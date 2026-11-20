@@ -148,6 +148,7 @@ final class DiscussionWriter
         }
 
         $webUrl = $mr['web_url'] ?? '';
+        $author = is_array($mr['author'] ?? null) ? ($mr['author']['username'] ?? '') : '';
 
         return new MergeRequestInfo(
             $sha,
@@ -159,6 +160,7 @@ final class DiscussionWriter
             $to,
             is_string($webUrl) ? $webUrl : '',
             $this->strings($mr['labels'] ?? null),
+            is_string($author) ? $author : '',
         );
     }
 

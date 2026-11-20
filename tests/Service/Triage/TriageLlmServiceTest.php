@@ -82,6 +82,26 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $this->assertSame(self::MUSE, $choice->model);
         $this->assertSame('', $choice->refusal);
+        $this->assertSame('', $choice->fallback, 'an override is what the project asked for: no fallback');
+    }
+
+    /**
+     * The open-source model falls back to the regular one, which must not be a training tier itself
+     *
+     * @return void
+     */
+    public function testOpenSourceChoiceFallsBackToTheRegularModel(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
+        $choice = TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y');
+        $this->assertSame(self::MUSE, $choice->model);
+        $this->assertSame('google/gemini-3.8-flash', $choice->fallback);
+
+        $this->assertSame('', TriageLlms::make($this->logger(), 'private')->choose('g/p', 'x/y')->fallback, 'not open source: no fallback');
+
+        putenv('KELPIE_TRIAGE_MODEL=acme/other-contributor');
+        $this->assertSame('', TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choose('g/p', 'x/y')->fallback, 'a training tier is no fallback');
+        putenv('KELPIE_TRIAGE_MODEL');
     }
 
     /**

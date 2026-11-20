@@ -20,7 +20,9 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * Triage model: the project's `triage_model` (its `projects` row); else, for an open-source project,
  * `KELPIE_TRIAGE_MODEL_PUBLIC` (default `meta/muse-spark-1.3-contributor`, cheap); else `KELPIE_TRIAGE_MODEL`, else
- * the caller's default. Propose model: for an open-source project `KELPIE_PROPOSE_MODEL_PUBLIC` when set, else the
+ * the caller's default. When the model is the open-source one (not a project override), the choice carries the regular
+ * model as its fallback: a training tier the OpenRouter account's data policy excludes answers 404 on every call, and
+ * the thread should still be triaged rather than all of them going to a person. Propose model: for an open-source project `KELPIE_PROPOSE_MODEL_PUBLIC` when set, else the
  * caller's model. A model id ending in `-contributor` is an OpenRouter tier that trains on the prompts it receives,
  * the code included, so it may only see an open-source project. When the license cannot be read (no project
  * given, a failed call), the project is not known to be open source and such a model is refused: the thread goes
@@ -71,14 +73,17 @@ final class TriageLlmService
         $path     = $info !== null ? $info->path : ($project !== null && str_contains($project, '/') ? $project : null);
         $override = $path === null ? null : $this->projects->getByPath($path)?->triageModel;
         $model    = $override ?? '';
+        $regular  = (string) getenv('KELPIE_TRIAGE_MODEL') ?: $defaultModel;
+        $fallback = '';
         if ($model === '' && $this->isOpenSource($info)) {
-            $model = (string) getenv('KELPIE_TRIAGE_MODEL_PUBLIC') ?: self::DEFAULT_PUBLIC_TRIAGE_MODEL;
+            $model    = (string) getenv('KELPIE_TRIAGE_MODEL_PUBLIC') ?: self::DEFAULT_PUBLIC_TRIAGE_MODEL;
+            $fallback = $regular === $model || $this->trainsOnPrompts($regular) ? '' : $regular;
         }
         if ($model === '') {
-            $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: $defaultModel;
+            $model = $regular;
         }
 
-        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info));
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), $fallback);
     }
 
     /**

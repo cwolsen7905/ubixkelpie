@@ -38,6 +38,16 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     private string $sentBody = '';
 
     /**
+     * @var list<string> The model of each request sent, in order
+     */
+    private array $sentModels = [];
+
+    /**
+     * @var list<Psr7Response> The responses still to give, in order, when no single one is canned
+     */
+    private array $responses = [];
+
+    /**
      * Test that the class is following uBix standards
      *
      * @return void
@@ -201,6 +211,22 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * When the open-source model fails (OpenRouter's 404 for a data policy that excludes its tier) the regular model is asked
+     *
+     * @return void
+     */
+    public function testFailedOpenSourceModelFallsBack(): void
+    {
+        putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
+        $models    = TriageLlms::make($this->createStub(Logger::class), 'private', null, 'g/p', 'bsd-3-clause');
+        $responses = [new Psr7Response(404, [], '{"error":{"message":"No endpoints found matching your data policy"}}'), $this->answer('{"class":"not_an_issue","reason":"dismissed with a reason"}')];
+        $verdict   = $this->service(null, $models, $responses)->triage($this->thread(), null, '', 'g/p');
+
+        $this->assertSame(TriageClass::NotAnIssue, $verdict->class);
+        $this->assertSame(['meta/muse-spark-1.3-contributor', 'google/gemini-3.8-flash'], $this->sentModels);
+    }
+
+    /**
      * Without a project the visibility is unknown, so a training-tier model is refused
      *
      * @return void
@@ -253,21 +279,25 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     /**
      * Build a service whose model always answers with the given response
      *
-     * @param Psr7Response      $response The canned response
-     * @param ?TriageLlmService $models   The model chooser; a public project with no override when null
+     * @param ?Psr7Response     $response  The canned response for every call; null to answer from `$responses`
+     * @param ?TriageLlmService $models    The model chooser; a public project with no override when null
+     * @param Psr7Response[]    $responses One response per call, in order
      *
      * @return TriageService
      */
-    private function service(Psr7Response $response, ?TriageLlmService $models = null): TriageService
+    private function service(?Psr7Response $response, ?TriageLlmService $models = null, array $responses = []): TriageService
     {
-        $logger     = $this->createStub(Logger::class);
-        $httpClient = $this->createStub(HttpClient::class);
-        $httpClient->method('sendRequest')->willReturnCallback(function (Request $request) use ($response): Psr7Response {
-            $this->sentBody = (string) $request->getBody();
+        $logger          = $this->createStub(Logger::class);
+        $json            = new JsonService($logger);
+        $this->responses = array_values($responses);
+        $httpClient      = $this->createStub(HttpClient::class);
+        $httpClient->method('sendRequest')->willReturnCallback(function (Request $request) use ($response, $json): Psr7Response {
+            $this->sentBody     = (string) $request->getBody();
+            $sent               = $json->decode($this->sentBody);
+            $this->sentModels[] = is_string($sent['model'] ?? null) ? $sent['model'] : '';
 
-            return $response;
+            return $response ?? array_shift($this->responses) ?? new Psr7Response(500);
         });
-        $json = new JsonService($logger);
 
         return new TriageService(
             $logger,

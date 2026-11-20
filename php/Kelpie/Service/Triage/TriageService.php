@@ -85,8 +85,16 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
         }
 
-        $completion = $this->openRouterClient->chat($model, $this->triagePrompt->system(), $this->triagePrompt->forThread($thread, $steering), self::MAX_TOKENS);
-        $answer     = $completion?->text;
+        $system     = $this->triagePrompt->system();
+        $user       = $this->triagePrompt->forThread($thread, $steering);
+        $completion = $this->openRouterClient->chat($model, $system, $user, self::MAX_TOKENS);
+
+        // The open-source model failed outright (a 404 when the account's data policy excludes its tier): ask the regular one once
+        if ($completion === null && $choice->fallback !== '' && !$this->families->sameAsReview($choice->fallback)) {
+            $this->logger->warning('Triage: model gave no answer, asking the fallback', ['fallback' => $choice->fallback, 'model' => $model]);
+            $completion = $this->openRouterClient->chat($choice->fallback, $system, $user, self::MAX_TOKENS);
+        }
+        $answer = $completion?->text;
 
         if ($answer === null) {
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage unavailable: the model gave no answer.');

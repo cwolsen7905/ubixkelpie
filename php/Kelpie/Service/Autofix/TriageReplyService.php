@@ -7,14 +7,19 @@ namespace Kelpie\Service\Autofix;
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\Enum\EnqueueOutcome;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Service\Gitlab\ThreadActorService;
+use Kelpie\Service\Project\ProjectModeService;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
  * Handle a "Triage:" reply in a thread Kelpie has already looked at: run the thread again with the text after the colon as steering
+ *
+ * "Triage: retry" on a thread Kelpie has not looked at queues it for triage; when it cannot be queued (the project is not
+ * enrolled, or a cap was hit) Kelpie answers in the thread, once, instead of staying silent.
  *
  * Only the MR's author or a maintainer may. A "Triage:" note from anyone else is ignored whole, and the
  * webhook does not queue its ordinary re-triage either.
@@ -27,6 +32,8 @@ final class TriageReplyService
 
     private const string COMMAND = '/^\s*Triage:(.*)$/is';
 
+    private const string RETRY = '/^\s*Triage:\s*retry\s*[.!]?\s*$/i';
+
     /**
      * Constructor
      *
@@ -35,6 +42,8 @@ final class TriageReplyService
      * @param ThreadOutcomeReader $reader      The record of what Kelpie did about each thread
      * @param ThreadOutcomeWriter $writer      Where the thread is marked reopened
      * @param AutofixJobService   $jobs        The job queue
+     * @param ProjectModeService  $modes       Which projects are enrolled
+     * @param CapNoticeService    $notices     Answers in the thread when a retry cannot be queued
      * @param bool                $enabled     Whether autofix may run (KELPIE_AUTOFIX_ENABLED)
      * @param string              $botUsername The bot's username; it cannot give the command
      */
@@ -44,6 +53,8 @@ final class TriageReplyService
         private readonly ThreadOutcomeReader $reader,
         private readonly ThreadOutcomeWriter $writer,
         private readonly AutofixJobService $jobs,
+        private readonly ProjectModeService $modes,
+        private readonly CapNoticeService $notices,
         private readonly bool $enabled = false,
         private readonly string $botUsername = 'kelpie-bot',
     ) {
@@ -91,7 +102,8 @@ final class TriageReplyService
         if ($path === '' || $mrIid === 0 || $thread === '' || $sha === '') {
             return 'ignored: the note does not say which thread or head';
         }
-        if ($this->reader->getByThread($path, $mrIid, $thread) === null) {
+        $looked = $this->reader->getByThread($path, $mrIid, $thread) !== null;
+        if (!$looked && preg_match(self::RETRY, $this->str($oa, 'note')) !== 1) {
             return 'ignored: I have not looked at this thread';
         }
 
@@ -103,6 +115,10 @@ final class TriageReplyService
         }
         if (!$this->enabled) {
             return 'skipped: autofix disabled';
+        }
+
+        if (!$looked) {
+            return $this->retryUntriaged($path, $mrIid, $thread, $sha);
         }
 
         $steering  = $this->steering($this->str($oa, 'note'));
@@ -117,6 +133,59 @@ final class TriageReplyService
         }
 
         return $outcome === EnqueueOutcome::Coalesced ? 'skipped: a run is already queued on this thread, reply again when it is done' : 'skipped: autofix cap reached';
+    }
+
+    /**
+     * "Triage: retry" on a thread Kelpie has not looked at: queue it, or say in the thread why it cannot be
+     *
+     * @param string $path   The project path
+     * @param int    $mrIid  The MR IID
+     * @param string $thread The discussion ID
+     * @param string $sha    The MR head
+     *
+     * @return string What happened
+     */
+    private function retryUntriaged(string $path, int $mrIid, string $thread, string $sha): string
+    {
+        if ($this->modes->modeOf($path) === ProjectMode::Off) {
+            $this->notices->retryNotQueued($path, $mrIid, $thread, 'this project is not enrolled in Kelpie');
+
+            return 'skipped: project not enrolled';
+        }
+
+        $now       = new DateTimeImmutable();
+        $job       = new AutofixJob($path, $mrIid, $sha, 'note', $thread);
+        $cap       = $this->jobs->refusedCap($job, $now);
+        [$outcome] = $this->jobs->pendingJob($job, $now);
+
+        $this->logger->info('Triage retry on an untriaged thread', ['cap' => $cap, 'discussion_id' => $thread, 'mr_iid' => $mrIid, 'outcome' => $outcome->value]);
+
+        return match ($outcome) {
+            EnqueueOutcome::Enqueued   => 'queued: triage ' . $path . '!' . $mrIid . '#' . $thread,
+            EnqueueOutcome::Coalesced  => 'skipped: a run is already queued on this thread',
+            EnqueueOutcome::CapExceeded => $this->capRefused($path, $mrIid, $thread, $cap),
+        };
+    }
+
+    /**
+     * @param string  $path   The project path
+     * @param int     $mrIid  The MR IID
+     * @param string  $thread The discussion ID
+     * @param ?string $cap    The cap that refused the job
+     *
+     * @return string
+     */
+    private function capRefused(string $path, int $mrIid, string $thread, ?string $cap): string
+    {
+        $reason = match ($cap) {
+            'jobs_per_day'        => 'this project is over its daily job cap',
+            'commits_per_mr'      => 'this MR has reached its limit of fix commits',
+            'attempts_per_thread' => 'this thread has reached its limit of attempts',
+            default               => 'Kelpie is over a cap',
+        };
+        $this->notices->retryNotQueued($path, $mrIid, $thread, $reason);
+
+        return 'skipped: autofix cap reached';
     }
 
     /**

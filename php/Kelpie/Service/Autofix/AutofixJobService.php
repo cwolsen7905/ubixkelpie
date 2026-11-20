@@ -74,6 +74,19 @@ final class AutofixJobService
     }
 
     /**
+     * Which cap, if any, a job would break right now
+     *
+     * @param AutofixJob        $input The job
+     * @param DateTimeImmutable $now   The current time
+     *
+     * @return ?string `commits_per_mr`, `attempts_per_thread`, `jobs_per_day`, or null
+     */
+    public function refusedCap(AutofixJob $input, DateTimeImmutable $now): ?string
+    {
+        return $this->coalescer->exceededCapFor($input, $now);
+    }
+
+    /**
      * The job reader
      *
      * @return AutofixJobReader

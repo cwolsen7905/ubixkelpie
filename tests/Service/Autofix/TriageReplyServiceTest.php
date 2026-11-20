@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Autofix;
 
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
+use Kelpie\Service\Autofix\CapNoticeService;
 use Kelpie\Service\Autofix\TriageReplyService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\ThreadActorService;
+use Kelpie\Tests\GitLab\FakeGitlab;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Service\Gitlab\StubHttpClient;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Log\NullLogger;
@@ -25,6 +29,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - The steering is what follows the colon, trimmed and capped
  * - A "Triage:" note from a stranger, from the bot, outside a thread, off an MR, or in a thread Kelpie never touched, queues nothing and changes nothing
  * - Disabled, or a busy thread, says so and does not reopen
+ * - "Triage: retry" on a thread Kelpie never touched queues it; when it cannot be queued (not enrolled, or a cap) the bot answers once in the thread
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\TriageReplyService
  */
@@ -38,6 +43,8 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
     private InsertedJobs $inserts;
 
     private InMemoryOutcomeStore $store;
+
+    private FakeGitlab $gitlab;
 
     /**
      * Test that the class is following uBix standards
@@ -165,13 +172,119 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * @param ?int   $level   The access level GitLab reports for a replier who is not the author
-     * @param bool   $enabled Whether autofix is on
-     * @param string $mode    What the job table does
+     * "Triage: retry" on a thread Kelpie never touched queues it, and says nothing
+     *
+     * @return void
+     */
+    public function testRetryOnAnUntriagedThreadQueuesIt(): void
+    {
+        $result = $this->service()->handle($this->payload('Triage: retry', discussion: 'other'));
+
+        $this->assertStringStartsWith('queued: triage', $result);
+        $this->assertCount(1, $this->inserts);
+        $this->assertSame([], $this->gitlab->requests());
+    }
+
+    /**
+     * Not enrolled: nothing is queued, the thread is told why, and a second retry is not answered again
+     *
+     * @return void
+     */
+    public function testRetryOnAnUnenrolledProjectIsAnsweredOnce(): void
+    {
+        $first  = $this->service(mode: FakeJobSql::FREE, project: ProjectMode::Off)->handle($this->payload('Triage: retry', discussion: 'other'));
+        $second = $this->service(mode: FakeJobSql::FREE, project: ProjectMode::Off)->handle($this->payload('Triage: retry', discussion: 'other'));
+
+        $this->assertSame('skipped: project not enrolled', $first);
+        $this->assertSame('skipped: project not enrolled', $second);
+        $this->assertCount(0, $this->inserts);
+        $replies = $this->botNotes('other');
+        $this->assertCount(1, $replies);
+        $this->assertStringContainsString(CapNoticeService::MARKER, $replies[0]['body']);
+        $this->assertStringContainsString("hasn't looked at this thread yet", $replies[0]['body']);
+        $this->assertStringContainsString('not enrolled', $replies[0]['body']);
+    }
+
+    /**
+     * A cap: nothing is queued, the thread is told why, once, and the bot's own reply queues nothing
+     *
+     * @return void
+     */
+    public function testRetryOverTheCapIsAnsweredOnce(): void
+    {
+        $this->service(mode: FakeJobSql::CAPPED)->handle($this->payload('Triage: retry', discussion: 'other'));
+        $service = $this->service(mode: FakeJobSql::CAPPED);
+        $result  = $service->handle($this->payload('Triage: retry', discussion: 'other'));
+
+        $this->assertSame('skipped: autofix cap reached', $result);
+        $this->assertCount(0, $this->inserts);
+        $replies = $this->botNotes('other');
+        $this->assertCount(1, $replies);
+        $this->assertStringContainsString('fix commits', $replies[0]['body']);
+
+        // The reply is the bot's: the command guard refuses it, so it can never queue a job
+        $this->assertFalse($service->isCommand($this->payload($replies[0]['body'], 9, 'kelpie-bot', discussion: 'other')));
+    }
+
+    /**
+     * A stranger's retry and a disabled Kelpie get no answer
+     *
+     * @return void
+     */
+    public function testStrangerAndDisabledRetryAreSilent(): void
+    {
+        $this->service(project: ProjectMode::Off)->handle($this->payload('Triage: retry', 9, 'mallory', discussion: 'other'));
+        $this->assertSame([], $this->botNotes('other'));
+
+        $this->assertSame('skipped: autofix disabled', $this->service(enabled: false, project: ProjectMode::Off)->handle($this->payload('Triage: retry', discussion: 'other')));
+        $this->assertSame([], $this->botNotes('other'));
+    }
+
+    /**
+     * Any other text on an untriaged thread is still left alone
+     *
+     * @return void
+     */
+    public function testOtherTextOnAnUntriagedThreadIsStillIgnored(): void
+    {
+        $result = $this->service(project: ProjectMode::Off)->handle($this->payload('Triage: please look', discussion: 'other'));
+
+        $this->assertStringContainsString('have not looked at this thread', $result);
+        $this->assertSame([], $this->gitlab->requests());
+    }
+
+    /**
+     * The fake GitLab, with one thread Kelpie never touched
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        $this->gitlab = new FakeGitlab();
+        $this->gitlab->note('other', 'Triage: retry', '-1 minutes');
+    }
+
+    /**
+     * @param string $discussion The thread
+     *
+     * @return list<array{id: int, body: string, author: string, system: bool, created_at: string}> The bot's notes in it
+     */
+    private function botNotes(string $discussion): array
+    {
+        return array_values(array_filter($this->gitlab->notes()[$discussion] ?? [], static function (array $note): bool {
+            return $note['author'] === 'kelpie-bot';
+        }));
+    }
+
+    /**
+     * @param ?int        $level   The access level GitLab reports for a replier who is not the author
+     * @param bool        $enabled Whether autofix is on
+     * @param string      $mode    What the job table does
+     * @param ProjectMode $project The mode of project g/p
      *
      * @return TriageReplyService
      */
-    private function service(?int $level = 10, bool $enabled = true, string $mode = FakeJobSql::FREE): TriageReplyService
+    private function service(?int $level = 10, bool $enabled = true, string $mode = FakeJobSql::FREE, ProjectMode $project = ProjectMode::Propose): TriageReplyService
     {
         $logger        = new NullLogger();
         $this->inserts = new InsertedJobs();
@@ -181,7 +294,7 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $members = new MemberAccessReaderService($logger, StubHttpClient::member($level), new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
         $jobs    = FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, $mode, self::SHA);
 
-        return new TriageReplyService($logger, new ThreadActorService($logger, $members), $this->store, $this->store, $jobs, $enabled, 'kelpie-bot');
+        return new TriageReplyService($logger, new ThreadActorService($logger, $members), $this->store, $this->store, $jobs, InMemoryProjects::service(['g/p' => $project], $logger), new CapNoticeService($logger, $this->gitlab->writer($logger)), $enabled, 'kelpie-bot');
     }
 
     /**

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **"Triage: retry" no longer stays silent on a thread Kelpie has not looked at.** From the MR author or a maintainer
+  it queues the thread for triage; when it cannot be queued (the project is not enrolled, or a cap was hit) Kelpie
+  replies in the thread once, with the reason, using the same bot-authored marker as the over-cap note so it never
+  posts twice. See `docs/autofix/triage-retry.md`.
+
 - **Over the daily job cap, Kelpie now says so on the MR, and the caps are configurable.** A job refused for the
   jobs-per-day cap leaves one note on the MR (the count, and about when it frees up) plus the label `kelpie::over-cap`,
   at most once per MR per 24 hours, instead of being dropped silently. The caps are read from

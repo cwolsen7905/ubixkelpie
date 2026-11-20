@@ -15,7 +15,7 @@ use Ubix\HttpClient\CurlHttpClient;
 use Ubix\Service\JsonService;
 
 /**
- * Tells an MR that Kelpie refused its job because the project is over the daily job cap
+ * Tells an MR that Kelpie refused its job because the project is over the daily job cap, and a thread that its "Triage: retry" could not be queued
  *
  * One plain MR note (not a thread, so nothing to resolve) and the `kelpie::over-cap` label, at most once per MR per
  * 24 hours: a note of ours (the bot's, carrying the marker) and is younger than that means it was said already. The bot posts
@@ -93,7 +93,7 @@ final class CapNoticeService
         }
 
         $since = $now->modify(self::WINDOW);
-        $bot   = strtolower((string) (getenv('KELPIE_BOT_USERNAME') ?: AutofixSettings::DEFAULT_BOT));
+        $bot   = $this->botUsername();
         foreach ($recent as $note) {
             // Only the bot's own note counts: a person quoting the marker must not silence the notice
             if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER) && $note->createdAt > $since) {
@@ -110,6 +110,50 @@ final class CapNoticeService
         $this->logger->info('Cap notice posted', ['mr_iid' => $mrIid, 'project_path' => $project]);
 
         return true;
+    }
+
+    /**
+     * Answer a "Triage: retry" that could not be queued, in the thread it was posted in
+     *
+     * Same bot-authored marker as the MR note; once the bot has answered in the thread, it does not answer again.
+     *
+     * @param string $project      The project path
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The thread
+     * @param string $reason       Why it was not queued, one sentence without a final full stop
+     *
+     * @return bool Whether a reply was posted
+     */
+    public function retryNotQueued(string $project, int $mrIid, string $discussionId, string $reason): bool
+    {
+        $writer = $this->writer();
+        if ($writer === null || $mrIid < 1 || $discussionId === '') {
+            return false;
+        }
+
+        $notes = $writer->notes($project, $mrIid, $discussionId);
+        if ($notes === null) {
+            $this->logger->warning('Retry reply skipped: the thread could not be read', ['discussion_id' => $discussionId, 'mr_iid' => $mrIid, 'project_path' => $project]);
+
+            return false;
+        }
+
+        $bot = $this->botUsername();
+        foreach ($notes as $note) {
+            if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER)) {
+                return false;
+            }
+        }
+
+        return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::MARKER, $reason)) !== null;
+    }
+
+    /**
+     * @return string The bot's username, lower case
+     */
+    private function botUsername(): string
+    {
+        return strtolower((string) (getenv('KELPIE_BOT_USERNAME') ?: AutofixSettings::DEFAULT_BOT));
     }
 
     /**

@@ -152,7 +152,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
-     * A model that trains on its prompts is refused for a project that is not public, and no model is called
+     * A model that trains on its prompts is refused for a project that is not open source, and no model is called
      *
      * @return void
      */
@@ -170,14 +170,14 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
-     * The same model is asked for a public project
+     * The same model is asked for an open-source project (an OSI license detected)
      *
      * @return void
      */
     public function testTrainingTierOnPublicProjectIsAsked(): void
     {
         putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
-        $models = TriageLlms::make($this->createStub(Logger::class), 'public');
+        $models = TriageLlms::make($this->createStub(Logger::class), 'private', null, 'g/p', 'bsd-3-clause');
 
         $verdict = $this->service($this->answer('{"class":"not_an_issue","reason":"fine as is"}'), $models)->triage($this->thread(), null, '', 'g/p');
         putenv('KELPIE_TRIAGE_MODEL');
@@ -198,7 +198,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
         putenv('KELPIE_TRIAGE_MODEL');
 
         $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
-        $this->assertStringContainsString('not known to be public', $verdict->reason);
+        $this->assertStringContainsString('not known to be open source', $verdict->reason);
     }
 
     /**

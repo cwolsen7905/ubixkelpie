@@ -20,8 +20,8 @@ use Ubix\Service\JsonService;
 /**
  * Builds a TriageLlmService for tests over a fake GitLab project API
  *
- * By default the project is public and has no override, so the model is `KELPIE_TRIAGE_MODEL` or the caller's
- * default, as before per-project models existed.
+ * By default the project has no license (not open source) and no override, so the model is `KELPIE_TRIAGE_MODEL` or
+ * the caller's default.
  */
 final class TriageLlms
 {
@@ -32,23 +32,26 @@ final class TriageLlms
      * @param ?string        $visibility The visibility GitLab reports; null makes the read fail (HTTP 404)
      * @param ?ProjectReader $projects   The `projects` table; none when null
      * @param string         $path       The path GitLab reports
+     * @param string         $license    The license key GitLab reports detecting; empty for none
      *
      * @return TriageLlmService
      */
-    public static function make(Logger $logger, ?string $visibility = 'public', ?ProjectReader $projects = null, string $path = 'g/p'): TriageLlmService
+    public static function make(Logger $logger, ?string $visibility = 'public', ?ProjectReader $projects = null, string $path = 'g/p', string $license = ''): TriageLlmService
     {
-        $http = new class ($visibility, $path, new JsonService($logger)) implements HttpClient {
+        $http = new class ($visibility, $path, new JsonService($logger), $license) implements HttpClient {
             /**
              * Constructor
              *
              * @param ?string     $visibility The visibility to report; null for a 404
              * @param string      $path       The path to report
              * @param JsonService $json       JSON service
+             * @param string      $license    The license key to report; empty for none
              */
             public function __construct(
                 private readonly ?string $visibility,
                 private readonly string $path,
                 private readonly JsonService $json,
+                private readonly string $license,
             ) {
             }
 
@@ -61,7 +64,7 @@ final class TriageLlms
                     return new Psr7Response(404, [], '{"message":"404 Project Not Found"}');
                 }
 
-                return new Psr7Response(200, [], $this->json->encode(['path_with_namespace' => $this->path, 'visibility' => $this->visibility]));
+                return new Psr7Response(200, [], $this->json->encode(['path_with_namespace' => $this->path, 'visibility' => $this->visibility, 'license' => $this->license === '' ? null : ['key' => $this->license]]));
             }
         };
 

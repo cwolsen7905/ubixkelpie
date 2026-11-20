@@ -13,7 +13,7 @@ use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
 
 /**
- * Reads a project's path and visibility; GET only, no side effects
+ * Reads a project's path, visibility and detected license; GET only, no side effects
  *
  * A failed call is logged and reported as null, never thrown, so a caller that needs the answer to be
  * safe treats null as "not known to be public".
@@ -49,7 +49,7 @@ final class ProjectInfoReader
      */
     public function get(string $project): ?ProjectInfo
     {
-        $url = sprintf('%s/projects/%s', $this->apiUrl, rawurlencode($project));
+        $url = sprintf('%s/projects/%s?license=true', $this->apiUrl, rawurlencode($project));
 
         try {
             $response = $this->httpClient->sendRequest($this->requestFactory->createRequest('GET', $url));
@@ -75,7 +75,8 @@ final class ProjectInfoReader
 
         $path       = $item['path_with_namespace'] ?? null;
         $visibility = $item['visibility'] ?? null;
+        $license    = is_array($item['license'] ?? null) && is_string($item['license']['key'] ?? null) ? $item['license']['key'] : '';
 
-        return is_string($path) && $path !== '' && is_string($visibility) ? new ProjectInfo($path, $visibility) : null;
+        return is_string($path) && $path !== '' && is_string($visibility) ? new ProjectInfo($path, $visibility, $license) : null;
     }
 }

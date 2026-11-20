@@ -75,8 +75,9 @@ final class IssueProposeEditsService
      */
     public function propose(IssueDetails $issue, string $directory, ?string $project = null): ProposedEdits
     {
-        $model   = $this->propose->model();
-        $refusal = $this->propose->refusal($project);
+        $choice  = $this->propose->choice($project);
+        $model   = $choice->model;
+        $refusal = $choice->refusal;
         if ($refusal !== '') {
             return new ProposedEdits([], '', $refusal);
         }

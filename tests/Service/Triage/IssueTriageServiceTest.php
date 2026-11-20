@@ -326,7 +326,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
      *
      * @return IssueTriageService
      */
-    private function service(FakeIssueGitlab $gitlab, Psr7Response $response, ?string $visibility = 'public'): IssueTriageService
+    private function service(FakeIssueGitlab $gitlab, Psr7Response $response, ?string $visibility = 'private'): IssueTriageService
     {
         $logger         = $this->createStub(Logger::class);
         $json           = new JsonService($logger);

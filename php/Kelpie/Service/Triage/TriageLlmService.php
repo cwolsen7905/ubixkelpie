@@ -15,17 +15,33 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * The guard (`refusalFor`) also covers the edit-proposal model (`ProposeEditsService`).
  *
- * The model is the project's `triage_model` (its `projects` row), else `KELPIE_TRIAGE_MODEL`, else the caller's
- * default. A model id ending in `-contributor` is an OpenRouter tier that trains on the prompts it receives, the
- * code under review included, so it may only see a project GitLab reports as `public`. When the visibility cannot
- * be read (no project given, a failed call), the project is not known to be public and the model is refused:
- * the thread goes to a person instead of the code going to a training tier.
+ * A project is open source when GitLab detects an OSI open-source license in its repository (its `LICENSE` file).
+ * GitLab visibility is not used: the canonical repos are private on GitLab and published by mirroring.
+ *
+ * Triage model: the project's `triage_model` (its `projects` row); else, for an open-source project,
+ * `KELPIE_TRIAGE_MODEL_PUBLIC` (default `meta/muse-spark-1.3-contributor`, cheap); else `KELPIE_TRIAGE_MODEL`, else
+ * the caller's default. Propose model: for an open-source project `KELPIE_PROPOSE_MODEL_PUBLIC` when set, else the
+ * caller's model. A model id ending in `-contributor` is an OpenRouter tier that trains on the prompts it receives,
+ * the code included, so it may only see an open-source project. When the license cannot be read (no project
+ * given, a failed call), the project is not known to be open source and such a model is refused: the thread goes
+ * to a person instead of the code going to a training tier.
  *
  * @see \Kelpie\Tests\Service\Triage\TriageLlmServiceTest PHPUnit test case
  */
 final class TriageLlmService
 {
     private const string TRAINING_TIER_SUFFIX = '-contributor';
+
+    private const string DEFAULT_PUBLIC_TRIAGE_MODEL = 'meta/muse-spark-1.3-contributor';
+
+    /**
+     * License keys (as GitLab detects them) that make a repository open source
+     */
+    private const array OPEN_SOURCE_LICENSES = [
+        '0bsd', 'agpl-3.0', 'apache-2.0', 'artistic-2.0', 'bsd-2-clause', 'bsd-3-clause', 'bsd-3-clause-clear', 'bsl-1.0',
+        'cc0-1.0', 'epl-1.0', 'epl-2.0', 'eupl-1.2', 'gpl-2.0', 'gpl-3.0', 'isc', 'lgpl-2.1', 'lgpl-3.0', 'mit', 'mpl-2.0',
+        'unlicense', 'zlib',
+    ];
 
     /**
      * Constructor
@@ -51,15 +67,50 @@ final class TriageLlmService
      */
     public function choose(?string $project, string $defaultModel): TriageLlmChoice
     {
-        $info     = $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
+        $info     = $this->info($project);
         $path     = $info !== null ? $info->path : ($project !== null && str_contains($project, '/') ? $project : null);
         $override = $path === null ? null : $this->projects->getByPath($path)?->triageModel;
         $model    = $override ?? '';
+        if ($model === '' && $this->isOpenSource($info)) {
+            $model = (string) getenv('KELPIE_TRIAGE_MODEL_PUBLIC') ?: self::DEFAULT_PUBLIC_TRIAGE_MODEL;
+        }
         if ($model === '') {
             $model = (string) getenv('KELPIE_TRIAGE_MODEL') ?: $defaultModel;
         }
 
         return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info));
+    }
+
+    /**
+     * Choose the model for an edit proposal: `KELPIE_PROPOSE_MODEL_PUBLIC` for an open-source project when set,
+     * else the caller's model; refused like triage when it trains on its prompts and the project is not open source
+     *
+     * @param ?string $project The GitLab project ID or path with namespace; null when not known
+     * @param string  $model   The proposer's own model (`KELPIE_PROPOSE_MODEL` or its default)
+     *
+     * @return TriageLlmChoice
+     */
+    public function choosePropose(?string $project, string $model): TriageLlmChoice
+    {
+        $info   = $this->info($project);
+        $public = (string) getenv('KELPIE_PROPOSE_MODEL_PUBLIC');
+        if ($public !== '' && $this->isOpenSource($info)) {
+            $model = $public;
+        }
+
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info));
+    }
+
+    /**
+     * Whether a project is open source: GitLab detected an OSI open-source license in it
+     *
+     * @param ?ProjectInfo $info What GitLab said about the project; null when not known
+     *
+     * @return bool
+     */
+    public function isOpenSource(?ProjectInfo $info): bool
+    {
+        return $info !== null && in_array(strtolower($info->license), self::OPEN_SOURCE_LICENSES, true);
     }
 
     /**
@@ -79,14 +130,14 @@ final class TriageLlmService
             return '';
         }
 
-        $info ??= $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
-        if ($info?->visibility === 'public') {
+        $info ??= $this->info($project);
+        if ($this->isOpenSource($info)) {
             return '';
         }
 
-        $this->logger->warning('A training-tier model was refused for a project not known to be public', ['model' => $model, 'project' => $project, 'visibility' => $info?->visibility]);
+        $this->logger->warning('A training-tier model was refused for a project not known to be open source', ['model' => $model, 'project' => $project, 'license' => $info?->license]);
 
-        return sprintf('Refused: %s trains on the prompts it receives, and this project is not known to be public, so its code may not be sent to it.', $model);
+        return sprintf('Refused: %s trains on the prompts it receives, and this project is not known to be open source (no open-source license detected), so its code may not be sent to it.', $model);
     }
 
     /**
@@ -99,5 +150,17 @@ final class TriageLlmService
     public function trainsOnPrompts(string $model): bool
     {
         return str_ends_with(strtolower(trim($model)), self::TRAINING_TIER_SUFFIX);
+    }
+
+    /**
+     * What GitLab says about the project, or null when no project is given or it cannot be read
+     *
+     * @param ?string $project The GitLab project ID or path with namespace
+     *
+     * @return ?ProjectInfo
+     */
+    private function info(?string $project): ?ProjectInfo
+    {
+        return $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
     }
 }

@@ -57,3 +57,33 @@ run `rollout restart` too. Never print the kubeconfig or secret values while che
   and the OpenRouter key in Vault.
 - A sweep pod that ends in `Error` with a Vault login stack trace could not log in to Vault; check the
   role binding for the namespace.
+
+## Checking triage
+
+Triage runs when the worker handles a thread job. A job comes from a webhook Comment event (a person's
+note in an MR thread), a failed gate pipeline, or the 15-minute `kelpie:sweep` backstop (see `worker.md`).
+Read-only commands that worked:
+
+```bash
+export KUBECONFIG=~/.kube/k3s.yaml
+kubectl -n kelpie-dev get pods                       # worker Running; sweep pods in Error mean a Vault login failure
+kubectl -n kelpie-dev exec deploy/kelpie-worker -- tail -n 40 /tmp/logs/UbixCli.log
+kubectl -n kelpie-dev exec deploy/kelpie-worker -- grep -n 'Triage\|Autofix reply\|mr_iid":<N>' /tmp/logs/UbixCli.log
+glab api projects/<group>%2F<project>/hooks                 # hook URL and ticked events
+glab api projects/<group>%2F<project>/hooks/<id>/events     # recent deliveries and response status
+```
+
+What the log lines mean:
+
+- `GitLab webhook: autofix job` — the webhook reached kelpie-dev and queued a job for that thread.
+- `Triage: model is from the review's family` (WARNING) — the model guard refused **before** any OpenRouter
+  call. The thread gets a `needs_human` reply reading "Triage refused: its model is from the same family as
+  the review's". This is not an OpenRouter failure. `KELPIE_TRIAGE_MODEL=anthropic/claude-haiku-5.5` trips it
+  while the review family is `anthropic`; the value must be from another vendor.
+- "Triage unavailable: the model gave no answer" — the guard passed and OpenRouter returned nothing
+  (model name or key).
+- `Settled thread resolved` — Kelpie resolved a thread it had settled; it is not a triage call.
+
+A comment that produces no `GitLab webhook` line was filtered (loop guards, allow-list, draft, fork,
+Shepherd branch) or never delivered. Check the hook's recent deliveries before suspecting the worker.
+`glab api` against GitLab can answer HTTP 429; wait and retry rather than looping.

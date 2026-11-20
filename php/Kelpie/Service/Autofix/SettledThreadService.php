@@ -20,8 +20,10 @@ use Psr\Log\LoggerInterface as Logger;
  * - dismissed with a reason: its last reply says "dismissed" and gives a reason;
  * - it is Kelpie's own triage summary and every thread it covers is resolved.
  *
- * Only the bot, a configured agent or the person who opened the thread can settle it; anyone else's "dismissed" or "fixed in"
- * is a comment. It never resolves a thread with a note from anyone but the bot or the fixer after the fix, nor one whose deciding note
+ * Only the bot, a configured agent or the person who opened the thread can settle it, and on a thread the AI review opened
+ * (a GitLab bot account whose first note carries the `ai-review:` marker) also the MR's author, who is the one answering it;
+ * anyone else's "dismissed" or "fixed in" is a comment. Kelpie's own later notes (its triage reply, its release marker)
+ * do not count as the last word: a dismissal followed only by the bot's notes still settles the thread. It never resolves a thread with a note from anyone but the bot or the fixer after the fix, nor one whose deciding note
  * ends in a question: that is a person still asking. A summary counts only when the bot account wrote it, since a marker
  * is text anyone can type. Every resolve is logged with its reason; a failed one is logged and left for the next pass.
  * With `$apply` false nothing is written: the lines say what would be resolved. It is run for an MR on each job the worker
@@ -37,6 +39,13 @@ final class SettledThreadService
     private const int WORKING_SECONDS = 3600;
 
     private const int MIN_REASON_WORDS = 3;
+
+    /**
+     * A GitLab project or group access token's bot user: only GitLab can create a username of this form
+     */
+    private const string GITLAB_BOT_USERNAME = '/^(?:group|project)_\d+_bot_[0-9a-f]+$/';
+
+    private const string REVIEW_MARKER = '<!-- ai-review:';
 
     /**
      * Constructor
@@ -90,15 +99,17 @@ final class SettledThreadService
             }
         }
 
-        $shas  = null;
-        $lines = [];
-        $done  = [];
+        $shas   = null;
+        $author = null;
+        $lines  = [];
+        $done   = [];
         foreach ([...$regular, ...$summaries] as $thread) {
             if ($this->isSummary($thread)) {
                 $reason = $this->summarySettled($thread, $threads, $done, $now) ? SettleReason::SummarySettled : null;
             } else {
-                $shas ??= $this->writer->commitShas((string) $projectId, $mrIid) ?? [];
-                $reason = $this->threadSettled($thread, $shas);
+                $shas   ??= $this->writer->commitShas((string) $projectId, $mrIid) ?? [];
+                $author ??= $this->writer->mergeRequest((string) $projectId, $mrIid)->author ?? '';
+                $reason   = $this->threadSettled($thread, $shas, $author);
             }
             if ($reason === null) {
                 continue;
@@ -209,30 +220,37 @@ final class SettledThreadService
     /**
      * Whether a thread's own notes settle it, and why
      *
-     * @param ThreadHistory $thread The thread
-     * @param string[]      $shas   The commits the MR carries
+     * @param ThreadHistory $thread   The thread
+     * @param string[]      $shas     The commits the MR carries
+     * @param string        $mrAuthor The MR author's username, empty when unknown
      *
      * @return ?SettleReason Null when it is not settled
      */
-    private function threadSettled(ThreadHistory $thread, array $shas): ?SettleReason
+    private function threadSettled(ThreadHistory $thread, array $shas, string $mrAuthor): ?SettleReason
     {
         $notes = $thread->notes;
         if (count($notes) < 2) {
             return null;
         }
 
-        $last = $notes[count($notes) - 1];
-        if ($this->isQuestion($last->body)) {
-            return null;
-        }
-        if ($this->dismissal($last, $thread)) {
-            return SettleReason::Dismissed;
+        // The last word that is not the bot's own bookkeeping (its triage reply, its release marker) decides a dismissal
+        for ($index = count($notes) - 1; $index >= 1; --$index) {
+            $note = $notes[$index];
+            if ($this->isQuestion($note->body)) {
+                return null;
+            }
+            if ($this->dismissal($note, $thread, $mrAuthor)) {
+                return SettleReason::Dismissed;
+            }
+            if ($note->author !== $this->botUsername) {
+                break;
+            }
         }
 
         // The latest fix note decides; whatever follows it must be the bot's or the fixer's own
         for ($index = count($notes) - 1; $index >= 1; --$index) {
             $note = $notes[$index];
-            if (!$this->fixNamesCommit($note, $thread, $shas)) {
+            if (!$this->fixNamesCommit($note, $thread, $shas, $mrAuthor)) {
                 continue;
             }
             if ($this->isQuestion($note->body)) {
@@ -254,15 +272,16 @@ final class SettledThreadService
     /**
      * Whether a note says it fixed the thing in a commit the MR carries
      *
-     * @param DiscussionNote $note   The note
-     * @param ThreadHistory  $thread The thread it is in
-     * @param string[]       $shas   The commits the MR carries
+     * @param DiscussionNote $note     The note
+     * @param ThreadHistory  $thread   The thread it is in
+     * @param string[]       $shas     The commits the MR carries
+     * @param string         $mrAuthor The MR author's username, empty when unknown
      *
      * @return bool
      */
-    private function fixNamesCommit(DiscussionNote $note, ThreadHistory $thread, array $shas): bool
+    private function fixNamesCommit(DiscussionNote $note, ThreadHistory $thread, array $shas, string $mrAuthor): bool
     {
-        if ($this->isProposal($note) || !$this->mayClose($note, $thread)) {
+        if ($this->isProposal($note) || !$this->mayClose($note, $thread, $mrAuthor)) {
             return false;
         }
 
@@ -294,15 +313,16 @@ final class SettledThreadService
      * The bot's own note must start "Dismissed:"; anyone else's may say "dismissed" in its first words. A proposal
      * to dismiss, which waits for a person, never counts.
      *
-     * @param DiscussionNote $note   The note
-     * @param ThreadHistory  $thread The thread it is in
+     * @param DiscussionNote $note     The note
+     * @param ThreadHistory  $thread   The thread it is in
+     * @param string         $mrAuthor The MR author's username, empty when unknown
      *
      * @return bool
      */
-    private function dismissal(DiscussionNote $note, ThreadHistory $thread): bool
+    private function dismissal(DiscussionNote $note, ThreadHistory $thread, string $mrAuthor): bool
     {
         $text = $this->visible($note->body);
-        if ($this->isProposal($note) || !$this->mayClose($note, $thread) || preg_match('/\b(?:not|never|isn\'t|wasn\'t|un)\s*dismissed\b/i', $text) === 1) {
+        if ($this->isProposal($note) || !$this->mayClose($note, $thread, $mrAuthor) || preg_match('/\b(?:not|never|isn\'t|wasn\'t|un)\s*dismissed\b/i', $text) === 1) {
             return false;
         }
 
@@ -317,18 +337,42 @@ final class SettledThreadService
     }
 
     /**
-     * Whether the note's author may settle the thread: the bot, a configured agent, or the person who opened it
+     * Whether the note's author may settle the thread: the bot, a configured agent, the person who opened it, or the MR's
+     * author on a thread the AI review opened
      *
-     * Anyone else's "dismissed" or "fixed in" is a comment, not the reviewer's agreement.
+     * Anyone else's "dismissed" or "fixed in" is a comment, not the reviewer's agreement. The AI review cannot answer a
+     * reply, so on its threads the author's reasoned dismissal or named fix is the last word there will be.
      *
-     * @param DiscussionNote $note   The note
-     * @param ThreadHistory  $thread The thread it is in
+     * @param DiscussionNote $note     The note
+     * @param ThreadHistory  $thread   The thread it is in
+     * @param string         $mrAuthor The MR author's username, empty when unknown
      *
      * @return bool
      */
-    private function mayClose(DiscussionNote $note, ThreadHistory $thread): bool
+    private function mayClose(DiscussionNote $note, ThreadHistory $thread, string $mrAuthor): bool
     {
-        return $note->author !== '' && ($note->author === $this->botUsername || $note->author === $thread->notes[0]->author || in_array($note->author, $this->agents, true));
+        if ($note->author === '') {
+            return false;
+        }
+
+        $opener = $thread->notes[0];
+        if ($note->author === $this->botUsername || $note->author === $opener->author || in_array($note->author, $this->agents, true)) {
+            return true;
+        }
+
+        return $mrAuthor !== '' && $note->author === $mrAuthor && $this->openedByReview($opener);
+    }
+
+    /**
+     * Whether a thread's first note is the AI review's: a GitLab bot account (a username nobody can pick) with the marker
+     *
+     * @param DiscussionNote $opener The thread's first note
+     *
+     * @return bool
+     */
+    private function openedByReview(DiscussionNote $opener): bool
+    {
+        return preg_match(self::GITLAB_BOT_USERNAME, $opener->author) === 1 && str_contains($opener->body, self::REVIEW_MARKER);
     }
 
     /**

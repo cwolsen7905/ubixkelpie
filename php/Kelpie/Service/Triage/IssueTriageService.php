@@ -96,6 +96,10 @@ final class IssueTriageService
             }
 
             $verdict = $this->classify($issue, $choice->model);
+            if ($verdict === null && $choice->fallback !== '') {
+                $this->logger->warning('Issue triage: model gave no answer, asking the fallback', ['fallback' => $choice->fallback, 'model' => $choice->model]);
+                $verdict = $this->classify($issue, $choice->fallback);
+            }
             if ($verdict === null) {
                 return new IssueTriageResult(IssueTriageOutcome::Failed, detail: 'no usable model answer');
             }

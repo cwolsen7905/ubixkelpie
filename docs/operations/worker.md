@@ -109,7 +109,7 @@ A reply starting `Triage:` from the author or a maintainer runs the thread again
 |---|---|---|
 | `KELPIE_TRIAGE_MODEL` | `google/gemini-3.8-flash` | classifies the thread; a project's `triage_model` (its `projects` row) wins over it |
 | `KELPIE_PROPOSE_MODEL` | `openai/gpt-5.5` | writes the edits |
-| `KELPIE_TRIAGE_MODEL_PUBLIC` | `meta/muse-spark-1.3-contributor` | classifies the thread on an **open-source** project (cheap; the tier trains on its prompts, which is fine for code that is published anyway) |
+| `KELPIE_TRIAGE_MODEL_PUBLIC` | `meta/muse-spark-1.3-contributor` | classifies the thread on an **open-source** project (cheap; the tier trains on its prompts, which is fine for code that is published anyway). When it gives no answer (OpenRouter answers 404 when the account's data policy excludes training providers), triage asks `KELPIE_TRIAGE_MODEL` once |
 | `KELPIE_PROPOSE_MODEL_PUBLIC` | unset (same as `KELPIE_PROPOSE_MODEL`) | writes the edits on an open-source project, when set |
 | `AI_REVIEW_MODEL` | the review's own default | the model that wrote the review; set it on the worker to the same value as the `kelpie-review` job |
 

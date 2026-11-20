@@ -126,6 +126,24 @@ final class OpenRouterClientTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * An HTTP error logs OpenRouter's reason, so a 404 says whether the id is unknown or the data policy excludes it
+     *
+     * @return void
+     */
+    public function testHttpErrorLogsTheReason(): void
+    {
+        $body       = '{"error":{"message":"No endpoints found matching your data policy","code":404}}';
+        $logger     = $this->createMock(Logger::class);
+        $httpClient = $this->createStub(HttpClient::class);
+        $httpClient->method('sendRequest')->willReturn(new Psr7Response(404, [], $body));
+        $logger->expects($this->once())->method('error')->with('OpenRouter: unexpected HTTP status', ['error' => $body, 'model' => 'm', 'status' => 404]);
+
+        $client = new OpenRouterClient($logger, $httpClient, new Psr17Factory(), new Psr17Factory(), new JsonService($this->createStub(Logger::class)));
+
+        $this->assertNull($client->complete('m', 's', 'u'));
+    }
+
+    /**
      * A transport exception is null, not thrown
      *
      * @return void

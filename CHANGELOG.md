@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Fixed: Kelpie left dismissed and fixed threads open on ubixshepherd.** Three causes, seen on ubixshepherd !429:
+  - On open-source projects triage asked `meta/muse-spark-1.3-contributor`, which OpenRouter answers with 404 for this
+    account, so every thread became `needs_human` ("the model gave no answer"). When the open-source model gives no
+    answer, triage (threads and issues) now asks the regular `KELPIE_TRIAGE_MODEL` once. A project's own
+    `triage_model` gets no fallback. OpenRouter's error body is now logged (up to 300 characters), so a 404 says why.
+  - A reasoned "Dismissed:" stopped counting once Kelpie's own notes (its release marker, its triage reply) followed
+    it. The bot's later notes no longer take the last word from a dismissal.
+  - On a thread the AI review opened, only the review bot itself could settle it, and it never replies. The MR's
+    author may now settle those threads with a reasoned dismissal or a "fixed in <sha>" the MR carries. A person's
+    thread still needs its opener, and the review is recognised by a GitLab bot username plus the `ai-review:` marker,
+    so a person typing the marker does not count.
+
 - **Fixed: triage always answered "the model gave no answer".** The default `KELPIE_TRIAGE_MODEL`,
   `google/gemini-3-flash`, is not an OpenRouter model id, so every triage call failed and every thread became
   `needs_human`. The default is now `google/gemini-3.8-flash` (listed by OpenRouter's public

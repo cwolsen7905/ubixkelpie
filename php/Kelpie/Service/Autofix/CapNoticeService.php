@@ -1,0 +1,281 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Kelpie\Service\Autofix;
+
+use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
+use Kelpie\DataTransferObject\AutofixSettings;
+use Kelpie\GitLab\DiscussionWriter;
+use Kelpie\HttpClient\BotHttpClient;
+use Nyholm\Psr7\Factory\Psr17Factory;
+use Psr\Log\LoggerInterface as Logger;
+use Ubix\HttpClient\CurlHttpClient;
+use Ubix\Service\JsonService;
+
+/**
+ * Tells an MR that Kelpie refused its job because the MR or the project is over a daily job cap, and a thread that its "Triage: retry" could not be queued
+ *
+ * One plain MR note (not a thread, so nothing to resolve) and the `kelpie::over-cap` label, at most once per MR per
+ * 24 hours: a note of ours (the bot's, carrying the marker) and is younger than that means it was said already. The bot posts
+ * it, and the event filter ignores the bot's own notes, so the notice never queues a job. A GitLab failure is
+ * logged and swallowed; it must never break enqueueing.
+ *
+ * It runs inside the webhook request, so each notice has one time budget for all its GitLab calls (`BUDGET_SECONDS`), not one
+ * per call: a slow GitLab must not hold a delivery past GitLab's webhook timeout, which can make GitLab retry or disable the
+ * hook. The calls go in order of what matters (read, then the note, then the label) and whatever is left when the budget is
+ * spent is skipped and logged. With a 2 s cap per call the worst case is about the budget plus one call.
+ *
+ * @see \Kelpie\Tests\Service\Autofix\CapNoticeServiceTest PHPUnit test case
+ */
+final class CapNoticeService
+{
+    public const string MARKER = '<!-- kelpie:over-cap -->';
+
+    public const string RETRY_MARKER = '<!-- kelpie:retry-not-queued -->';
+
+    public const string LABEL = 'kelpie::over-cap';
+
+    private const string WINDOW = '-1 day';
+
+    private const string MEMO = '-10 minutes';
+
+    private const int HTTP_TIMEOUT = 2; // Per call; the budget bounds the notice as a whole
+
+    private const float BUDGET_SECONDS = 4.0; // With one call's timeout on top, well under GitLab's 10 s webhook timeout
+
+    private bool $writerResolved = false;
+
+    /**
+     * The MRs looked at by this instance, so repeated refusals in a long-running process (the worker, a sweep) do not each call GitLab.
+     * A webhook request is its own process, so it starts empty: a refused webhook event costs one GET of the MR's notes
+     *
+     * @var array<string, DateTimeImmutable>
+     */
+    private array $looked = [];
+
+    /**
+     * @var Closure(): float Seconds, for the budget
+     */
+    private readonly Closure $seconds;
+
+    /**
+     * Constructor
+     *
+     * @param Logger            $logger Logger
+     * @param ?DiscussionWriter $writer The bot's writer; null builds one on the bot token and API URL of the process
+     *                                  environment, and with neither set nothing is posted
+     * @param ?Closure          $clock  Seconds as a float (`Closure(): float`); null uses `microtime(true)`
+     */
+    public function __construct(
+        private readonly Logger $logger,
+        private ?DiscussionWriter $writer = null,
+        ?Closure $clock = null,
+    ) {
+        $this->writerResolved = $writer !== null;
+        $this->seconds        = $clock ?? static function (): float {
+            return microtime(true);
+        };
+    }
+
+    /**
+     * Say it on the MR, unless it was said within the last 24 hours
+     *
+     * @param string             $cap     Which cap: `jobs_per_mr` or `jobs_per_project`
+     * @param string             $project The project path
+     * @param int                $mrIid   The MR IID
+     * @param int                $used    Jobs in the window the cap counts
+     * @param int                $limit   The cap
+     * @param ?DateTimeImmutable $freesAt When the cap frees up, when known
+     * @param DateTimeImmutable  $now     The current time
+     *
+     * @return bool Whether a note was posted
+     */
+    public function jobsExceeded(string $cap, string $project, int $mrIid, int $used, int $limit, ?DateTimeImmutable $freesAt, DateTimeImmutable $now): bool
+    {
+        $writer = $this->writer();
+        if ($writer === null || $mrIid < 1) {
+            return false;
+        }
+
+        $key = $project . '!' . $mrIid;
+        if (isset($this->looked[$key]) && $this->looked[$key] > $now->modify(self::MEMO)) {
+            return false;
+        }
+        $this->looked[$key] = $now;
+
+        $start  = $this->now();
+        $recent = $writer->recentNotes($project, $mrIid);
+        if ($recent === null) {
+            $this->logger->warning('Cap notice skipped: the MR notes could not be read', ['mr_iid' => $mrIid, 'project_path' => $project]);
+
+            return false;
+        }
+
+        $since = $now->modify(self::WINDOW);
+        $bot   = $this->botUsername();
+        foreach ($recent as $note) {
+            // Only the bot's own note counts: a person quoting the marker must not silence the notice
+            if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER) && $note->createdAt > $since) {
+                return false;
+            }
+        }
+
+        if ($this->spent($start, 'the note', $project, $mrIid)) {
+            return false;
+        }
+        $noteId = $writer->openNote($project, $mrIid, $this->body($cap, $used, $limit, $freesAt));
+        if ($noteId === null) {
+            return false;
+        }
+
+        // The note is what tells people; the label only helps filtering, so it is the first thing a slow GitLab costs
+        if (!$this->spent($start, 'the label', $project, $mrIid)) {
+            $writer->addLabel($project, $mrIid, self::LABEL);
+        }
+        $this->logger->info('Cap notice posted', ['mr_iid' => $mrIid, 'project_path' => $project]);
+
+        return true;
+    }
+
+    /**
+     * Answer a "Triage: retry" that could not be queued, in the thread it was posted in
+     *
+     * Its own bot-authored marker, not the MR note's, so neither suppresses the other; once the bot has answered in the thread, it does not answer again.
+     *
+     * @param string $project      The project path
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The thread
+     * @param string $reason       Why it was not queued, one sentence without a final full stop
+     *
+     * @return bool Whether a reply was posted
+     */
+    public function retryNotQueued(string $project, int $mrIid, string $discussionId, string $reason): bool
+    {
+        $writer = $this->writer();
+        if ($writer === null || $mrIid < 1 || $discussionId === '') {
+            return false;
+        }
+
+        $start = $this->now();
+        $notes = $writer->notes($project, $mrIid, $discussionId);
+        if ($notes === null) {
+            $this->logger->warning('Retry reply skipped: the thread could not be read', ['discussion_id' => $discussionId, 'mr_iid' => $mrIid, 'project_path' => $project]);
+
+            return false;
+        }
+
+        $bot = $this->botUsername();
+        foreach ($notes as $note) {
+            if (strtolower($note->author) === $bot && str_contains($note->body, self::RETRY_MARKER)) {
+                return false;
+            }
+        }
+
+        if ($this->spent($start, 'the retry reply', $project, $mrIid)) {
+            return false;
+        }
+
+        return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::RETRY_MARKER, $reason)) !== null;
+    }
+
+    /**
+     * Whether the notice's time budget is used up, logging what is skipped when it is
+     *
+     * @param float  $start   When the notice made its first call, in clock seconds
+     * @param string $skipped What would be posted next, for the log
+     * @param string $project The project path
+     * @param int    $mrIid   The MR IID
+     *
+     * @return bool
+     */
+    private function spent(float $start, string $skipped, string $project, int $mrIid): bool
+    {
+        $elapsed = $this->now() - $start;
+        if ($elapsed < self::BUDGET_SECONDS) {
+            return false;
+        }
+
+        $this->logger->warning('Cap notice: time budget spent, skipping ' . $skipped, ['elapsed_seconds' => round($elapsed, 2), 'mr_iid' => $mrIid, 'project_path' => $project]);
+
+        return true;
+    }
+
+    /**
+     * The clock's reading, in seconds
+     *
+     * @return float
+     */
+    private function now(): float
+    {
+        $seconds = ($this->seconds)();
+
+        return is_float($seconds) ? $seconds : microtime(true);
+    }
+
+    /**
+     * @return string The bot's username, lower case
+     */
+    private function botUsername(): string
+    {
+        return strtolower((string) (getenv('KELPIE_BOT_USERNAME') ?: AutofixSettings::DEFAULT_BOT));
+    }
+
+    /**
+     * The writer, built on first use from the environment when none was given
+     *
+     * @return ?DiscussionWriter Null when GitLab is not configured
+     */
+    private function writer(): ?DiscussionWriter
+    {
+        if ($this->writerResolved) {
+            return $this->writer;
+        }
+
+        $this->writerResolved = true;
+        $apiUrl               = rtrim((string) getenv('GITLAB_API_URL'), '/');
+        $token                = (string) getenv('KELPIE_BOT_GITLAB_TOKEN');
+        if ($apiUrl === '' || $token === '') {
+            return null;
+        }
+
+        $factory      = new Psr17Factory();
+        $client       = new BotHttpClient($this->logger, new CurlHttpClient($this->logger, $factory, self::HTTP_TIMEOUT), $token);
+        $this->writer = new DiscussionWriter($this->logger, $client, $factory, $factory, $apiUrl, new JsonService($this->logger));
+
+        return $this->writer;
+    }
+
+    /**
+     * @param string             $cap     Which cap
+     * @param int                $used    Jobs in the window
+     * @param int                $limit   The cap
+     * @param ?DateTimeImmutable $freesAt When it frees up
+     *
+     * @return string
+     */
+    private function body(string $cap, int $used, int $limit, ?DateTimeImmutable $freesAt): string
+    {
+        $when = $freesAt === null ? 'within 24 h' : 'around ' . $freesAt->setTimezone(new DateTimeZone('UTC'))->format('H:i') . ' UTC';
+
+        if ($cap === 'jobs_per_project') {
+            return sprintf(
+                "%s\nKelpie is over its project-wide daily job ceiling (%d of %d in 24 h, across all MRs). Nothing in this project is triaged until it frees up, %s.",
+                self::MARKER,
+                $used,
+                $limit,
+                $when,
+            );
+        }
+
+        return sprintf(
+            "%s\nKelpie is over its daily job cap for this MR (%d of %d in 24 h). Threads here are not triaged until it frees up, %s.",
+            self::MARKER,
+            $used,
+            $limit,
+            $when,
+        );
+    }
+}

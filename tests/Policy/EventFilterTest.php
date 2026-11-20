@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Policy;
 
 use Kelpie\DataTransferObject\AutofixJob;
 use Kelpie\Policy\EventFilter;
+use Kelpie\Service\Autofix\CapNoticeService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
@@ -178,6 +179,8 @@ final class EventFilterTest extends UbixConcreteClassOrEnumTestCase implements I
             'draft'           => ['MR is a draft', ['merge_request' => ['title' => 'Draft: wip']]],
             'issue note'      => ['not an MR note', ['object_attributes' => ['noteable_type' => 'Issue']]],
             'other project'   => ['project not allow-listed', ['project' => ['path_with_namespace' => 'org/other']]],
+            'over-cap marker' => ['kelpie marker', ['object_attributes' => ['note' => CapNoticeService::MARKER . "\nKelpie is over its daily job cap"]]],
+            'over-cap plain'  => ['not in a thread', ['object_attributes' => ['note' => CapNoticeService::MARKER, 'type' => null]]],
             'shepherd'        => ['author is the bot or a Shepherd agent', ['user' => ['username' => 'shepherd']]],
             'shepherd branch' => ['Shepherd-owned branch', ['merge_request' => ['source_branch' => 'shepherd/x']]],
             'system note'     => ['system note', ['object_attributes' => ['system' => true]]],

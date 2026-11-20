@@ -2,13 +2,28 @@
 
 ## Unreleased
 
+- **"Triage: retry" no longer stays silent on a thread Kelpie has not looked at.** From the MR author or a maintainer
+  it queues the thread for triage; when it cannot be queued (the project is not enrolled, or a cap was hit) Kelpie
+  replies in the thread once, with the reason (which cap was hit, or that the project is not enrolled), using its own bot-authored marker (separate from the over-cap note's) so it never
+  posts twice. See `docs/autofix/triage-retry.md`.
+
+- **Over a daily job cap, Kelpie now says so on the MR, and the caps are configurable.** The per-project daily cap is
+  replaced by a per-MR cap (default 30 jobs per MR per 24 h, `KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY`) and a project-wide
+  ceiling as a spend guard (default 200 per project per 24 h, `KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY`), so one busy MR
+  no longer uses up the day for the others. A job refused for either leaves one note on the MR naming the cap that was hit
+  (the count, and about when it frees up) plus the label `kelpie::over-cap`, at most once per MR per 24 hours, instead of
+  being dropped silently. `KELPIE_AUTOFIX_COMMITS_PER_MR` and `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD` are settings too; a
+  missing or invalid value gives the default and a logged warning. See `docs/autofix/caps.md`. The notice runs in the webhook
+  request, so its GitLab calls share one 4 s budget (2 s each at most): a slow GitLab skips the label, then the note,
+  rather than holding the delivery past GitLab's webhook timeout.
+
 - **CI: uBixCore's Gemini review (`ai-review-mr`) is switched off.** `kelpie-review` is the only review on Kelpie's
   MRs. The Gemini job ran on the free tier, failed now and then, and doubled the findings to answer. The
   template has no setting for it, so `.gitlab-ci.yml` overrides its rules with `when: never`.
 
 - **Fixed: Kelpie left dismissed and fixed threads open on ubixshepherd.** Three causes, seen on ubixshepherd !429:
-  - On open-source projects triage asked `meta/muse-spark-1.3-contributor`, which OpenRouter answers with 404 for this
-    account, so every thread became `needs_human` ("the model gave no answer"). When the open-source model gives no
+  - On open-source projects triage asked `meta/muse-spark-1.3-contributor`, which OpenRouter answered with 404 while the
+    workspace was restricted to BYOK providers (since lifted), so every thread became `needs_human` ("the model gave no answer"). When the open-source model gives no
     answer, triage (threads and issues) now asks the regular `KELPIE_TRIAGE_MODEL` once. A project's own
     `triage_model` gets no fallback. OpenRouter's error body is now logged (up to 300 characters), so a 404 says why.
   - A reasoned "Dismissed:" stopped counting once Kelpie's own notes (its release marker, its triage reply) followed

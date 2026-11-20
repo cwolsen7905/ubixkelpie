@@ -7,12 +7,14 @@ namespace Kelpie\Tests\Controller\Gitlab;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
+use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\Policy\EventFilter;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Service\Autofix\AutofixJobService;
+use Kelpie\Service\Autofix\CapNoticeService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\TriageReplyService;
 use Kelpie\Service\Gitlab\ApprovalResolveService;
@@ -23,6 +25,7 @@ use Kelpie\Service\Gitlab\NoteOnMrWebhookService;
 use Kelpie\Service\Gitlab\ProposalReactionWebhookService;
 use Kelpie\Service\Gitlab\ThreadActorService;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
+use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Service\Autofix\FakeJobSql;
 use Kelpie\Tests\Service\Autofix\InMemoryOutcomeStore;
 use Kelpie\Tests\Service\Autofix\InsertedJobs;
@@ -779,7 +782,7 @@ final class GitlabWebhookControllerTest extends UbixConcreteClassOrEnumTestCase 
         $outcomes->record(new ThreadOutcomeRecord('org/proj', 3, 'd1', str_repeat('a', 40), 'fix', 'propose', ThreadOutcome::Proposed, 'r', proposalNoteId: 105, editsJson: '[{"file":"a.txt","new":"b","old":"a"}]'));
         $actors   = new ThreadActorService($logger, new MemberAccessReaderService($logger, StubHttpClient::member($level), new Psr17Factory(), 'https://gitlab.example.com/api/v4', $jsonService));
         $reaction = new ProposalReactionWebhookService($logger, $actors, $outcomes, FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, FakeJobSql::FREE, str_repeat('a', 40)), true, 'kelpie-bot');
-        $triage   = new TriageReplyService($logger, $actors, $outcomes, $outcomes, FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, FakeJobSql::FREE, str_repeat('a', 40)), true, 'kelpie-bot');
+        $triage   = new TriageReplyService($logger, $actors, $outcomes, $outcomes, FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, FakeJobSql::FREE, str_repeat('a', 40)), InMemoryProjects::service(['org/proj' => ProjectMode::Propose]), new CapNoticeService($logger), true, 'kelpie-bot');
 
         return new GitlabWebhookController(
             $logger,

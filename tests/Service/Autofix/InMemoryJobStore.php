@@ -145,6 +145,26 @@ final class InMemoryJobStore implements AutofixJobReader, AutofixJobWriter
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function countJobsForMrSince(string $projectPath, int $mrIid, DateTimeImmutable $since): int
+    {
+        $this->log[] = __FUNCTION__ . ':' . $projectPath . '!' . $mrIid . ',' . $since->format('c');
+
+        return 0;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getJobCreatedAt(string $projectPath, DateTimeImmutable $since, int $offset, ?int $mrIid = null): ?DateTimeImmutable
+    {
+        $this->log[] = __FUNCTION__ . ':' . $projectPath . ',' . $since->format('c') . ',' . $offset . ',' . ($mrIid ?? '');
+
+        return null;
+    }
+
+    /**
      * Make `hasLiveJob()` answer yes or no
      *
      * @param bool $live Whether a job is live

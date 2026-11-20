@@ -63,11 +63,7 @@ final class AutofixJobCoalescerService
         }
 
         // A fan-out or round job takes no thread; the caps bind the thread jobs, and the round's own caps are the push round's
-        $exceeded = $input->discussionId === null ? null : $this->exceededCap(
-            $this->reader->countFixCommitsForMr($input->projectPath, $input->mrIid),
-            $this->reader->countAttemptsForThread($input->projectPath, $input->mrIid, $threadKey),
-            $this->reader->countJobsSince($input->projectPath, $now->modify('-1 day')),
-        );
+        $exceeded = $this->exceededCapFor($input, $now);
 
         if ($exceeded !== null) {
             $this->logger->warning('Autofix job over cap', ['cap' => $exceeded, 'mr_iid' => $input->mrIid, 'project_path' => $input->projectPath]);
@@ -105,6 +101,28 @@ final class AutofixJobCoalescerService
     }
 
     /**
+     * Which cap, if any, a job would break right now
+     *
+     * @param AutofixJob        $job The job
+     * @param DateTimeImmutable $now The current time, for the daily cap
+     *
+     * @return ?string `commits_per_mr`, `attempts_per_thread`, `jobs_per_project` or `jobs_per_mr` (the first that is hit, in that order); null when within the caps or the job takes no thread
+     */
+    public function exceededCapFor(AutofixJob $job, DateTimeImmutable $now): ?string
+    {
+        if ($job->discussionId === null) {
+            return null;
+        }
+
+        return $this->exceededCap(
+            $this->reader->countFixCommitsForMr($job->projectPath, $job->mrIid),
+            $this->reader->countAttemptsForThread($job->projectPath, $job->mrIid, $this->threadKey($job)),
+            $this->reader->countJobsSince($job->projectPath, $now->modify('-1 day')),
+            $this->reader->countJobsForMrSince($job->projectPath, $job->mrIid, $now->modify('-1 day')),
+        );
+    }
+
+    /**
      * The key of the one open job a job coalesces with
      *
      * The discussion id; '' for an MR-level job; for a review job, which does not know its MR yet, the head sha;
@@ -128,16 +146,18 @@ final class AutofixJobCoalescerService
      *
      * @param int $commitsForMr     Fix commits already on the MR
      * @param int $attemptsOnThread Attempts already made on the thread
-     * @param int $jobsToday        Jobs the project created in the last 24 hours
+     * @param int $projectJobs      Jobs the project created in the last 24 hours, across its MRs
+     * @param int $mrJobs           Jobs the MR had created in the last 24 hours
      *
      * @return ?string The cap name, or null when within the caps
      */
-    private function exceededCap(int $commitsForMr, int $attemptsOnThread, int $jobsToday): ?string
+    private function exceededCap(int $commitsForMr, int $attemptsOnThread, int $projectJobs, int $mrJobs): ?string
     {
         return match (true) {
             $commitsForMr >= $this->caps->commitsPerMr          => 'commits_per_mr',
             $attemptsOnThread >= $this->caps->attemptsPerThread => 'attempts_per_thread',
-            $jobsToday >= $this->caps->jobsPerDay               => 'jobs_per_day',
+            $projectJobs >= $this->caps->jobsPerProject         => 'jobs_per_project',
+            $mrJobs >= $this->caps->jobsPerMr                   => 'jobs_per_mr',
             default                                             => null,
         };
     }

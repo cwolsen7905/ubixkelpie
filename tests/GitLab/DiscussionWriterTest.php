@@ -56,6 +56,23 @@ final class DiscussionWriterTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * The MR's recent notes come newest first across threads and plain notes
+     *
+     * @return void
+     */
+    public function testRecentNotesNewestFirst(): void
+    {
+        $this->gitlab->note('d1', 'old', '-2 hours', 1);
+        $this->gitlab->note('d2', 'new', '-1 minutes', 2, 'kelpie-bot');
+
+        $notes = $this->gitlab->writer($this->createStub(Logger::class))->recentNotes('ubixsys/ubixkelpie', 3);
+
+        $this->assertNotNull($notes);
+        $this->assertSame([2, 1], array_column($notes, 'id'));
+        $this->assertSame('kelpie-bot', $notes[0]->author);
+    }
+
+    /**
      * Reply, edit and labels
      *
      * @return void

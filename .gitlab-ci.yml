@@ -30,12 +30,18 @@ variables:
   UBIX_APPROVAL_OWNERS: cwolsen
   # Kelpie reviews its own merge requests with the image this pipeline just built. Live and advisory: it posts
   # review threads and a summary note but never fails the job (only exit 75, "could not run", is allowed
-  # to fail), beside the template's ai-review-mr (uBixCore's Gemini review).
+  # to fail). It is the only review: the template's ai-review-mr is switched off below.
   KELPIE_REVIEW_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHA
   AI_REVIEW_MODE: advisory
 
 kelpie-review:
   needs: [build-mr]
+
+# uBixCore's Gemini review (free tier, fails now and then) is phased out here: kelpie-review covers every MR, and two
+# reviews doubled the findings to answer. The template has no setting for it, so the job's rules are overridden.
+ai-review-mr:
+  rules:
+    - when: never
 
 # ci/ai-review dry-run tests (no network, no model) and shellcheck. Cheap and independent
 # of the build, so it starts at once. Packages are fetched at run time into a throwaway container.

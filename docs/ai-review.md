@@ -78,7 +78,8 @@ own standards documents can name a directory as a family.
 run, use its own marker (`<!-- kelpie-review:shadow ... -->`, so it never replaces the other engine's
 note), list what it would have opened, and never exit `1`. Kelpie's own pipeline runs it this way
 beside the template's `ai-review-mr` until it is judged good enough to drop that job and turn the
-shadow off.
+shadow off. Both have happened: `kelpie-review` is live, and the template's `ai-review-mr` is switched off in
+`.gitlab-ci.yml`.
 
 ## Include the shell job
 

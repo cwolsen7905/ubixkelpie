@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **CI: uBixCore's Gemini review (`ai-review-mr`) is switched off.** `kelpie-review` is the only review on Kelpie's
+  MRs. The Gemini job ran on the free tier, failed now and then, and doubled the findings to answer. The
+  template has no setting for it, so `.gitlab-ci.yml` overrides its rules with `when: never`.
+
 - **Fixed: Kelpie left dismissed and fixed threads open on ubixshepherd.** Three causes, seen on ubixshepherd !429:
   - On open-source projects triage asked `meta/muse-spark-1.3-contributor`, which OpenRouter answers with 404 for this
     account, so every thread became `needs_human` ("the model gave no answer"). When the open-source model gives no

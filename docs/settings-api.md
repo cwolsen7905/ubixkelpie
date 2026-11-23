@@ -71,7 +71,10 @@ Any other method on these paths is `405`. Preflight (`OPTIONS`) is answered with
 ```
 
 The whole body is validated first and applied only if every rule holds; a rejected patch changes nothing. A patch
-that changes nothing writes nothing. There is no `If-Match` yet, so the last write wins.
+that changes nothing writes nothing. There is no `If-Match` yet, so the last write wins. The hard-at-least-soft rule is
+checked against the row as it was read, so two edits sent at the same moment can, rarely, leave a hard limit below its
+soft limit; the limits themselves still apply, only the soft warning of that cap would never fire. A version column
+would close this; it is not built.
 
 | Field | Rule |
 | --- | --- |

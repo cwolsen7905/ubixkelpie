@@ -148,7 +148,8 @@ final class ProjectSettingsValidator
             }
             $errors = [...$errors, ...$this->unknownKeys($cap, ['soft', 'hard'], 'settings.' . $name . '.')];
 
-            $capChanges = [];
+            $capChanges   = [];
+            $errorsBefore = count($errors);
             if (array_key_exists('soft', $cap)) {
                 $result = $this->limit($cap['soft'], $kind, false);
                 if ($result['error'] !== null) {
@@ -172,7 +173,8 @@ final class ProjectSettingsValidator
                 }
             }
 
-            $error = $this->hardBelowSoft($kind, $softColumn, $hardColumn, $current, $capChanges);
+            // A cap that already has an error is not compared: the pair is not known, and a second error would mislead.
+            $error = count($errors) === $errorsBefore ? $this->hardBelowSoft($kind, $softColumn, $hardColumn, $current, $capChanges) : null;
             if ($error !== null) {
                 $errors[] = ['field' => 'settings.' . $name . '.hard', 'message' => $error];
             }
@@ -233,9 +235,23 @@ final class ProjectSettingsValidator
             return null;
         }
 
-        $below = $kind === 'cost' ? $this->cents((string) $hard) < $this->cents((string) $soft) : (int) $hard < (int) $soft;
+        $below = $kind === 'cost' ? $this->storedCents((string) $hard) < $this->storedCents((string) $soft) : (int) $hard < (int) $soft;
 
         return $below ? 'must be at least the soft limit (' . $soft . ')' : null;
+    }
+
+    /**
+     * @param string $value A stored cost, as the DECIMAL(8,2) column holds it
+     *
+     * @return int Whole cents; up to 6 whole digits, so any value the column can hold
+     */
+    private function storedCents(string $value): int
+    {
+        if (preg_match('/^(\d{1,6})(?:\.(\d{1,2}))?$/', $value, $m) !== 1) {
+            return 0;
+        }
+
+        return (int) $m[1] * 100 + (int) str_pad($m[2] ?? '0', 2, '0');
     }
 
     /**

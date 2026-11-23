@@ -127,6 +127,44 @@ final class ProjectSettingsValidatorTest extends UbixConcreteClassOrEnumTestCase
     }
 
     /**
+     * Test that a stored cost above 9999.99 (the column holds up to 999999.99) does not make a valid patch fail the hard-vs-soft check
+     *
+     * @return void
+     */
+    public function testLargeStoredCostIsComparedCorrectly(): void
+    {
+        $project   = new Project('a/b', maxCostUsdDay: '12000.00', maxCostUsdDayHard: '15000.00');
+        $validator = new ProjectSettingsValidator(new NullLogger());
+
+        $this->assertSame(['max_cost_usd_day' => '3.00'], $validator->validate(['settings' => ['max_cost_usd_day' => ['soft' => '3']]], $project)->changes);
+
+        try {
+            $validator->validate(['settings' => ['max_cost_usd_day' => ['hard' => '5000']]], $project);
+            $this->fail('A hard limit below the stored soft limit must be refused');
+        } catch (SettingsValidationException $e) {
+            $this->assertSame(['settings.max_cost_usd_day.hard'], array_column($e->getErrors(), 'field'));
+        }
+    }
+
+    /**
+     * Test that a cap with a bad value gets only that error, not a second one from comparing against the stored other side
+     *
+     * @return void
+     */
+    public function testBadValueGetsNoSecondError(): void
+    {
+        try {
+            (new ProjectSettingsValidator(new NullLogger()))->validate(
+                ['settings' => ['max_issues_per_day' => ['soft' => 0, 'hard' => 5]]],
+                new Project('a/b'),
+            );
+            $this->fail('Expected a validation error');
+        } catch (SettingsValidationException $e) {
+            $this->assertSame(['settings.max_issues_per_day.soft'], array_column($e->getErrors(), 'field'));
+        }
+    }
+
+    /**
      * @return array<string, array{mixed, string}>
      */
     public static function invalidBodies(): array

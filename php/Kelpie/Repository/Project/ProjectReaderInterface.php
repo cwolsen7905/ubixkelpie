@@ -26,4 +26,11 @@ interface ProjectReaderInterface
      * @return Project[] In path order
      */
     public function getEnrolled(): array;
+
+    /**
+     * Every project, including those that are off
+     *
+     * @return Project[] In path order
+     */
+    public function getAll(): array;
 }

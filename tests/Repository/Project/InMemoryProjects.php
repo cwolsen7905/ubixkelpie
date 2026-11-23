@@ -62,6 +62,14 @@ final class InMemoryProjects implements ProjectReader
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function getAll(): array
+    {
+        return array_values($this->rows);
+    }
+
+    /**
      * The service over a table with these rows
      *
      * @param array<string, ProjectMode> $modes  Project path => mode

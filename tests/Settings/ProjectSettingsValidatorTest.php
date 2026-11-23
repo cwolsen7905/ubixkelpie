@@ -6,8 +6,8 @@ namespace Kelpie\Tests\Settings;
 
 use Kelpie\DataTransferObject\Project;
 use Kelpie\Enum\ProjectMode;
-use Kelpie\Settings\ProjectSettingsValidator;
 use Kelpie\Settings\Exception\SettingsValidationException;
+use Kelpie\Settings\ProjectSettingsValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;

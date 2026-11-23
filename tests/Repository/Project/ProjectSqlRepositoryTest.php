@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Repository\Project;
 
 use Generator;
+use InvalidArgumentException;
+use Kelpie\DataTransferObject\ProjectSettingsPatch;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\Repository\Project\ProjectSqlRepository;
 use Psr\Log\LoggerInterface as Logger;
@@ -21,6 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - The enrolled projects exclude off and come in path order
  * - Empty settings are null or empty, the protected paths are read from JSON, and unreadable JSON gives none
  * - A mode Kelpie does not know reads as off
+ * - Every project is listed, off ones too, and a settings patch writes only the columns it holds, bound as parameters
  *
  * @coversDefaultClass \Kelpie\Repository\Project\ProjectSqlRepository
  */
@@ -146,6 +149,73 @@ final class ProjectSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase imp
         $this->assertSame(ProjectMode::Off, $project->mode);
         $this->assertSame([], $project->protectedPaths);
         $this->assertNull($project->gateCommand);
+    }
+
+    /**
+     * Every project, the off ones included
+     *
+     * @return void
+     */
+    public function testGetAllIncludesOff(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('getRows')
+            ->with($this->logicalAnd($this->stringContains('ORDER BY path'), $this->logicalNot($this->stringContains('WHERE'))))
+            ->willReturn($this->rows([$this->row(['mode' => 'off', 'path' => 'a/a']), $this->row(['path' => 'b/b'])]));
+
+        $projects = $this->repository($this->createStub(Logger::class), $sql)->getAll();
+
+        $this->assertSame(['a/a', 'b/b'], [$projects[0]->path, $projects[1]->path]);
+        $this->assertSame(ProjectMode::Off, $projects[0]->mode);
+    }
+
+    /**
+     * A patch becomes one UPDATE of the named columns, with values bound and a null hard cap written as NULL
+     *
+     * @return void
+     */
+    public function testUpdateSettings(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->once())->method('query')
+            ->with(
+                'UPDATE ubixkelpie.projects SET max_cost_usd_day_hard = :max_cost_usd_day_hard, max_issues_per_day = :max_issues_per_day, mode = :mode WHERE path = :path',
+                ['path' => 'g/p', 'mode' => 'push', 'max_cost_usd_day_hard' => null, 'max_issues_per_day' => 40],
+            )
+            ->willReturn(1);
+
+        $this->repository($this->createStub(Logger::class), $sql)->updateSettings('g/p', new ProjectSettingsPatch([
+            'max_cost_usd_day_hard' => null,
+            'max_issues_per_day'    => 40,
+            'mode'                  => ProjectMode::Push,
+        ]));
+    }
+
+    /**
+     * A column that is not a setting is refused before any SQL runs, so a name can never be injected
+     *
+     * @return void
+     */
+    public function testUpdateSettingsRefusesAnotherColumn(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->never())->method('query');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->repository($this->createStub(Logger::class), $sql)->updateSettings('g/p', new ProjectSettingsPatch(['gate_command' => 'rm -rf']));
+    }
+
+    /**
+     * An empty patch runs no SQL
+     *
+     * @return void
+     */
+    public function testUpdateSettingsEmptyPatchWritesNothing(): void
+    {
+        $sql = $this->createMock(SqlService::class);
+        $sql->expects($this->never())->method('query');
+
+        $this->repository($this->createStub(Logger::class), $sql)->updateSettings('g/p', new ProjectSettingsPatch());
     }
 
     /**

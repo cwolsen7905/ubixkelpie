@@ -94,8 +94,8 @@ final class ApiTokenMiddlewareTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * @param string          $token  The configured token
-     * @param string          $header The Authorization header
+     * @param string                   $token   The configured token
+     * @param string                   $header  The Authorization header
      * @param ApiTokenRecordingHandler $handler Records whether it ran
      *
      * @return Response

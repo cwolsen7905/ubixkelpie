@@ -32,8 +32,7 @@ final class InMemoryProjectSettingsStore implements ProjectReader, ProjectWriter
      */
     public function __construct(
         Project ...$projects,
-    )
-    {
+    ) {
         foreach ($projects as $project) {
             $this->rows[$project->path] = $project;
         }

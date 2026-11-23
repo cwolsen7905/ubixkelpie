@@ -194,17 +194,13 @@ final class ProjectSettingsValidator
     private function limit(mixed $value, string $kind, bool $nullable): array
     {
         if ($value === null) {
-            return $nullable
-                ? ['value' => null, 'error' => null]
-                : ['value' => null, 'error' => 'a soft limit always has a number and cannot be null'];
+            return $nullable ? ['value' => null, 'error' => null] : ['value' => null, 'error' => 'a soft limit always has a number and cannot be null'];
         }
 
         $orNull = $nullable ? ', or null for unlimited' : '';
 
         if ($kind === 'count') {
-            return is_int($value) && $value >= 1 && $value <= self::MAX_COUNT
-                ? ['value' => $value, 'error' => null]
-                : ['value' => null, 'error' => 'must be a whole number from 1 to ' . self::MAX_COUNT . $orNull];
+            return is_int($value) && $value >= 1 && $value <= self::MAX_COUNT ? ['value' => $value, 'error' => null] : ['value' => null, 'error' => 'must be a whole number from 1 to ' . self::MAX_COUNT . $orNull];
         }
 
         $cents = is_string($value) ? $this->cents($value) : null;

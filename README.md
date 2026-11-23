@@ -68,13 +68,12 @@ waits for one manual job, `migrate-apply-prod`. Each branch deploys to its own n
 | `main` | `kelpie-prod` | https://kelpie.prod.ubixsys.com |
 
 Manifests are in `app/KelpieApi/`; secrets come from uBixVault (`kelpie/<env>/app` and
-`kelpie/<env>/db`) and are never committed. What must exist outside this repo first is listed in
-[`docs/merge-signoff.md`](docs/merge-signoff.md#outside-this-repo-kubernetes-repo--gitlab-before-the-first-deploy)
-and, for the database, [`docs/operations/database.md`](docs/operations/database.md).
+`kelpie/<env>/db`) and are never committed. What must exist outside this repo first is kept in the
+private planning repo.
 
 Each environment has its own GitLab bot token and webhook secret (`KELPIE_BOT_GITLAB_TOKEN`,
 `GITLAB_WEBHOOK_SECRET`). Prod's live only in `kelpie/prod/app` on vault.prod and are never shared
-with dev or staging; see [`docs/operations/prod-secrets.md`](docs/operations/prod-secrets.md).
+with dev or staging; the details are kept in the private planning repo.
 
 CI pulls uBixCore with the job token, so `ubixsys/ubixkelpie` must be on ubixcore's CI job-token
 allowlist.

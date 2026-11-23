@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Kelpie's autofix commits and notes now say they are Kelpie's, and which agent and model wrote them.** A commit
+  gets an `Assisted-by: Kelpie <agent> (<model id>)` trailer beside the `Kelpie-Autofix` marker (the author stays the
+  bot account). The usage footer of autofix replies and of the AI review summary opens with
+  `Kelpie · agent `<agent>` · model `<model>``: the existing footer, not a second one. The model is the one the run
+  used; a push round names the agent `autofix` because the stored proposal keeps the model but not which of the two
+  made it. See `docs/autofix/push-mode.md` and `docs/ai-review.md`.
+
 - **Kelpie can now fix review threads whose fix is in another file, or is a test.** The propose model sees only the
   thread's file, so on ubixshepherd !450 it gave up on "add a failing-gate test" and on "the brief in
   `internal/dispatch/adapters.go` was not updated". When the propose model has no usable edit, the fixing agent (the

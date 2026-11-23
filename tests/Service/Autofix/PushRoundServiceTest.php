@@ -86,6 +86,7 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertStringStartsWith('fix(review): address 2 review threads', $message);
         $this->assertStringContainsString("Thread: d1\n", $message);
         $this->assertStringContainsString("Thread: d2\n", $message);
+        $this->assertStringContainsString("Kelpie-Autofix: propose\nAssisted-by: Kelpie autofix (p/y)\nAssisted-by: Kelpie autofix (q/z)\n", $message);
 
         $this->assertCount(4, $this->gateRunner->calls());
         $this->assertSame($pushed, $this->jobs->commitSha());
@@ -471,13 +472,13 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     /**
      * One fix for a.txt (thread d1) and one for b.txt (thread d2)
      *
-     * @return list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}>
+     * @return list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}>
      */
     private function fixes(): array
     {
         return [
-            ['discussionId' => 'd1', 'edits' => [new ProposedEdit('a.txt', 'one', 'two')], 'summary' => 'Fix the typo.'],
-            ['discussionId' => 'd2', 'edits' => [new ProposedEdit('b.txt', 'alpha', 'beta')], 'summary' => 'Rename.'],
+            ['discussionId' => 'd1', 'edits' => [new ProposedEdit('a.txt', 'one', 'two')], 'summary' => 'Fix the typo.', 'model' => 'p/y'],
+            ['discussionId' => 'd2', 'edits' => [new ProposedEdit('b.txt', 'alpha', 'beta')], 'summary' => 'Rename.', 'model' => 'q/z'],
         ];
     }
 

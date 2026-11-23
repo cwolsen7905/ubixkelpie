@@ -62,6 +62,7 @@ differs from the shell job:
 | `AI_REVIEW_MODEL` | `openrouter/<id>` | the same; the prefix is dropped for the API |
 | `AI_REVIEW_EFFORT` | `opencode --variant` | OpenRouter's `reasoning.effort` |
 | Usage stamp | OpenCode's estimate | OpenRouter's reported tokens and cost, summed over the run's calls |
+| Attribution | none | the stamp opens `Kelpie · agent `review-agent` · model ...`, so the note says who wrote it; the model named is the one the review asked for (`AI_REVIEW_MODEL`), as the run reports no other |
 | Class placement | not reported (the prompt calls layering machine-checked) | reported: see below |
 
 ### Class placement

@@ -101,6 +101,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $this->assertSame($this->devSha, $this->git($this->remote, ['rev-parse', 'refs/heads/dev']));
         $this->assertStringContainsString('the typo', $this->git($this->remote, ['show', self::BRANCH . ':src/a.php']));
         $this->assertStringContainsString('Kelpie-Autofix: issue', $this->git($this->remote, ['log', '-1', '--format=%B', self::BRANCH]));
+        $this->assertMatchesRegularExpression('/^Assisted-by: Kelpie propose-model \(\S+\)$/m', $this->git($this->remote, ['log', '-1', '--format=%B', self::BRANCH]));
 
         $mr = $this->bodyOf($gitlab, 'target_branch');
         $this->assertSame('dev', $mr['target_branch']);

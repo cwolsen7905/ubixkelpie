@@ -26,6 +26,37 @@ on the whole result, one `fix(review)` commit with a `Thread:` line per thread, 
 Each pushed thread gets `Fixed:` with the commit and is resolved only if Kelpie opened it. The
 MR label becomes `triage: pushed`.
 
+## Who wrote it: commit trailers and note footers
+
+Every autofix commit and reply says it is Kelpie's, and which agent and model made it. The commit author
+and committer stay the bot account. Example commit message of a push round:
+
+```
+fix(review): rename the helper
+
+Applies the changes Kelpie proposed in these review threads.
+
+Thread: 4f1c9a
+Kelpie-Autofix: propose
+Assisted-by: Kelpie autofix (openai/gpt-5.5)
+```
+
+`Kelpie-Autofix` is the marker the loop guard reads. `Assisted-by: Kelpie <agent> (<model id>)` is the
+attribution: one line per distinct model in the round. The model is the one the run used, read from the proposal's
+stored row; a row stored before that was kept has none, and its trailer is `Assisted-by: Kelpie autofix` alone
+(no configured default is guessed). A push round names the agent `autofix` because the stored row keeps the model,
+not whether the propose model or the fixing agent made the edits. An issue fix commit names `propose-model`.
+
+The usage footer of every reply Kelpie writes from a model call opens with the same attribution, in the one footer
+(there is no second one):
+
+```
+_Kelpie · agent `fixer-agent` · model `openai/gpt-5.5`, effort default, 12.3k in / 1.0k out, $0.0105 (OpenRouter)._
+```
+
+The agent is `triage-model` (a triage reply), `propose-model` (a proposal from the one-shot model) or
+`fixer-agent` (a proposal the fixing agent made). The model is the later call's when two calls sit behind one reply.
+
 ## Where a fix comes from: the propose model, then the agent
 
 The propose model is one call that sees only the file the thread is on. When it finds no edit,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Review;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Review\Finding;
 use Kelpie\DataTransferObject\Review\ReviewDiff;
 use Kelpie\DataTransferObject\Review\ReviewResult;
@@ -57,11 +58,13 @@ final class SummaryRenderService
     {
         $sha = substr($settings->headSha, 0, 8);
         if (!$modelCalled) {
-            return sprintf('_No model call on `%s`: no model, effort, tokens or cost to report._', $sha);
+            return sprintf('_Kelpie · agent `%s` · no model call on `%s`: no model, effort, tokens or cost to report._', Attribution::Review->value, $sha);
         }
 
+        // The review reports no model of its own: it asks for `$settings->model`, so that is what the stamp names
         return sprintf(
-            '_Model `%s`, effort %s, %s in / %s out, $%d.%04d (OpenRouter), on `%s`._',
+            '_Kelpie · agent `%s` · model `%s`, effort %s, %s in / %s out, $%d.%04d (OpenRouter), on `%s`._',
+            Attribution::Review->value,
             $settings->model,
             $settings->effort !== '' ? $settings->effort : 'default',
             $this->tokens($usage->tokensIn),

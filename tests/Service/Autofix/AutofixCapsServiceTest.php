@@ -23,7 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY'];
+    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY', 'KELPIE_AUTOFIX_COMMITS_PER_MR_HARD', 'KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD'];
 
     /**
      * Test that the class is following uBix standards
@@ -111,6 +111,63 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $logger->expects($this->never())->method('warning');
 
         $this->assertSame(30, (new AutofixCapsService($logger))->fromEnvironment()->jobsPerMr);
+    }
+
+    /**
+     * A hard limit that is not set, or is empty, is unlimited with no warning
+     *
+     * @return void
+     */
+    public function testHardLimitsAreUnlimitedByDefault(): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=');
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->never())->method('warning');
+
+        $caps = (new AutofixCapsService($logger))->fromEnvironment();
+
+        $this->assertNull($caps->commitsPerMrHard);
+        $this->assertNull($caps->attemptsPerThreadHard);
+        $this->assertNull($caps->jobsPerMrHard);
+        $this->assertNull($caps->jobsPerProjectHard);
+    }
+
+    /**
+     * A valid hard limit is taken, per cap, and leaves the soft limit alone
+     *
+     * @return void
+     */
+    public function testHardLimitsOverride(): void
+    {
+        putenv('KELPIE_AUTOFIX_COMMITS_PER_MR_HARD=6');
+        putenv('KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD=4');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=60');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD=400');
+
+        $caps = (new AutofixCapsService($this->createStub(Logger::class)))->fromEnvironment();
+
+        $this->assertSame(6, $caps->commitsPerMrHard);
+        $this->assertSame(4, $caps->attemptsPerThreadHard);
+        $this->assertSame(60, $caps->jobsPerMrHard);
+        $this->assertSame(400, $caps->jobsPerProjectHard);
+        $this->assertSame(30, $caps->jobsPerMr);
+    }
+
+    /**
+     * A hard limit that is not a valid number is unlimited and a warning: a typo never stops the work
+     *
+     * @param string $value The bad value
+     *
+     * @return void
+     */
+    #[DataProvider('invalidValues')]
+    public function testInvalidHardLimitIsUnlimitedAndWarns(string $value): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=' . $value);
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('warning');
+
+        $this->assertNull((new AutofixCapsService($logger))->fromEnvironment()->jobsPerMrHard);
     }
 
     /**

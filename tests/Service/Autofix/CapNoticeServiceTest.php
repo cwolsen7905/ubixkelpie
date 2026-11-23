@@ -60,6 +60,43 @@ final class CapNoticeServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * A passed soft cap leaves a warning note, with its own marker and label, that says the work keeps running
+     *
+     * @return void
+     */
+    public function testSoftCapNoteWarnsAndOnlyOncePerWindow(): void
+    {
+        $now     = new DateTimeImmutable('2026-11-20 10:00:00', new DateTimeZone('UTC'));
+        $service = $this->service();
+
+        $first  = $service->softCapExceeded('commits_per_mr', 'g/p', 3, 3, 3, $now);
+        $second = $service->softCapExceeded('commits_per_mr', 'g/p', 3, 4, 3, $now);
+
+        $notes = array_merge(...array_values($this->gitlab->notes()));
+        $this->assertTrue($first);
+        $this->assertFalse($second);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString(CapNoticeService::SOFT_MARKER, $notes[0]['body']);
+        $this->assertStringContainsString('warning only', $notes[0]['body']);
+        $this->assertContains(CapNoticeService::SOFT_LABEL, $this->gitlab->labels());
+    }
+
+    /**
+     * The soft note and the hard note do not suppress each other
+     *
+     * @return void
+     */
+    public function testSoftAndHardNotesAreIndependent(): void
+    {
+        $now     = new DateTimeImmutable('2026-11-20 10:00:00', new DateTimeZone('UTC'));
+        $service = $this->service();
+
+        $this->assertTrue($service->softCapExceeded('jobs_per_mr', 'g/p', 3, 30, 30, $now));
+        $this->assertTrue($service->jobsExceeded('jobs_per_mr', 'g/p', 3, 60, 60, $now->modify('+1 hour'), $now));
+        $this->assertCount(2, array_merge(...array_values($this->gitlab->notes())));
+    }
+
+    /**
      * The project ceiling's note names the ceiling and says nothing in the project is triaged
      *
      * @return void

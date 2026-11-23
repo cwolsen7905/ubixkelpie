@@ -12,6 +12,9 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Says whether the day's model spend has reached a cap (by the database's clock), per project or for all of Kelpie (docs/design/spend-caps.md)
  *
+ * Each cap has a soft limit (the current value) and a hard limit (null is unlimited). A hard cap reached stops the run; a
+ * soft cap passed only logs a warning and the run continues.
+ *
  * @see \Kelpie\Tests\Service\Spend\SpendCapServiceTest PHPUnit test case
  */
 final class SpendCapService
@@ -35,9 +38,12 @@ final class SpendCapService
     /**
      * Whether a model call for the project may start now
      *
+     * A reached hard cap (project or global) stops the run and is returned. A passed soft cap only logs a warning and the
+     * run continues, so the returned check has no cap.
+     *
      * @param string $projectPath The project path with namespace
      *
-     * @return SpendCheck The cap reached, or none
+     * @return SpendCheck The hard cap reached, or none
      */
     public function check(string $projectPath): SpendCheck
     {
@@ -46,16 +52,29 @@ final class SpendCapService
             return new SpendCheck(SpendCheck::NOT_ENROLLED); // No row means off: nothing to spend
         }
 
-        $limit = (float) $project->maxCostUsdDay;
         $spent = $this->outcomes->costToday($projectPath);
-        if ($spent >= $limit) {
-            return new SpendCheck('project', $spent, $limit);
+
+        // Hard caps stop work; a null hard limit is unlimited and never reached
+        $projectHard = $project->maxCostUsdDayHard;
+        if ($projectHard !== null && $spent >= (float) $projectHard) {
+            return new SpendCheck('project', $spent, (float) $projectHard);
         }
 
-        $globalLimit = $this->globalCap();
         $globalSpent = $this->outcomes->costToday(null);
-        if ($globalSpent >= $globalLimit) {
-            return new SpendCheck('global', $globalSpent, $globalLimit);
+        $globalHard  = $this->globalHardCap();
+        if ($globalHard !== null && $globalSpent >= $globalHard) {
+            return new SpendCheck('global', $globalSpent, $globalHard);
+        }
+
+        // Soft caps warn and continue
+        $projectSoft = (float) $project->maxCostUsdDay;
+        if ($spent >= $projectSoft) {
+            $this->logger->warning('Soft spend cap passed: project daily spend', ['project_path' => $projectPath, 'spent' => $spent, 'soft_cap' => $projectSoft]);
+        }
+
+        $globalSoft = $this->globalCap();
+        if ($globalSpent >= $globalSoft) {
+            $this->logger->warning('Soft spend cap passed: global daily spend', ['spent' => $globalSpent, 'soft_cap' => $globalSoft]);
         }
 
         return new SpendCheck();
@@ -75,6 +94,27 @@ final class SpendCapService
             }
 
             return self::DEFAULT_GLOBAL_CAP;
+        }
+
+        return (float) $raw;
+    }
+
+    /**
+     * The global daily hard cap from the environment; null (unlimited) when it is unset, and also when it is set but not a
+     * non-negative number (a typo must never stop the work)
+     *
+     * @return ?float
+     */
+    private function globalHardCap(): ?float
+    {
+        $raw = trim((string) getenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD'));
+        if ($raw === '') {
+            return null;
+        }
+        if (!is_numeric($raw) || (float) $raw < 0.0) {
+            $this->logger->warning('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD is not a non-negative number, treating it as unlimited', ['value' => $raw]);
+
+            return null;
         }
 
         return (float) $raw;

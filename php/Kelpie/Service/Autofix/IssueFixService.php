@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
@@ -249,7 +250,7 @@ final class IssueFixService
         }
 
         $summary = $edits->summary === '' ? 'Fixes #' . $iid . '.' : $this->clean($edits->summary);
-        $commit  = $this->checkout->commit('fix: address #' . $iid . "\n\n" . $summary . "\n\nKelpie-Autofix: issue\n");
+        $commit  = $this->checkout->commit('fix: address #' . $iid . "\n\n" . $summary . "\n\nKelpie-Autofix: issue\n" . Attribution::Propose->trailer($edits->completion->model ?? '') . "\n");
         if ($commit === null) {
             return $this->handOff($issues, $project, $iid, 'git could not commit.');
         }

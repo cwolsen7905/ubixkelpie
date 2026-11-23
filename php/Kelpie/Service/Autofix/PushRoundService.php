@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\GitLab\DiscussionWriter;
@@ -68,14 +69,14 @@ final class PushRoundService
     /**
      * Push a round
      *
-     * @param string                                                                        $project     The project ID
-     * @param string                                                                        $projectPath The project path with namespace
-     * @param int                                                                           $mrIid       The MR IID
-     * @param string                                                                        $sha         The head every fix was made at
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes, one per thread; a fix with no edits is one whose stored edits could not be read
-     * @param int                                                                           $jobId       The job this runs under
-     * @param ThreadOutcome                                                                 $outcome     What each pushed thread is recorded as: `Applied` after a thumbs-up, `Pushed` for an automatic round
-     * @param ?PushRoundCapService                                                          $cap         The round's size cap, for an automatic round; null holds nothing to one (a person asked for it)
+     * @param string                                                                                        $project     The project ID
+     * @param string                                                                                        $projectPath The project path with namespace
+     * @param int                                                                                           $mrIid       The MR IID
+     * @param string                                                                                        $sha         The head every fix was made at
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $fixes       The fixes, one per thread; a fix with no edits is one whose stored edits could not be read
+     * @param int                                                                                           $jobId       The job this runs under
+     * @param ThreadOutcome                                                                                 $outcome     What each pushed thread is recorded as: `Applied` after a thumbs-up, `Pushed` for an automatic round
+     * @param ?PushRoundCapService                                                                          $cap         The round's size cap, for an automatic round; null holds nothing to one (a person asked for it)
      *
      * @return ?string Null when handled (even if refused with a reply); why, when the worker should try again
      */
@@ -117,14 +118,14 @@ final class PushRoundService
     }
 
     /**
-     * @param string                                                                        $project     The project ID
-     * @param string                                                                        $projectPath The project path
-     * @param int                                                                           $mrIid       The MR IID
-     * @param string                                                                        $sha         The head the fixes were made at
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes
-     * @param int                                                                           $jobId       The job
-     * @param ThreadOutcome                                                                 $outcome     What each pushed thread is recorded as
-     * @param ?PushRoundCapService                                                          $cap         The round's size cap, when it has one
+     * @param string                                                                                        $project     The project ID
+     * @param string                                                                                        $projectPath The project path
+     * @param int                                                                                           $mrIid       The MR IID
+     * @param string                                                                                        $sha         The head the fixes were made at
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $fixes       The fixes
+     * @param int                                                                                           $jobId       The job
+     * @param ThreadOutcome                                                                                 $outcome     What each pushed thread is recorded as
+     * @param ?PushRoundCapService                                                                          $cap         The round's size cap, when it has one
      *
      * @return ?string Null when handled, why when to retry
      */
@@ -318,9 +319,9 @@ final class PushRoundService
     /**
      * Tell each thread the head moved, and set nothing
      *
-     * @param string                                                                        $project The project ID
-     * @param int                                                                           $mrIid   The MR IID
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes   The fixes
+     * @param string                                                                                        $project The project ID
+     * @param int                                                                                           $mrIid   The MR IID
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $fixes   The fixes
      *
      * @return void
      */
@@ -351,11 +352,11 @@ final class PushRoundService
     /**
      * Fail every fix of the round with one reason
      *
-     * @param string                                                                        $project     The project ID
-     * @param string                                                                        $projectPath The project path
-     * @param int                                                                           $mrIid       The MR IID
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes       The fixes
-     * @param string                                                                        $text        What to tell each thread
+     * @param string                                                                                        $project     The project ID
+     * @param string                                                                                        $projectPath The project path
+     * @param int                                                                                           $mrIid       The MR IID
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $fixes       The fixes
+     * @param string                                                                                        $text        What to tell each thread
      *
      * @return void
      */
@@ -382,7 +383,7 @@ final class PushRoundService
     /**
      * The commit message: a `fix(review)` subject, a `Thread:` line for each thread, and the loop-guard trailer
      *
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $fixes The fixes pushed
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $fixes The fixes pushed
      *
      * @return string
      */
@@ -401,6 +402,17 @@ final class PushRoundService
             $threads .= 'Thread: ' . $fix['discussionId'] . "\n";
         }
 
-        return 'fix(review): ' . $line . "\n\nApplies the changes Kelpie proposed in these review threads.\n\n" . $threads . "Kelpie-Autofix: propose\n";
+        // The model each proposal was made with is on its stored row. A row from before that was kept has none, and the
+        // trailer then names Kelpie alone rather than a configured default that may not be what ran.
+        $models = [];
+        foreach ($fixes as $fix) {
+            $models[$fix['model'] ?? ''] = true;
+        }
+        $trailers = '';
+        foreach (array_keys($models) as $model) {
+            $trailers .= Attribution::Autofix->trailer((string) $model) . "\n";
+        }
+
+        return 'fix(review): ' . $line . "\n\nApplies the changes Kelpie proposed in these review threads.\n\n" . $threads . "Kelpie-Autofix: propose\n" . $trailers;
     }
 }

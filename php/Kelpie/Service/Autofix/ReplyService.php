@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\DiscussionNote;
 use Kelpie\DataTransferObject\SpendCheck;
@@ -180,7 +181,7 @@ final class ReplyService
 
         $body = sprintf(
             "Kelpie triage: **%s\n\n<!-- kelpie:reply thread=%s class=%s -->",
-            $this->stamped(sprintf($text, $this->clean($verdict->reason)), $verdict->completion),
+            $this->stamped(sprintf($text, $this->clean($verdict->reason)), $verdict->completion, Attribution::Triage),
             $discussionId,
             $verdict->class->value,
         );
@@ -259,10 +260,11 @@ final class ReplyService
      * @param string      $diff         The diff git wrote, for a fix
      * @param ?Completion $completion   The model call behind the proposal, for the usage footer
      * @param ?Completion $earlier      A call made before it for the same reply (triage), added to the footer
+     * @param Attribution $agent        The agent the footer names, the one that made `$completion`
      *
      * @return ?int The new note's ID, null when the reply failed or the kind is not a proposal
      */
-    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = '', ?Completion $completion = null, ?Completion $earlier = null): ?int
+    public function propose(string $project, int $mrIid, string $discussionId, TriageClass $kind, string $headSha, string $text, string $diff = '', ?Completion $completion = null, ?Completion $earlier = null, Attribution $agent = Attribution::Propose): ?int
     {
         $text = $this->oneLine($text);
         $text = $text === '' ? 'no reason given.' : $text;
@@ -279,7 +281,7 @@ final class ReplyService
             return null;
         }
 
-        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamped($lead, $this->usageStampService?->sum($earlier, $completion) ?? $completion), $discussionId, $kind->value, $headSha);
+        $body = sprintf("%s\n\n<!-- kelpie:reply thread=%s class=%s head=%s -->", $this->stamped($lead, $this->usageStampService?->sum($earlier, $completion) ?? $completion, $agent), $discussionId, $kind->value, $headSha);
         $note = $this->writer->reply($project, $mrIid, $discussionId, $body);
         if ($note !== null) {
             $this->logger->info('Autofix proposal posted', ['class' => $kind->value, 'discussion_id' => $discussionId, 'mr_iid' => $mrIid]);
@@ -311,12 +313,17 @@ final class ReplyService
      *
      * @param string      $text       The text
      * @param ?Completion $completion The model call behind it
+     * @param Attribution $agent      The agent that made the call, named in the footer
      *
      * @return string
      */
-    private function stamped(string $text, ?Completion $completion): string
+    private function stamped(string $text, ?Completion $completion, Attribution $agent): string
     {
-        return $this->usageStampService === null ? $text : $this->usageStampService->append($text, $completion);
+        if ($this->usageStampService === null || $completion === null) {
+            return $text;
+        }
+
+        return $text . "\n\n" . $agent->footer($this->usageStampService->line($completion));
     }
 
     /**

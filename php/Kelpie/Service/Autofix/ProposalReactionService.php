@@ -85,6 +85,6 @@ final class ProposalReactionService
         $edits = $this->stored->decode($row->editsJson);
 
         // A round of one: the same rules as any push (files the MR changes, the gate, one commit).
-        return $this->round->run($project, $projectPath, $mrIid, $row->headSha, [['discussionId' => $discussionId, 'edits' => $edits, 'summary' => $row->reason]], $jobId);
+        return $this->round->run($project, $projectPath, $mrIid, $row->headSha, [['discussionId' => $discussionId, 'edits' => $edits, 'summary' => $row->reason, 'model' => $row->proposeModel]], $jobId);
     }
 }

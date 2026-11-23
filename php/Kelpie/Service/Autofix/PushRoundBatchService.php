@@ -165,11 +165,11 @@ final class PushRoundBatchService
     /**
      * Whether a proposal at the head came in that the round did not take
      *
-     * @param string                                                                        $projectPath The project path
-     * @param int                                                                           $mrIid       The MR IID
-     * @param string                                                                        $sha         The head
-     * @param Thread[]                                                                      $threads     The MR's unresolved threads
-     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}> $taken       The fixes the round took
+     * @param string                                                                                        $projectPath The project path
+     * @param int                                                                                           $mrIid       The MR IID
+     * @param string                                                                                        $sha         The head
+     * @param Thread[]                                                                                      $threads     The MR's unresolved threads
+     * @param list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}> $taken       The fixes the round took
      *
      * @return bool
      */
@@ -193,7 +193,7 @@ final class PushRoundBatchService
      * @param string   $sha         The head
      * @param Thread[] $threads     The MR's unresolved threads
      *
-     * @return list<array{discussionId: string, summary: string, edits: list<ProposedEdit>}>
+     * @return list<array{discussionId: string, summary: string, edits: list<ProposedEdit>, model?: string}>
      */
     private function proposals(string $projectPath, int $mrIid, string $sha, array $threads): array
     {
@@ -204,7 +204,7 @@ final class PushRoundBatchService
                 continue;
             }
 
-            $fixes[] = ['discussionId' => $thread->discussionId, 'summary' => $row->reason, 'edits' => $this->stored->decode($row->editsJson)];
+            $fixes[] = ['discussionId' => $thread->discussionId, 'summary' => $row->reason, 'edits' => $this->stored->decode($row->editsJson), 'model' => $row->proposeModel];
         }
 
         return $fixes;

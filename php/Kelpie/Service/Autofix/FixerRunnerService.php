@@ -6,6 +6,7 @@ namespace Kelpie\Service\Autofix;
 
 use DateTimeImmutable;
 use Kelpie\Autofix\Attribution;
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
@@ -254,17 +255,18 @@ final class FixerRunnerService
             return [FixOutcome::Failed, null, $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Failed, 'The scratch checkout could not be made.')];
         }
 
-        $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering, $projectPath);
+        $scope      = (new EditScope($this->logger))->forThread($this->checkout->directory(), $thread->filePath, $thread->body . "\n" . $steering, $this->checkout->changedFiles($targetBranch) ?? []);
+        $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering, $projectPath, $scope);
         $this->paid = $edits->completion;
         $failure    = $edits->failure;
         if ($failure === '') {
-            $rejected = $this->editApplier->apply($this->checkout->directory(), $edits->edits);
+            $rejected = $this->editApplier->apply($this->checkout->directory(), $edits->edits, $scope);
             $failure  = $rejected === null ? '' : 'The edits I got did not apply exactly: ' . $rejected;
         }
 
         $maker = Attribution::Propose;
         if ($failure !== '') {
-            $agent = $this->agentFix($thread, $projectPath, $verdict, $steering, $edits->completion);
+            $agent = $this->agentFix($thread, $projectPath, $verdict, $steering, $edits->completion, $scope);
             if ($agent === null) {
                 return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $failure, $edits->completion);
             }
@@ -328,10 +330,11 @@ final class FixerRunnerService
      * @param TriageVerdict $verdict     Triage's verdict
      * @param string        $steering    What the author or a maintainer asked for
      * @param ?Completion   $propose     The propose model call, already paid
+     * @param EditScope     $scope       The files the agent may change
      *
      * @return ?ProposedEdits The agent's edits or why there are none, with both calls' cost; null when not tried
      */
-    private function agentFix(Thread $thread, string $projectPath, TriageVerdict $verdict, string $steering, ?Completion $propose): ?ProposedEdits
+    private function agentFix(Thread $thread, string $projectPath, TriageVerdict $verdict, string $steering, ?Completion $propose, EditScope $scope): ?ProposedEdits
     {
         if ($this->agentEdits === null) {
             return null;
@@ -343,7 +346,12 @@ final class FixerRunnerService
         }
 
         $context = 'Triage: ' . $verdict->reason . ($steering === '' ? '' : "\nThe author or a maintainer asked: " . $steering);
-        $edits   = $this->agentEdits->edit($this->checkout, $thread, $choice->model, $context);
+        $files   = $scope->existing();
+        foreach (array_slice($scope->creatable(), 0, 30) as $path) {
+            $files[] = $path . ' (new)';
+        }
+        $context .= "\nChange only these files (or create a new one only at a path marked new): " . implode(', ', $files);
+        $edits    = $this->agentEdits->edit($this->checkout, $thread, $choice->model, $context, $scope);
 
         return new ProposedEdits($edits->edits, $edits->summary, $edits->failure, $this->combined($propose, $edits->completion), $edits->editsJson);
     }

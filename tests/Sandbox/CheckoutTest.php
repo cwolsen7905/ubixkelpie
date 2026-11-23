@@ -127,6 +127,31 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
     }
 
     /**
+     * The MR's files are what the source branch added or changed since the target, from the clone alone
+     *
+     * @return void
+     */
+    public function testChangedFilesAreTheMrsAgainstTheTarget(): void
+    {
+        $work = $this->base . '/work';
+        $this->git($work, ['checkout', '-b', 'feat/y']);
+        file_put_contents($work . '/a.txt', "one\ntwo\n");
+        file_put_contents($work . '/n.txt', "n\n");
+        $this->git($work, ['add', '.']);
+        $this->git($work, ['commit', '-m', 'mr']);
+        $this->git($work, ['push', 'origin', 'HEAD:refs/heads/feat/y']);
+        $sha = trim($this->git($work, ['rev-parse', 'HEAD']));
+
+        $checkout = $this->checkout();
+        $checkout->open($this->remote, 'feat/y', $sha);
+
+        $this->assertSame(['a.txt', 'n.txt'], $checkout->changedFiles('dev'));
+        $this->assertNull($checkout->changedFiles('nope'));
+        $this->assertNull($checkout->changedFiles('--bad'));
+        $checkout->close();
+    }
+
+    /**
      * A file's text at the sha survives edits in the working tree; a new file has none
      *
      * @return void

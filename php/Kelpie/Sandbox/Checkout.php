@@ -192,6 +192,36 @@ final class Checkout
     }
 
     /**
+     * The files the merge request changed: added or modified between the target branch and the sha, not deleted
+     *
+     * Uses the clone's copy of the target branch, so it needs no network.
+     *
+     * @param string $targetBranch The MR's target branch
+     *
+     * @return ?list<string> Null when git could not say
+     */
+    public function changedFiles(string $targetBranch): ?array
+    {
+        if (!$this->isSafeRef($targetBranch)) {
+            return null;
+        }
+
+        $result = $this->git(['diff', '--name-only', '--diff-filter=AMR', '-z', 'refs/remotes/origin/' . $targetBranch . '...HEAD', '--']);
+        if ($result->exitCode !== 0) {
+            return null;
+        }
+
+        $paths = [];
+        foreach (explode("\0", $result->stdout) as $path) {
+            if ($path !== '') {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
      * Whether the sha the checkout was opened at has this file
      *
      * @param string $path Repo-relative path

@@ -407,7 +407,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $this->proposal = ['edits' => [['file' => 'b.txt', 'new' => 'x', 'old' => 'dup']], 'summary' => 's'];
 
-        $this->assertSame(FixOutcome::EditsRejected, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame(FixOutcome::EditsRejected, $this->service()->run('1', 'g/p', 3, $this->thread('The dup lines in b.txt.'), $this->sha, 1));
         $this->assertStringContainsString('occurs 2 times', $this->lastNote());
     }
 
@@ -421,7 +421,21 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->proposal = ['edits' => [['file' => '../outside.txt', 'new' => 'x', 'old' => 'one']], 'summary' => 's'];
 
         $this->assertSame(FixOutcome::EditsRejected, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
-        $this->assertStringContainsString('not a plain file in the repository', $this->lastNote());
+        $this->assertStringContainsString('which is not a file the thread names, the merge request changed, or a test of those', $this->lastNote());
+    }
+
+    /**
+     * A file the thread does not name and the MR did not change is refused, even though it exists
+     *
+     * @return void
+     */
+    public function testFileOutsideTheScopeIsRefused(): void
+    {
+        $this->proposal = ['edits' => [['file' => 'b.txt', 'new' => 'x', 'old' => "dup\ndup"]], 'summary' => 's'];
+
+        $this->assertSame(FixOutcome::EditsRejected, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertStringContainsString('Edit 1 is on `b.txt`', $this->lastNote());
+        $this->assertSame("dup\ndup\n", file_get_contents($this->base . '/work/b.txt'));
     }
 
     /**
@@ -433,7 +447,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $this->proposal = ['edits' => [['file' => '.gitlab-ci.yml', 'new' => 'stages: [x]', 'old' => 'stages: []']], 'summary' => 's'];
 
-        $this->assertSame(FixOutcome::Unsafe, $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame(FixOutcome::Unsafe, $this->service()->run('1', 'g/p', 3, $this->thread('Fix .gitlab-ci.yml.'), $this->sha, 1));
         $this->assertStringContainsString('protected path', $this->lastNote());
         $this->assertSame(['kelpie::needs-you'], $this->gitlab->labels());
     }
@@ -472,7 +486,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $this->proposal = ['edits' => [], 'summary' => 'The fix is a test, and only a.txt is shown.'];
         $agent          = new ScriptedFixerAgent(static function (string $dir): string {
-            file_put_contents($dir . '/a_test.txt', "checks one\n");
+            file_put_contents($dir . '/aTest.txt', "checks one\n");
 
             return 'Added a test for one.';
         });
@@ -481,14 +495,17 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(FixOutcome::Proposed, $outcome);
         $this->assertSame(['d1'], $agent->threads());
-        $this->assertSame(['Triage: It is a typo.'], $agent->contexts());
+        $this->assertCount(1, $agent->contexts());
+        $this->assertStringStartsWith('Triage: It is a typo.', $agent->contexts()[0]);
+        $this->assertStringContainsString('Change only these files', $agent->contexts()[0]);
+        $this->assertStringContainsString('aTest.txt (new)', $agent->contexts()[0]);
         $body = $this->lastNote();
         $this->assertStringContainsString('Kelpie proposes this change', $body);
         $this->assertStringContainsString('+checks one', $body);
         $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
         $row = $this->row();
         $this->assertSame(ThreadOutcome::Proposed, $row->outcome);
-        $this->assertStringContainsString('a_test.txt', $row->editsJson);
+        $this->assertStringContainsString('aTest.txt', $row->editsJson);
         $this->assertSame('openai/gpt-5.5', $row->proposeModel);
         $this->assertEqualsWithDelta(0.022, $row->costUsd, 0.0001);
     }
@@ -517,7 +534,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             return 'Changed CI.';
         });
 
-        $this->assertSame(FixOutcome::Unsafe, $this->service(true, null, $ci)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame(FixOutcome::Unsafe, $this->service(true, null, $ci)->run('1', 'g/p', 3, $this->thread('Fix .gitlab-ci.yml.'), $this->sha, 1));
         $this->assertStringContainsString('protected path', $this->lastNote());
     }
 
@@ -863,13 +880,15 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * @param string $body The thread's text
+     *
      * @return Thread
      */
-    private function thread(): Thread
+    private function thread(string $body = 'Please fix the typo.'): Thread
     {
         $now = new DateTimeImmutable();
 
-        return new Thread('d1', 100, 'alice', 'Please fix the typo.', false, 1, $now, $now, 'a.txt', 1);
+        return new Thread('d1', 100, 'alice', $body, false, 1, $now, $now, 'a.txt', 1);
     }
 
     /**

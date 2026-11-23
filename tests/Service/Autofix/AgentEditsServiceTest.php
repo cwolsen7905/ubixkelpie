@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Autofix;
 
 use Closure;
 use DateTimeImmutable;
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\ProposedEdits;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Sandbox\Checkout;
@@ -80,6 +81,34 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $this->assertSame("package pkg\n\n// Tools: push, gate\n", file_get_contents($fresh->directory() . '/pkg/brief.go'));
         $this->assertSame("package pkg\n", file_get_contents($fresh->directory() . '/pkg/brief_test.go'));
         $fresh->close();
+    }
+
+    /**
+     * With a scope, a change outside it is refused
+     *
+     * @return void
+     */
+    public function testChangeOutsideTheScopeIsRefused(): void
+    {
+        $scope = (new EditScope($this->createStub(Logger::class)))->forThread(sys_get_temp_dir(), 'pkg/brief.go', '', []);
+
+        $edits = $this->edits(static function (string $dir): string {
+            file_put_contents($dir . '/pkg/brief.go', "package pkg\n// x\n");
+            file_put_contents($dir . '/pkg/other.go', "package pkg\n");
+
+            return 'done';
+        }, $scope);
+
+        $this->assertSame([], $edits->edits);
+        $this->assertStringContainsString('`pkg/other.go`', $edits->failure);
+
+        $ok = $this->edits(static function (string $dir): string {
+            file_put_contents($dir . '/pkg/brief.go', "package pkg\n// x\n");
+            file_put_contents($dir . '/pkg/brief_test.go', "package pkg\n");
+
+            return 'done';
+        }, $scope);
+        $this->assertSame('', $ok->failure);
     }
 
     /**
@@ -185,11 +214,12 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
     /**
      * Open the checkout and run the service with an agent that does what the closure does
      *
-     * @param Closure $edit Edits the checkout, returns the closing words or null
+     * @param Closure    $edit  Edits the checkout, returns the closing words or null
+     * @param ?EditScope $scope The files the change may touch, null for no limit
      *
      * @return ProposedEdits
      */
-    private function edits(Closure $edit): ProposedEdits
+    private function edits(Closure $edit, ?EditScope $scope = null): ProposedEdits
     {
         $logger         = $this->createStub(Logger::class);
         $this->checkout = $this->checkout();
@@ -197,7 +227,7 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $now = new DateTimeImmutable();
 
         return (new AgentEditsService($logger, new ScriptedFixerAgent($edit), new JsonService($logger)))
-            ->edit($this->checkout, new Thread('d1', 100, 'alice', 'Add gate to the brief.', false, 1, $now, $now, 'pkg/brief.go', 3), 'openai/gpt-5.5', 'It is missing.');
+            ->edit($this->checkout, new Thread('d1', 100, 'alice', 'Add gate to the brief.', false, 1, $now, $now, 'pkg/brief.go', 3), 'openai/gpt-5.5', 'It is missing.', $scope);
     }
 
     /**

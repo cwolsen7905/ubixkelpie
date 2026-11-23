@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\Agent\FixerAgentInterface as FixerAgent;
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\DataTransferObject\ProposedEdits;
@@ -48,14 +49,15 @@ final class AgentEditsService
     /**
      * Run the agent in the checkout and read back its change
      *
-     * @param Checkout $checkout The scratch checkout, open at the head; the agent's change is left in it, staged
-     * @param Thread   $thread   The thread
-     * @param string   $model    The model the agent runs on
-     * @param string   $context  What triage and the author said
+     * @param Checkout   $checkout The scratch checkout, open at the head; the agent's change is left in it, staged
+     * @param Thread     $thread   The thread
+     * @param string     $model    The model the agent runs on
+     * @param string     $context  What triage and the author said
+     * @param ?EditScope $scope    The files the agent's change may touch; null for no limit
      *
      * @return ProposedEdits The edits, or why there are none
      */
-    public function edit(Checkout $checkout, Thread $thread, string $model, string $context): ProposedEdits
+    public function edit(Checkout $checkout, Thread $thread, string $model, string $context, ?EditScope $scope = null): ProposedEdits
     {
         $directory = $checkout->directory();
 
@@ -93,6 +95,12 @@ final class AgentEditsService
         }
         if (count($changes->paths) > EditApplyService::MAX_EDITS) {
             return $this->failure('The fixing agent changed ' . count($changes->paths) . ' files (limit ' . EditApplyService::MAX_EDITS . ').', $summary, $completion);
+        }
+
+        foreach ($changes->paths as $path) {
+            if ($scope !== null && !$scope->allows($path)) {
+                return $this->failure('The fixing agent changed `' . $path . '`, which is not a file the thread names, the merge request changed, or a test of those.', $summary, $completion);
+            }
         }
 
         $edits = [];

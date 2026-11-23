@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A settings API, so a web page can read and edit each project's settings.** `GET /api/v1/projects`,
+  `GET /api/v1/projects/{path}` and `PATCH /api/v1/projects/{path}` on `KelpieApi` show and change a project's mode,
+  soft and hard caps and models, validated whole; a hard cap of `null` is unlimited. It takes its own bearer token,
+  `KELPIE_SETTINGS_API_TOKEN` (not the webhook secret) and answers 503 until that is set. See `docs/settings-api.md`.
+
 - **Kelpie's autofix commits and notes now say they are Kelpie's, and which agent and model wrote them.** A commit
   gets an `Assisted-by: Kelpie <agent> (<model id>)` trailer beside the `Kelpie-Autofix` marker (the author stays the
   bot account). The usage footer of autofix replies and of the AI review summary opens with

@@ -15,9 +15,9 @@ use Ubix\SlimHandler\SlimErrorHandler;
  * Apply middleware to the KelpieApi Slim application
  *
  * Routing, CORS, normalised host/IP, body parsing and the uBixCore JSON error
- * handler. There is no session or authentication middleware yet: KelpieApi has
- * no database and no product endpoints, and kitg's session auth needs both.
- * Add it with the first endpoint that needs a caller.
+ * handler. There is no session middleware: the settings API (`/api/v1`) carries its own
+ * bearer-token middleware, added to that route group in Routes.php, and the webhook checks
+ * its own secret.
  *
  * @param App<Container> $app The Slim Framework application
  *

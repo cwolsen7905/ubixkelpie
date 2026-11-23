@@ -25,8 +25,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - A new job is enqueued and handed back pending
- * - A cap hit hands back no job
- * - A daily-cap refusal tells the MR once; another cap, or a count under the cap, says nothing
+ * - A hard-cap hit hands back no job; passing a soft cap still enqueues
+ * - A hard daily-cap refusal tells the MR once; another cap, or a count under the cap, says nothing
  * - An open job at another head, or one that is already running, is not handed back
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\AutofixJobService
@@ -65,7 +65,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * A cap hit hands back nothing
+     * A hard-cap hit hands back nothing
      *
      * @return void
      */
@@ -77,21 +77,21 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
             return $this->rows(null);
         });
 
-        [$outcome, $job] = $this->service($sql)->pendingJob($this->input(), new DateTimeImmutable());
+        [$outcome, $job] = $this->service($sql, new AutofixCaps(commitsPerMrHard: 3))->pendingJob($this->input(), new DateTimeImmutable());
 
         $this->assertSame(EnqueueOutcome::CapExceeded, $outcome);
         $this->assertNull($job);
     }
 
     /**
-     * A refusal for the MR's own cap leaves one note on that MR, naming the MR cap, and a second refusal leaves no second note
+     * A refusal for the MR's own hard cap leaves one note on that MR, naming the MR cap, and a second refusal leaves no second note
      *
      * @return void
      */
     public function testMrCapNotesTheMrOnce(): void
     {
         $gitlab  = new FakeGitlab();
-        $service = $this->countingService(['project' => 50, 'mr3' => 30], $gitlab, new AutofixCaps());
+        $service = $this->countingService(['project' => 50, 'mr3' => 30], $gitlab, new AutofixCaps(jobsPerMrHard: 30));
         $input   = new AutofixJob('g/p', 3, self::SHA, 'note', 'd1');
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
@@ -107,14 +107,14 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * The project ceiling stops every MR in it, and the note names the ceiling
+     * The project hard ceiling stops every MR in it, and the note names the ceiling
      *
      * @return void
      */
     public function testProjectCeilingStopsEveryMr(): void
     {
         $gitlab  = new FakeGitlab();
-        $service = $this->countingService(['project' => 200, 'mr3' => 1, 'mr4' => 0], $gitlab, new AutofixCaps());
+        $service = $this->countingService(['project' => 200, 'mr3' => 1, 'mr4' => 0], $gitlab, new AutofixCaps(jobsPerProjectHard: 200));
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
         [$three] = $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
@@ -127,14 +127,14 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * One MR at its cap does not stop another MR in the same project
+     * One MR at its hard cap does not stop another MR in the same project
      *
      * @return void
      */
     public function testAnotherMrStillRunsWhenOneIsCapped(): void
     {
         $gitlab  = new FakeGitlab();
-        $service = $this->countingService(['project' => 31, 'mr3' => 30, 'mr4' => 0], $gitlab, new AutofixCaps());
+        $service = $this->countingService(['project' => 31, 'mr3' => 30, 'mr4' => 0], $gitlab, new AutofixCaps(jobsPerMrHard: 30));
         $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
         [$capped]  = $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
@@ -145,7 +145,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * With nothing set the defaults apply: 29 jobs on the MR and 199 in the project still run, the 30th and the 200th do not
+     * With nothing set the defaults apply: the soft caps (30 per MR, 200 per project) warn but do not stop, and with no hard limit the work keeps running
      *
      * @return void
      */
@@ -156,8 +156,93 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
         $this->assertSame(EnqueueOutcome::Enqueued, $this->countingService(['project' => 199, 'mr3' => 29])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
-        $this->assertSame(EnqueueOutcome::CapExceeded, $this->countingService(['project' => 50, 'mr3' => 30])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
-        $this->assertSame(EnqueueOutcome::CapExceeded, $this->countingService(['project' => 200, 'mr3' => 1])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->countingService(['project' => 50, 'mr3' => 30])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->countingService(['project' => 200, 'mr3' => 1])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0]);
+    }
+
+    /**
+     * Passing the MR's soft job cap still enqueues the job, and leaves one warning note on the MR
+     *
+     * @return void
+     */
+    public function testSoftMrCapWarnsAndStillEnqueues(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 5, 'mr3' => 30], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString(CapNoticeService::SOFT_MARKER, $notes[0]['body']);
+        $this->assertStringContainsString('(30 of 30 in 24 h)', $notes[0]['body']);
+    }
+
+    /**
+     * One job under the soft cap is not a warning: the count is read before the new job is created
+     *
+     * @return void
+     */
+    public function testJustUnderTheSoftCapSaysNothing(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 5, 'mr3' => 29], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
+     * Past the project and the MR soft caps at once, the MR still gets its note: the project cap does not hide it
+     *
+     * @return void
+     */
+    public function testProjectSoftCapDoesNotHideTheMrNote(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 200, 'mr3' => 30], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString('(30 of 30 in 24 h)', $notes[0]['body']);
+    }
+
+    /**
+     * The project-wide soft cap only logs: no MR note, and the job still runs
+     *
+     * @return void
+     */
+    public function testSoftProjectCapOnlyLogs(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 200, 'mr3' => 1], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
+     * The project-wide soft cap is logged once per project per day, not for every job past it
+     *
+     * @return void
+     */
+    public function testSoftProjectCapIsLoggedOncePerDay(): void
+    {
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('warning')->with('Soft cap passed: project daily job count');
+        $service = $this->countingService(['project' => 200, 'mr3' => 1], null, null, $logger);
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+        $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd2'), $now);
     }
 
     /**
@@ -168,6 +253,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     public function testSettingsOverrideTheCaps(): void
     {
         putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY=5');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=5');
         putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY=500');
 
         try {
@@ -176,6 +262,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
             $allowed = $this->countingService(['project' => 300, 'mr3' => 4])->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now)[0];
         } finally {
             putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY');
+            putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD');
             putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY');
         }
 
@@ -197,7 +284,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $sql->method('getRows')->willReturnCallback(function (): Generator {
             return $this->rows(null);
         });
-        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(commitsPerMrHard: 3), new CapNoticeService($logger, $gitlab->writer($logger)));
 
         [$outcome] = $service->pendingJob($this->input(), new DateTimeImmutable());
 
@@ -219,7 +306,7 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $sql->method('getRows')->willReturnCallback(function (): Generator {
             return $this->rows(null);
         });
-        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(), new CapNoticeService($logger, $gitlab->writer($logger)));
+        $service = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps(commitsPerMrHard: 3), new CapNoticeService($logger, $gitlab->writer($logger)));
 
         [$outcome] = $service->pendingJob($this->input(), new DateTimeImmutable());
 
@@ -292,13 +379,14 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
      * @param array<string, int> $counts Jobs in 24 hours: `project` for the project, `mrN` for MR N
      * @param ?FakeGitlab        $gitlab The GitLab the notice writes to
      * @param ?AutofixCaps       $caps   The caps; null reads them from the environment
+     * @param ?Logger            $logger The logger; null is a stub
      *
      * @return AutofixJobService
      */
-    private function countingService(array $counts, ?FakeGitlab $gitlab = null, ?AutofixCaps $caps = null): AutofixJobService
+    private function countingService(array $counts, ?FakeGitlab $gitlab = null, ?AutofixCaps $caps = null, ?Logger $logger = null): AutofixJobService
     {
-        $logger = $this->createStub(Logger::class);
-        $sql    = $this->createStub(SqlService::class);
+        $logger ??= $this->createStub(Logger::class);
+        $sql      = $this->createStub(SqlService::class);
         $sql->method('query')->willReturn(1);
         $sql->method('getColumn')->willReturnCallback(static function (string $statement, array $parameters = []) use ($counts): string {
             if (str_contains($statement, 'mr_iid = :mr_iid AND date_created >= :since')) {
@@ -323,15 +411,16 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * @param SqlService $sql The SQL service
+     * @param SqlService   $sql  The SQL service
+     * @param ?AutofixCaps $caps The caps; null for the defaults
      *
      * @return AutofixJobService
      */
-    private function service(SqlService $sql): AutofixJobService
+    private function service(SqlService $sql, ?AutofixCaps $caps = null): AutofixJobService
     {
         $logger = $this->createStub(Logger::class);
 
-        return new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), new AutofixCaps());
+        return new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql), $caps ?? new AutofixCaps());
     }
 
     /**

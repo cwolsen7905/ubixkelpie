@@ -192,7 +192,14 @@ final class ProposalReactionWebhookServiceTest extends UbixConcreteClassOrEnumTe
     public function testABusyThreadAndACapAreReported(): void
     {
         $this->assertStringContainsString('already queued', $this->service(mode: FakeJobSql::BUSY)->handle($this->payload()));
-        $this->assertStringContainsString('cap reached', $this->service(mode: FakeJobSql::CAPPED)->handle($this->payload()));
+        // The fake job store reports 99 jobs; only a hard limit refuses a job, so set one below that
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=50');
+
+        try {
+            $this->assertStringContainsString('cap reached', $this->service(mode: FakeJobSql::CAPPED)->handle($this->payload()));
+        } finally {
+            putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD');
+        }
         $this->assertCount(0, $this->inserts);
     }
 

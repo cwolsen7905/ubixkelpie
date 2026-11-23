@@ -20,10 +20,10 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Service\Spend\SpendCapService
  *
  * What must hold:
- * - Under both caps nothing is reached
- * - A project at its own cap is held; a project with no row is reported as not enrolled, not as over a cap
- * - Spend across projects at the global cap holds every project
- * - The global cap comes from the environment; unset or bad means the default, 0 blocks everything
+ * - Under both caps nothing is reached; passing a soft cap does not stop the run
+ * - A project at its own hard cap is held; a project with no row is reported as not enrolled, not as over a cap
+ * - Spend across projects at the global hard cap holds every project
+ * - The global hard cap comes from the environment; unset or bad means unlimited, 0 blocks everything
  *
  * @coversDefaultClass \Kelpie\Service\Spend\SpendCapService
  */
@@ -54,15 +54,46 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     /**
      * @return void
      */
-    public function testProjectAtItsCapIsHeld(): void
+    public function testProjectAtItsHardCapIsHeld(): void
     {
         $this->spend('g/p', 2.0);
 
-        $check = $this->service()->check('g/p');
+        $check = $this->service('2.00')->check('g/p');
 
         $this->assertSame('project', $check->cap);
         $this->assertSame(2.0, $check->spent);
         $this->assertSame(2.0, $check->limit);
+    }
+
+    /**
+     * Passing the soft cap does not stop the run while the hard cap is unset
+     *
+     * @return void
+     */
+    public function testProjectSoftCapIsNotAStop(): void
+    {
+        $this->spend('g/p', 2.0);
+
+        $this->assertNull($this->service()->check('g/p')->cap);
+    }
+
+    /**
+     * The soft warning is logged once per project per day, not on every check
+     *
+     * @return void
+     */
+    public function testSoftWarningIsLoggedOncePerDay(): void
+    {
+        $this->spend('g/p', 2.0);
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('warning')->with('Soft spend cap passed: project daily spend');
+        $projects = $this->createStub(ProjectReader::class);
+        $projects->method('getByPath')->willReturn(new Project('g/p', ProjectMode::Propose));
+        $service = new SpendCapService($logger, $projects, $this->outcomes);
+
+        $service->check('g/p');
+        $service->check('g/p');
+        $service->check('g/p');
     }
 
     /**
@@ -73,7 +104,7 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $this->spend('g/p', 1.0);
         $this->spend('g/p', 1.0);
 
-        $check = $this->service()->check('g/p');
+        $check = $this->service('2.00')->check('g/p');
 
         $this->assertSame('project', $check->cap);
         $this->assertSame(2.0, $check->spent);
@@ -104,9 +135,9 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     /**
      * @return void
      */
-    public function testGlobalCapHoldsAProjectThatIsUnderItsOwn(): void
+    public function testGlobalHardCapHoldsAProjectThatIsUnderItsOwn(): void
     {
-        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL=3.5');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD=3.5');
         $this->spend('g/other', 2.0, 'a');
         $this->spend('g/other', 1.5, 'b');
         $this->spend('g/p', 0.1);
@@ -119,28 +150,55 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
+     * The global hard cap is unlimited when it is unset or not a non-negative number, so spend never stops; set, it holds
+     *
      * @return void
      */
-    public function testGlobalCapDefaultsToTenWhenUnsetOrInvalid(): void
+    public function testGlobalHardCapIsUnlimitedWhenUnsetOrInvalid(): void
     {
-        $this->spend('g/other', 9.99, 'a');
+        $this->spend('g/other', 99.99, 'a');
         $this->assertNull($this->service()->check('g/p')->cap);
 
         foreach (['', 'lots', '-1'] as $bad) {
-            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL=' . $bad);
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD=' . $bad);
             $this->assertNull($this->service()->check('g/p')->cap, $bad);
         }
 
-        $this->spend('g/other', 0.01, 'b');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD=10');
         $this->assertSame('global', $this->service()->check('g/p')->cap);
+    }
+
+    /**
+     * The global soft cap is the plain setting Vault holds today, or `_SOFT` (which wins); either only warns, never stops
+     *
+     * @return void
+     */
+    public function testGlobalSoftCapReadsThePlainOrTheSoftName(): void
+    {
+        $this->spend('g/other', 3.0);
+
+        foreach ([['KELPIE_MAX_COST_USD_DAY_GLOBAL', '3', true], ['KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT', '3', true], ['KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT', '4', false]] as [$name, $value, $warns]) {
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL=10');
+            putenv($name . '=' . $value);
+            $logger = $this->createMock(Logger::class);
+            $logger->expects($warns ? $this->once() : $this->never())->method('warning')->with('Soft spend cap passed: global daily spend');
+            $projects = $this->createStub(ProjectReader::class);
+            $projects->method('getByPath')->willReturn(new Project('g/p', ProjectMode::Propose));
+
+            $check = (new SpendCapService($logger, $projects, $this->outcomes))->check('g/p');
+
+            $this->assertNull($check->cap, $name . '=' . $value);
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
+        }
     }
 
     /**
      * @return void
      */
-    public function testZeroGlobalCapBlocksEverything(): void
+    public function testZeroGlobalHardCapBlocksEverything(): void
     {
-        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL=0');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD=0');
 
         $this->assertSame('global', $this->service()->check('g/p')->cap);
     }
@@ -152,6 +210,8 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     {
         $this->outcomes = new InMemoryOutcomeStore();
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD');
     }
 
     /**
@@ -160,17 +220,21 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     protected function tearDown(): void
     {
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD');
     }
 
     /**
+     * @param ?string $projectHardCap The project's daily spend hard cap; null for unlimited
+     *
      * @return SpendCapService
      */
-    private function service(): SpendCapService
+    private function service(?string $projectHardCap = null): SpendCapService
     {
         $projects = $this->createStub(ProjectReader::class);
         $projects->method('getByPath')->willReturnCallback(
-            static function (string $path): ?Project {
-                return $path === 'g/none' ? null : new Project($path, ProjectMode::Propose);
+            static function (string $path) use ($projectHardCap): ?Project {
+                return $path === 'g/none' ? null : new Project($path, ProjectMode::Propose, maxCostUsdDayHard: $projectHardCap);
             },
         );
 

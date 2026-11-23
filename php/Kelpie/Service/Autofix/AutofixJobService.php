@@ -13,6 +13,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 
 /**
  * The autofix job table as the fixer's callers see it: get the one pending job for a thread, or why not
@@ -27,9 +28,10 @@ final class AutofixJobService
 {
     private readonly AutofixJobCoalescerService $coalescer;
 
-    private readonly int $mrCap;
-
-    private readonly int $projectCap;
+    /**
+     * @var array<string, string> The day the project-wide soft cap was last logged, by project
+     */
+    private array $projectWarned = [];
 
     /**
      * Constructor
@@ -37,7 +39,7 @@ final class AutofixJobService
      * @param Logger                  $logger     Logger
      * @param AutofixJobSqlRepository $repository The job repository
      * @param ?AutofixCaps            $caps       The caps; null reads them from the environment (`AutofixCapsService`)
-     * @param ?CapNoticeService       $notice     Tells an MR its job was refused for the daily cap; null builds one on the environment, which posts nothing when GitLab is not configured
+     * @param ?CapNoticeService       $notice     Tells an MR its job was refused for the hard cap; null builds one on the environment, which posts nothing when GitLab is not configured
      */
     public function __construct(
         private readonly Logger $logger,
@@ -45,10 +47,8 @@ final class AutofixJobService
         ?AutofixCaps $caps = null,
         private ?CapNoticeService $notice = null,
     ) {
-        $caps           ??= (new AutofixCapsService($this->logger))->fromEnvironment();
-        $this->mrCap      = $caps->jobsPerMr;
-        $this->projectCap = $caps->jobsPerProject;
-        $this->coalescer  = new AutofixJobCoalescerService($this->logger, $this->repository, $this->repository, $caps);
+        $caps          ??= (new AutofixCapsService($this->logger))->fromEnvironment();
+        $this->coalescer = new AutofixJobCoalescerService($this->logger, $this->repository, $this->repository, $caps);
     }
 
     /**
@@ -61,11 +61,17 @@ final class AutofixJobService
      */
     public function pendingJob(AutofixJob $input, DateTimeImmutable $now): array
     {
-        $outcome = $this->coalescer->enqueue($input, $now);
+        // The coalescer reads the counts once, before the job is created, and tests both the hard and the soft cap on them
+        [$outcome, $soft] = $this->coalescer->enqueueWithSoftCap($input, $now);
         if ($outcome === EnqueueOutcome::CapExceeded) {
             $this->noticeDailyCap($input, $now);
 
             return [$outcome, null];
+        }
+
+        // Only a job that was really created warns; a coalesced one is the same job as before
+        if ($outcome === EnqueueOutcome::Enqueued && $soft !== null) {
+            $this->noticeSoftCap($input, $soft, $now);
         }
 
         $job = $this->repository->getOpenJob($input->projectPath, $input->mrIid, $this->coalescer->threadKey($input));
@@ -127,14 +133,52 @@ final class AutofixJobService
             return;
         }
 
+        // The hard cap is the one that refused the job, so it is the number the note names; a null hard limit never refuses
+        $limit = $cap === 'jobs_per_mr' ? $this->coalescer->caps()->jobsPerMrHard : $this->coalescer->caps()->jobsPerProjectHard;
+        if ($limit === null) {
+            return;
+        }
+
         $since = $now->modify('-1 day');
         $mrIid = $cap === 'jobs_per_mr' ? $input->mrIid : null;
-        $limit = $cap === 'jobs_per_mr' ? $this->mrCap : $this->projectCap;
         $used  = $mrIid === null ? $this->repository->countJobsSince($input->projectPath, $since) : $this->repository->countJobsForMrSince($input->projectPath, $mrIid, $since);
 
         // The cap frees when enough of the oldest jobs age out of the window for the count to drop below it
         $freesAt        = $this->repository->getJobCreatedAt($input->projectPath, $since, $used - $limit, $mrIid);
         $this->notice ??= new CapNoticeService($this->logger);
         $this->notice->jobsExceeded($cap, $input->projectPath, $input->mrIid, $used, $limit, $freesAt?->modify('+1 day'), $now);
+    }
+
+    /**
+     * Say a soft cap was passed: an MR note for the MR-scoped caps, a log line for the project-wide cap
+     *
+     * A soft cap is a warning: the work keeps running. Never throws, so the job already created is still handed back.
+     *
+     * @param AutofixJob                                $input The job
+     * @param array{cap: string, used: int, limit: int} $soft  The soft cap passed
+     * @param DateTimeImmutable                         $now   The current time
+     *
+     * @return void
+     */
+    private function noticeSoftCap(AutofixJob $input, array $soft, DateTimeImmutable $now): void
+    {
+        try {
+            if ($soft['cap'] === 'jobs_per_project') {
+                // Not MR-scoped, so no note; log once per project per day in this process, not for every job past the cap
+                $day = $now->format('Y-m-d');
+                if (($this->projectWarned[$input->projectPath] ?? '') === $day) {
+                    return;
+                }
+                $this->projectWarned[$input->projectPath] = $day;
+                $this->logger->warning('Soft cap passed: project daily job count', ['project_path' => $input->projectPath, 'used' => $soft['used'], 'soft_cap' => $soft['limit']]);
+
+                return;
+            }
+
+            $this->notice ??= new CapNoticeService($this->logger);
+            $this->notice->softCapExceeded($soft['cap'], $input->projectPath, $input->mrIid, $soft['used'], $soft['limit'], $now);
+        } catch (Throwable $exception) {
+            $this->logger->warning('Soft cap notice failed', ['project_path' => $input->projectPath, 'mr_iid' => $input->mrIid, 'exception' => $exception->getMessage()]);
+        }
     }
 }

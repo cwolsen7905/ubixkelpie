@@ -38,6 +38,10 @@ final class CapNoticeService
 
     public const string LABEL = 'kelpie::over-cap';
 
+    public const string SOFT_MARKER = '<!-- kelpie:over-soft-cap -->';
+
+    public const string SOFT_LABEL = 'kelpie::over-soft-cap';
+
     private const string WINDOW = '-1 day';
 
     private const string MEMO = '-10 minutes';
@@ -95,49 +99,27 @@ final class CapNoticeService
      */
     public function jobsExceeded(string $cap, string $project, int $mrIid, int $used, int $limit, ?DateTimeImmutable $freesAt, DateTimeImmutable $now): bool
     {
-        $writer = $this->writer();
-        if ($writer === null || $mrIid < 1) {
-            return false;
-        }
+        return $this->postMrNote(self::MARKER, self::LABEL, $this->body($cap, $used, $limit, $freesAt), $project, $mrIid, $now);
+    }
 
-        $key = $project . '!' . $mrIid;
-        if (isset($this->looked[$key]) && $this->looked[$key] > $now->modify(self::MEMO)) {
-            return false;
-        }
-        $this->looked[$key] = $now;
-
-        $start  = $this->now();
-        $recent = $writer->recentNotes($project, $mrIid);
-        if ($recent === null) {
-            $this->logger->warning('Cap notice skipped: the MR notes could not be read', ['mr_iid' => $mrIid, 'project_path' => $project]);
-
-            return false;
-        }
-
-        $since = $now->modify(self::WINDOW);
-        $bot   = $this->botUsername();
-        foreach ($recent as $note) {
-            // Only the bot's own note counts: a person quoting the marker must not silence the notice
-            if (strtolower($note->author) === $bot && str_contains($note->body, self::MARKER) && $note->createdAt > $since) {
-                return false;
-            }
-        }
-
-        if ($this->spent($start, 'the note', $project, $mrIid)) {
-            return false;
-        }
-        $noteId = $writer->openNote($project, $mrIid, $this->body($cap, $used, $limit, $freesAt));
-        if ($noteId === null) {
-            return false;
-        }
-
-        // The note is what tells people; the label only helps filtering, so it is the first thing a slow GitLab costs
-        if (!$this->spent($start, 'the label', $project, $mrIid)) {
-            $writer->addLabel($project, $mrIid, self::LABEL);
-        }
-        $this->logger->info('Cap notice posted', ['mr_iid' => $mrIid, 'project_path' => $project]);
-
-        return true;
+    /**
+     * Say it on the MR when a soft cap is passed, unless it was said within the last 24 hours
+     *
+     * A soft cap is a warning: the work keeps running, so the note says the cap was passed, not that work stopped. It has
+     * its own marker and label, so it neither suppresses nor is suppressed by the over-cap note.
+     *
+     * @param string            $cap     Which soft cap: `commits_per_mr`, `attempts_per_thread` or `jobs_per_mr`
+     * @param string            $project The project path
+     * @param int               $mrIid   The MR IID
+     * @param int               $used    The count against the cap
+     * @param int               $limit   The soft cap
+     * @param DateTimeImmutable $now     The current time
+     *
+     * @return bool Whether a note was posted
+     */
+    public function softCapExceeded(string $cap, string $project, int $mrIid, int $used, int $limit, DateTimeImmutable $now): bool
+    {
+        return $this->postMrNote(self::SOFT_MARKER, self::SOFT_LABEL, $this->softBody($cap, $used, $limit), $project, $mrIid, $now);
     }
 
     /**
@@ -179,6 +161,68 @@ final class CapNoticeService
         }
 
         return $writer->reply($project, $mrIid, $discussionId, sprintf("%s\nKelpie hasn't looked at this thread yet, and \"Triage: retry\" could not queue it: %s.", self::RETRY_MARKER, $reason)) !== null;
+    }
+
+    /**
+     * Post one plain MR note with a marker and a label, at most once per MR per 24 hours per marker
+     *
+     * A note of ours (the bot's, carrying the marker) younger than the window means it was said already. A GitLab failure
+     * is logged and swallowed; it must never break enqueueing.
+     *
+     * @param string            $marker  The hidden marker that dedupes the note
+     * @param string            $label   The label to add
+     * @param string            $body    The note's text
+     * @param string            $project The project path
+     * @param int               $mrIid   The MR IID
+     * @param DateTimeImmutable $now     The current time
+     *
+     * @return bool Whether a note was posted
+     */
+    private function postMrNote(string $marker, string $label, string $body, string $project, int $mrIid, DateTimeImmutable $now): bool
+    {
+        $writer = $this->writer();
+        if ($writer === null || $mrIid < 1) {
+            return false;
+        }
+
+        $key = $marker . ' ' . $project . '!' . $mrIid;
+        if (isset($this->looked[$key]) && $this->looked[$key] > $now->modify(self::MEMO)) {
+            return false;
+        }
+        $this->looked[$key] = $now;
+
+        $start  = $this->now();
+        $recent = $writer->recentNotes($project, $mrIid);
+        if ($recent === null) {
+            $this->logger->warning('Cap notice skipped: the MR notes could not be read', ['mr_iid' => $mrIid, 'project_path' => $project]);
+
+            return false;
+        }
+
+        $since = $now->modify(self::WINDOW);
+        $bot   = $this->botUsername();
+        foreach ($recent as $note) {
+            // Only the bot's own note counts: a person quoting the marker must not silence the notice
+            if (strtolower($note->author) === $bot && str_contains($note->body, $marker) && $note->createdAt > $since) {
+                return false;
+            }
+        }
+
+        if ($this->spent($start, 'the note', $project, $mrIid)) {
+            return false;
+        }
+        $noteId = $writer->openNote($project, $mrIid, $body);
+        if ($noteId === null) {
+            return false;
+        }
+
+        // The note is what tells people; the label only helps filtering, so it is the first thing a slow GitLab costs
+        if (!$this->spent($start, 'the label', $project, $mrIid)) {
+            $writer->addLabel($project, $mrIid, $label);
+        }
+        $this->logger->info('Cap notice posted', ['mr_iid' => $mrIid, 'project_path' => $project]);
+
+        return true;
     }
 
     /**
@@ -276,6 +320,28 @@ final class CapNoticeService
             $used,
             $limit,
             $when,
+        );
+    }
+
+    /**
+     * @param string $cap   Which soft cap was passed
+     * @param int    $used  The count against the cap
+     * @param int    $limit The soft cap
+     *
+     * @return string
+     */
+    private function softBody(string $cap, int $used, int $limit): string
+    {
+        $what = match ($cap) {
+            'attempts_per_thread' => sprintf('its attempt cap for this thread (%d of %d)', $used, $limit),
+            'jobs_per_mr'         => sprintf('its daily job cap for this MR (%d of %d in 24 h)', $used, $limit),
+            default               => sprintf('its fix-commit cap for this MR (%d of %d)', $used, $limit),
+        };
+
+        return sprintf(
+            "%s\nKelpie has passed %s. This is a warning only: the work keeps running until a hard cap is set and reached.",
+            self::SOFT_MARKER,
+            $what,
         );
     }
 }

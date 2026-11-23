@@ -26,13 +26,15 @@ final class InMemoryProjects implements ProjectReader
     /**
      * Constructor
      *
-     * @param array<string, ProjectMode> $modes Project path => mode
+     * @param array<string, ProjectMode> $modes    Project path => mode
+     * @param array<string, string>      $hardCaps Project path => daily spend hard cap; unset means unlimited
      */
     public function __construct(
         array $modes = [],
+        array $hardCaps = [],
     ) {
         foreach ($modes as $path => $mode) {
-            $this->rows[$path] = new Project($path, $mode);
+            $this->rows[$path] = new Project($path, $mode, maxCostUsdDayHard: $hardCaps[$path] ?? null);
         }
     }
 

@@ -23,7 +23,8 @@ use Ubix\Service\Sql\SqlServiceInterface as SqlService;
 final class ProjectSqlRepository implements ProjectReader
 {
     private const string COLUMNS = 'path, mode, gate_command, protected_paths, triage_model, review_model,
-        max_issues_per_day, max_issues_per_author_day, max_cost_usd_day, max_fix_commits_per_mr';
+        max_issues_per_day, max_issues_per_author_day, max_cost_usd_day, max_fix_commits_per_mr,
+        max_cost_usd_day_hard, max_issues_per_day_hard, max_issues_per_author_day_hard';
 
     /**
      * Constructor
@@ -105,16 +106,19 @@ final class ProjectSqlRepository implements ProjectReader
         }
 
         return new Project(
-            path:                  $path,
-            mode:                  $mode,
-            gateCommand:           $this->nullableString($row['gate_command']),
-            protectedPaths:        $this->globs($row['protected_paths'], $path),
-            triageModel:           $this->nullableString($row['triage_model']),
-            reviewModel:           $this->nullableString($row['review_model']),
-            maxIssuesPerDay:       (int) $row['max_issues_per_day'],
-            maxIssuesPerAuthorDay: (int) $row['max_issues_per_author_day'],
-            maxCostUsdDay:         (string) $row['max_cost_usd_day'],
-            maxFixCommitsPerMr:    (int) $row['max_fix_commits_per_mr'],
+            path:                      $path,
+            mode:                      $mode,
+            gateCommand:               $this->nullableString($row['gate_command']),
+            protectedPaths:            $this->globs($row['protected_paths'], $path),
+            triageModel:               $this->nullableString($row['triage_model']),
+            reviewModel:               $this->nullableString($row['review_model']),
+            maxIssuesPerDay:           (int) $row['max_issues_per_day'],
+            maxIssuesPerAuthorDay:     (int) $row['max_issues_per_author_day'],
+            maxCostUsdDay:             (string) $row['max_cost_usd_day'],
+            maxFixCommitsPerMr:        (int) $row['max_fix_commits_per_mr'],
+            maxCostUsdDayHard:         $this->nullableString($row['max_cost_usd_day_hard']),
+            maxIssuesPerDayHard:       $row['max_issues_per_day_hard'] === null ? null : (int) $row['max_issues_per_day_hard'],
+            maxIssuesPerAuthorDayHard: $row['max_issues_per_author_day_hard'] === null ? null : (int) $row['max_issues_per_author_day_hard'],
         );
     }
 

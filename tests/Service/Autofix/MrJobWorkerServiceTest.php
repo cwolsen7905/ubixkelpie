@@ -223,7 +223,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * A job held by the daily spend cap goes back until midnight and the held attempt is not counted
+     * A job held by the daily spend hard cap goes back until midnight and the held attempt is not counted
      *
      * @return void
      */
@@ -236,7 +236,7 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $writer->expects($this->never())->method('markRetry');
         $writer->expects($this->never())->method('markFailed');
 
-        $this->service($this->readerOf($this->job('d1abc123', 2, 3, self::HEAD), 'running'), $writer, false, ProjectMode::Propose, 50.0)->step(true, ['ubixsys/ubixkelpie'], $now);
+        $this->service($this->readerOf($this->job('d1abc123', 2, 3, self::HEAD), 'running'), $writer, false, ProjectMode::Propose, 50.0, '2.00')->step(true, ['ubixsys/ubixkelpie'], $now);
     }
 
     /**
@@ -540,11 +540,13 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
      * @param bool             $proposalOnRecord Whether thread d1abc123 has an open proposal on record, made at HEAD
      * @param ProjectMode      $mode             The mode of ubixsys/ubixkelpie; push by default
      * @param float            $spentToday       What the day's runs have cost, in USD
+     * @param ?string          $projectHardCap   The project's daily spend hard cap; null for unlimited
      *
      * @return MrJobWorkerService
      */
-    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false, ProjectMode $mode = ProjectMode::Push, float $spentToday = 0.0): MrJobWorkerService
+    private function service(AutofixJobReader $reader, AutofixJobWriter $writer, bool $proposalOnRecord = false, ProjectMode $mode = ProjectMode::Push, float $spentToday = 0.0, ?string $projectHardCap = null): MrJobWorkerService
     {
+        $hardCaps = $projectHardCap === null ? null : ['ubixsys/ubixkelpie' => $projectHardCap];
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
         $factory  = new Psr17Factory();
@@ -611,8 +613,8 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $gitlab->lister(),
             $gitlab->reader(),
             $sweep,
-            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode]))->runners(),
-            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode]))->reactions(),
+            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode], $hardCaps))->runners(),
+            (new CommandServices($logger, $this->gitlab, $sql, $settings, ['ubixsys/ubixkelpie' => $mode], $hardCaps))->reactions(),
             'w1',
         );
     }

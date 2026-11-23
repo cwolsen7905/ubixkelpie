@@ -38,16 +38,24 @@ return static function (App $app): void {
     // Settings API (docs/settings-api.md): bearer token only, never the webhook secret. The project path is URL-encoded
     // in the URL (`ubixsys%2Fubixkelpie`). Other methods on these paths are 405, after the token check.
     $app->group('/api/v1/projects', static function (RouteCollectorProxy $group): void {
-        $notAllowed = static function (Request $request): void {
-            throw (new HttpMethodNotAllowedException($request))->setAllowedMethods(['GET', 'PATCH']);
+        $notAllowed = static function (string ...$allowed): callable {
+            return static function (Request $request) use ($allowed): void {
+                throw (new HttpMethodNotAllowedException($request))->setAllowedMethods($allowed);
+            };
         };
 
-        // Listed first, so the method catch-all below only sees the methods that are not allowed.
+        // Each method is registered once: Slim's any() would register GET and OPTIONS again, which FastRoute refuses, and
+        // OPTIONS must stay with the preflight route above (no token for a preflight).
         $group->get('', ProjectSettingsController::class . ':list');
-        $group->any('', $notAllowed);
+        $group->post('', $notAllowed('GET'));
+        $group->put('', $notAllowed('GET'));
+        $group->patch('', $notAllowed('GET'));
+        $group->delete('', $notAllowed('GET'));
         $group->get('/{path:.+}', ProjectSettingsController::class . ':show');
         $group->patch('/{path:.+}', ProjectSettingsController::class . ':update');
-        $group->any('/{path:.+}', $notAllowed);
+        $group->post('/{path:.+}', $notAllowed('GET', 'PATCH'));
+        $group->put('/{path:.+}', $notAllowed('GET', 'PATCH'));
+        $group->delete('/{path:.+}', $notAllowed('GET', 'PATCH'));
     })->add(ApiTokenMiddleware::class);
 
     // phpcs:enable Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma

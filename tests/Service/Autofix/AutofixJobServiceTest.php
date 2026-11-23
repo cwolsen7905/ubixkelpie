@@ -212,6 +212,22 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
+     * The project-wide soft cap is logged once per project per day, not for every job past it
+     *
+     * @return void
+     */
+    public function testSoftProjectCapIsLoggedOncePerDay(): void
+    {
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('warning')->with('Soft cap passed: project daily job count');
+        $service = $this->countingService(['project' => 200, 'mr3' => 1], null, null, $logger);
+        $now     = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+        $service->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd2'), $now);
+    }
+
+    /**
      * The settings change the caps
      *
      * @return void
@@ -345,13 +361,14 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
      * @param array<string, int> $counts Jobs in 24 hours: `project` for the project, `mrN` for MR N
      * @param ?FakeGitlab        $gitlab The GitLab the notice writes to
      * @param ?AutofixCaps       $caps   The caps; null reads them from the environment
+     * @param ?Logger            $logger The logger; null is a stub
      *
      * @return AutofixJobService
      */
-    private function countingService(array $counts, ?FakeGitlab $gitlab = null, ?AutofixCaps $caps = null): AutofixJobService
+    private function countingService(array $counts, ?FakeGitlab $gitlab = null, ?AutofixCaps $caps = null, ?Logger $logger = null): AutofixJobService
     {
-        $logger = $this->createStub(Logger::class);
-        $sql    = $this->createStub(SqlService::class);
+        $logger ??= $this->createStub(Logger::class);
+        $sql      = $this->createStub(SqlService::class);
         $sql->method('query')->willReturn(1);
         $sql->method('getColumn')->willReturnCallback(static function (string $statement, array $parameters = []) use ($counts): string {
             if (str_contains($statement, 'mr_iid = :mr_iid AND date_created >= :since')) {

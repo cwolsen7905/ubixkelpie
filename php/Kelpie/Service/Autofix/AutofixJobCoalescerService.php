@@ -47,10 +47,26 @@ final class AutofixJobCoalescerService
      * @param DateTimeImmutable $now   The current time, for the daily cap
      *
      * @return EnqueueOutcome What happened to the job
+     */
+    public function enqueue(AutofixJob $input, DateTimeImmutable $now): EnqueueOutcome
+    {
+        return $this->enqueueWithSoftCap($input, $now)[0];
+    }
+
+    /**
+     * Enqueue a job as `enqueue` does, and say which soft cap it passed
+     *
+     * The four counts are read once, before the job is created, and both the hard and the soft test use them, so the two
+     * cannot disagree and a job costs one set of count queries. A coalesced job reads none.
+     *
+     * @param AutofixJob        $input The filtered job
+     * @param DateTimeImmutable $now   The current time, for the daily cap
+     *
+     * @return array{0: EnqueueOutcome, 1: ?array{cap: string, used: int, limit: int}} What happened, and the soft cap passed (null when none, or when the job was not created)
      *
      * @throws PDOException When the write fails for a reason other than the unique index
      */
-    public function enqueue(AutofixJob $input, DateTimeImmutable $now): EnqueueOutcome
+    public function enqueueWithSoftCap(AutofixJob $input, DateTimeImmutable $now): array
     {
         $threadKey = $this->threadKey($input);
         $open      = $this->reader->getOpenJob($input->projectPath, $input->mrIid, $threadKey);
@@ -61,18 +77,19 @@ final class AutofixJobCoalescerService
             if ($open->getHeadSha() === $input->headSha || $open->getStatus() !== 'pending') {
                 $this->logger->info('Autofix job coalesced', ['job_id' => $open->getId(), 'thread_key' => $threadKey]);
 
-                return EnqueueOutcome::Coalesced;
+                return [EnqueueOutcome::Coalesced, null];
             }
         }
 
         // A fan-out or round job takes no thread; the caps bind the thread jobs, and the round's own caps are the push round's.
         // Only a hard cap stops the job; a soft cap is passed over (the caller warns) and the job still runs.
-        $hard = $this->exceededCapFor($input, $now);
+        $counts = $this->counts($input, $now);
+        $hard   = $counts === null ? null : $this->hardCap(...$counts);
 
         if ($hard !== null) {
             $this->logger->warning('Autofix job over hard cap', ['cap' => $hard, 'mr_iid' => $input->mrIid, 'project_path' => $input->projectPath]);
 
-            return EnqueueOutcome::CapExceeded;
+            return [EnqueueOutcome::CapExceeded, null];
         }
 
         if ($open instanceof AutofixJobRecord && $open->getId() !== null) {
@@ -98,10 +115,10 @@ final class AutofixJobCoalescerService
 
             $this->logger->info('Autofix job coalesced by index', ['thread_key' => $threadKey]);
 
-            return EnqueueOutcome::Coalesced;
+            return [EnqueueOutcome::Coalesced, null];
         }
 
-        return EnqueueOutcome::Enqueued;
+        return [EnqueueOutcome::Enqueued, $counts === null ? null : $this->softCapPassed(...$counts)];
     }
 
     /**
@@ -137,28 +154,6 @@ final class AutofixJobCoalescerService
     }
 
     /**
-     * Which soft cap, if any, a job would pass right now (warn and keep running)
-     *
-     * @param AutofixJob        $job The job
-     * @param DateTimeImmutable $now The current time, for the daily cap
-     *
-     * @return ?string `commits_per_mr`, `attempts_per_thread`, `jobs_per_project` or `jobs_per_mr` (the first soft cap passed, in that order); null when within the soft caps or the job takes no thread
-     */
-    public function softCapExceededFor(AutofixJob $job, DateTimeImmutable $now): ?string
-    {
-        if ($job->discussionId === null) {
-            return null;
-        }
-
-        return $this->softCap(
-            $this->reader->countFixCommitsForMr($job->projectPath, $job->mrIid),
-            $this->reader->countAttemptsForThread($job->projectPath, $job->mrIid, $this->threadKey($job)),
-            $this->reader->countJobsSince($job->projectPath, $now->modify('-1 day')),
-            $this->reader->countJobsForMrSince($job->projectPath, $job->mrIid, $now->modify('-1 day')),
-        );
-    }
-
-    /**
      * The key of the one open job a job coalesces with
      *
      * The discussion id; '' for an MR-level job; for a review job, which does not know its MR yet, the head sha;
@@ -175,6 +170,28 @@ final class AutofixJobCoalescerService
             AutofixJob::ROUND  => 'round',
             default            => '',
         };
+    }
+
+    /**
+     * The four counts the caps are tested against
+     *
+     * @param AutofixJob        $job The job
+     * @param DateTimeImmutable $now The current time, for the daily cap
+     *
+     * @return ?array{0: int, 1: int, 2: int, 3: int} Fix commits on the MR, attempts on the thread, jobs of the project and jobs of the MR in 24 hours; null when the job takes no thread
+     */
+    private function counts(AutofixJob $job, DateTimeImmutable $now): ?array
+    {
+        if ($job->discussionId === null) {
+            return null;
+        }
+
+        return [
+            $this->reader->countFixCommitsForMr($job->projectPath, $job->mrIid),
+            $this->reader->countAttemptsForThread($job->projectPath, $job->mrIid, $this->threadKey($job)),
+            $this->reader->countJobsSince($job->projectPath, $now->modify('-1 day')),
+            $this->reader->countJobsForMrSince($job->projectPath, $job->mrIid, $now->modify('-1 day')),
+        ];
     }
 
     /**
@@ -199,22 +216,22 @@ final class AutofixJobCoalescerService
     }
 
     /**
-     * Which soft cap, if any, a new job would pass
+     * Which soft cap, if any, a new job would pass, with its count and limit
      *
      * @param int $commitsForMr     Fix commits already on the MR
      * @param int $attemptsOnThread Attempts already made on the thread
      * @param int $projectJobs      Jobs the project created in the last 24 hours, across its MRs
      * @param int $mrJobs           Jobs the MR had created in the last 24 hours
      *
-     * @return ?string The soft cap name, or null when within the soft caps
+     * @return ?array{cap: string, used: int, limit: int} The first soft cap passed, in the hard cap's order; null when within them
      */
-    private function softCap(int $commitsForMr, int $attemptsOnThread, int $projectJobs, int $mrJobs): ?string
+    private function softCapPassed(int $commitsForMr, int $attemptsOnThread, int $projectJobs, int $mrJobs): ?array
     {
         return match (true) {
-            $commitsForMr >= $this->caps->commitsPerMr          => 'commits_per_mr',
-            $attemptsOnThread >= $this->caps->attemptsPerThread => 'attempts_per_thread',
-            $projectJobs >= $this->caps->jobsPerProject         => 'jobs_per_project',
-            $mrJobs >= $this->caps->jobsPerMr                   => 'jobs_per_mr',
+            $commitsForMr >= $this->caps->commitsPerMr          => ['cap' => 'commits_per_mr', 'used' => $commitsForMr, 'limit' => $this->caps->commitsPerMr],
+            $attemptsOnThread >= $this->caps->attemptsPerThread => ['cap' => 'attempts_per_thread', 'used' => $attemptsOnThread, 'limit' => $this->caps->attemptsPerThread],
+            $projectJobs >= $this->caps->jobsPerProject         => ['cap' => 'jobs_per_project', 'used' => $projectJobs, 'limit' => $this->caps->jobsPerProject],
+            $mrJobs >= $this->caps->jobsPerMr                   => ['cap' => 'jobs_per_mr', 'used' => $mrJobs, 'limit' => $this->caps->jobsPerMr],
             default                                             => null,
         };
     }

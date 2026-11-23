@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Autofix;
 
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\ProposedEdit;
 use Kelpie\Service\Autofix\EditApplyService;
 use Psr\Log\LoggerInterface as Logger;
@@ -83,6 +84,27 @@ final class EditApplyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $many = array_fill(0, EditApplyService::MAX_EDITS + 1, new ProposedEdit('a.txt', 'alpha', 'x'));
         $this->assertSame('More than ' . EditApplyService::MAX_EDITS . ' edits.', $this->service()->apply($this->dir, $many));
+    }
+
+    /**
+     * With a scope, an edit or a new file outside it refuses the whole batch; inside it, edits and a new test apply
+     *
+     * @return void
+     */
+    public function testScopeLimitsEditsAndCreations(): void
+    {
+        file_put_contents($this->dir . '/b.txt', "beta\n");
+        $scope = (new EditScope($this->createStub(Logger::class)))->forThread($this->dir, 'a.txt', '', []);
+
+        $out = $this->service()->apply($this->dir, [new ProposedEdit('a.txt', 'alpha', 'ALPHA'), new ProposedEdit('b.txt', 'beta', 'x')], $scope);
+        $this->assertStringContainsString('Edit 2 is on `b.txt`', (string) $out);
+        $this->assertSame("alpha beta\ndup\ndup\n", file_get_contents($this->dir . '/a.txt'));
+
+        $this->assertStringContainsString('Edit 1 is on `other.txt`', (string) $this->service()->apply($this->dir, [new ProposedEdit('other.txt', '', 'new')], $scope));
+        $this->assertFileDoesNotExist($this->dir . '/other.txt');
+
+        $this->assertNull($this->service()->apply($this->dir, [new ProposedEdit('a.txt', 'alpha', 'ALPHA'), new ProposedEdit('aTest.txt', '', "t\n")], $scope));
+        $this->assertSame("t\n", file_get_contents($this->dir . '/aTest.txt'));
     }
 
     /**

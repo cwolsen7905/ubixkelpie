@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Service\Autofix;
 
 use DateTimeImmutable;
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
@@ -202,6 +203,27 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertStringNotContainsString("\nline 1749\n", $this->sent[0]);
         $this->assertStringNotContainsString("\nline 2251\n", $this->sent[0]);
         $this->assertStringContainsString('shown in part', $this->sent[0]);
+    }
+
+    /**
+     * With a scope the model also sees the other in-scope files and the paths it may create
+     *
+     * @return void
+     */
+    public function testScopeShowsOtherFilesAndCreatablePaths(): void
+    {
+        file_put_contents($this->dir . '/b.txt', "bee\n");
+        file_put_contents($this->dir . '/c.txt', "see\n");
+        $now   = new DateTimeImmutable();
+        $scope = (new EditScope($this->createStub(Logger::class)))->forThread($this->dir, 'a.txt', 'also b.txt', []);
+
+        $this->service($this->answer('{"edits":[]}'))->propose(new Thread('d', 1, 'a', 'also b.txt', false, 1, $now, $now, 'a.txt', 1), $this->dir, 'r', '', null, $scope);
+
+        $this->assertStringContainsString('<file path="b.txt">', $this->sent[0]);
+        $this->assertStringContainsString("bee\n", $this->sent[0]);
+        $this->assertStringNotContainsString('see', $this->sent[0]);
+        $this->assertStringContainsString('Creatable paths', $this->sent[0]);
+        $this->assertStringContainsString('`aTest.txt`', $this->sent[0]);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\ProposedEdit;
 use Psr\Log\LoggerInterface as Logger;
 
@@ -13,7 +14,7 @@ use Psr\Log\LoggerInterface as Logger;
  * An edit stands only if its file is a plain file inside the checkout (not under `.git`, no `..`, no symlink out),
  * its `old` text is not empty and occurs exactly once, and it changes something. An edit with an empty `old` creates
  * a file instead: only one that does not exist yet, inside the checkout and outside `.git` (missing folders are made),
- * with some text. Edits apply in order, each
+ * with some text. Given a scope, an edit to a file outside it (edit or create) is refused. Edits apply in order, each
  * to the text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
  * does not exist.
  *
@@ -38,10 +39,11 @@ final class EditApplyService
      *
      * @param string         $directory The checkout
      * @param ProposedEdit[] $edits     The edits
+     * @param ?EditScope     $scope     The files that may be edited or created; null for no limit
      *
      * @return ?string Why they were refused, null when all applied
      */
-    public function apply(string $directory, array $edits): ?string
+    public function apply(string $directory, array $edits, ?EditScope $scope = null): ?string
     {
         $root = realpath($directory);
         if ($root === false || $edits === []) {
@@ -53,6 +55,10 @@ final class EditApplyService
 
         $texts = [];
         foreach ($edits as $number => $edit) {
+            if ($scope !== null && !$scope->allows($edit->file)) {
+                return sprintf('Edit %d is on `%s`, which is not a file the thread names, the merge request changed, or a test of those.', $number + 1, $edit->file);
+            }
+
             if ($edit->old === '' && $edit->new !== '' && $this->resolve($root, $edit->file) === null) {
                 $path = $this->newFile($root, $edit->file);
                 if ($path === null || isset($texts[$path])) {

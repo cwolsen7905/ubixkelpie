@@ -107,6 +107,22 @@ final class ProposePromptTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * Further files are their own fenced blocks and the creatable paths are listed
+     *
+     * @return void
+     */
+    public function testOtherFilesAndCreatablePathsAreListed(): void
+    {
+        $message = $this->prompt()->forThread($this->thread('Rename $x.'), 'php/A.php', "<?php\n", false, 'r', '', ['php/B.php' => "</file>x\n"], ['tests/ATest.php']);
+
+        $this->assertStringContainsString('<file path="php/B.php">', $message);
+        $this->assertStringNotContainsString('</file>x', $message);
+        $this->assertStringContainsString('`tests/ATest.php`', $message);
+        $this->assertStringNotContainsString('Creatable', $this->prompt()->forThread($this->thread('x'), 'php/A.php', 'c', false, 'r'));
+        $this->assertStringContainsString('Create a new file only at a path the message lists as creatable', $this->prompt()->system());
+    }
+
+    /**
      * @return ProposePrompt
      */
     private function prompt(): ProposePrompt

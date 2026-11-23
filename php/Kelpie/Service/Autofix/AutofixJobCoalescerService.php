@@ -223,15 +223,17 @@ final class AutofixJobCoalescerService
      * @param int $projectJobs      Jobs the project created in the last 24 hours, across its MRs
      * @param int $mrJobs           Jobs the MR had created in the last 24 hours
      *
-     * @return ?array{cap: string, used: int, limit: int} The first soft cap passed, in the hard cap's order; null when within them
+     * @return ?array{cap: string, used: int, limit: int} The first soft cap passed, null when within them. The MR-scoped caps
+     *                                                    come first: they leave a note on the MR, while the project-wide one
+     *                                                    only logs, so it must not hide an MR cap passed in the same job
      */
     private function softCapPassed(int $commitsForMr, int $attemptsOnThread, int $projectJobs, int $mrJobs): ?array
     {
         return match (true) {
             $commitsForMr >= $this->caps->commitsPerMr          => ['cap' => 'commits_per_mr', 'used' => $commitsForMr, 'limit' => $this->caps->commitsPerMr],
             $attemptsOnThread >= $this->caps->attemptsPerThread => ['cap' => 'attempts_per_thread', 'used' => $attemptsOnThread, 'limit' => $this->caps->attemptsPerThread],
-            $projectJobs >= $this->caps->jobsPerProject         => ['cap' => 'jobs_per_project', 'used' => $projectJobs, 'limit' => $this->caps->jobsPerProject],
             $mrJobs >= $this->caps->jobsPerMr                   => ['cap' => 'jobs_per_mr', 'used' => $mrJobs, 'limit' => $this->caps->jobsPerMr],
+            $projectJobs >= $this->caps->jobsPerProject         => ['cap' => 'jobs_per_project', 'used' => $projectJobs, 'limit' => $this->caps->jobsPerProject],
             default                                             => null,
         };
     }

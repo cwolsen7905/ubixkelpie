@@ -196,6 +196,24 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
+     * Past the project and the MR soft caps at once, the MR still gets its note: the project cap does not hide it
+     *
+     * @return void
+     */
+    public function testProjectSoftCapDoesNotHideTheMrNote(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 200, 'mr3' => 30], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString('(30 of 30 in 24 h)', $notes[0]['body']);
+    }
+
+    /**
      * The project-wide soft cap only logs: no MR note, and the job still runs
      *
      * @return void

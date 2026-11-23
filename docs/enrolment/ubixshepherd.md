@@ -1,7 +1,8 @@
-# Enrolling `ubixsys/ubixshepherd` on dev, in `propose` mode
+# Enrolling `ubixsys/ubixshepherd` on dev, now in `push` mode
 
 Goal: an AI-review thread on a ubixshepherd merge request is picked up by Kelpie, which posts a fix
-proposal (a diff in the reply), a dismissal or a needs-human flag. Kelpie pushes nothing in this mode.
+proposal (a diff in the reply), a dismissal or a needs-human flag. Since 2026-11-22 the project is on `push`
+mode on dev: Kelpie also pushes automatic rounds under the round cap (`docs/autofix/push-mode.md`).
 Dev only; production is not touched by this runbook. General background: `docs/operations/projects.md`
 and `docs/operations/worker.md`.
 
@@ -14,7 +15,7 @@ and `docs/operations/worker.md`.
 | Kill switch | `KELPIE_AUTOFIX_ENABLED=true` in the dev deploy, worker and sweep manifests. |
 | Sweep cronjob | `app/KelpieApi/dev-cronjob.yaml`, every 15 minutes, suspended until the token is in (see step 1). |
 | Worker | `app/KelpieApi/dev-worker.yaml`; deploy.sh skips `*-worker.yaml`, so it is applied by hand. |
-| `projects` row | Done on dev: `ubixsys/ubixshepherd`, mode `propose`, defaults for the rest (step 4). Staging and prod have none. |
+| `projects` row | Done on dev: `ubixsys/ubixshepherd`, mode `push` since 2026-11-22 (enrolled as `propose`), defaults for the rest (step 4). Staging and prod have none. |
 | Dev webhook on ubixshepherd | Done 2026-11-05: hook 5 now points at dev (step 2). |
 
 ## Steps (each outside the repo, done by a person or Shepherd)
@@ -70,6 +71,15 @@ and `docs/operations/worker.md`.
    author, 2.00 USD a day, 3 fix commits per MR. `ubixsys/ubixkelpie` (id 1) is also `propose`. Staging and
    prod were not touched.
 
+   Status 2026-11-22: **switched to push mode, on dev only.** The person ran, by hand on the dev database:
+
+   ```sql
+   UPDATE ubixkelpie.projects SET mode = 'push' WHERE path = 'ubixsys/ubixshepherd';
+   ```
+
+   1 row affected. Staging and prod were not touched. Rollback: `SET mode = 'propose'` (proposals only,
+   nothing pushed), or `SET mode = 'off'`, with the same `WHERE`.
+
    The other columns take their defaults (30 issues a day, 10 per author, 2.00 USD a day, 3 fix
    commits per MR). There is deliberately no migration: a migration would run on staging and prod too.
    The table is read on every pass, so no restart is needed.
@@ -85,17 +95,20 @@ and `docs/operations/worker.md`.
 3. Lost delivery: temporarily disable the hook, reply in a thread, run
    `kubectl -n kelpie-dev create job --from=cronjob/kelpie-autofix-sweep sweep-check`, and confirm the
    job row appears. Re-enable the hook.
-4. No commit from the bot appears on any branch.
+4. A commit from the bot appears only from a push round (`fix(review)`, with a `Thread:` line per thread) or
+   after a thumbs-up, never from a thread that was only proposed.
 
-## 👍 in propose mode
+## 👍 in push mode
 
-A thumbs-up on a proposal does not push here. The reply says the project is not set to push, and no
-commit is made. Only `push` mode applies a proposal. Setting `push` is the maintainer's separate decision
-and is not part of this enrolment.
+Push mode pushes automatic rounds under the round cap (5 threads, 80 lines), see
+`docs/autofix/push-mode.md`. A round over the cap pushes nothing and leaves its proposals open. A
+thumbs-up on such a proposal pushes it alone, and that path is not capped, because a person asked for it.
+Switching the project to `push` was the maintainer's decision (2026-11-22, dev only).
 
 ## Rollback
 
-- One project: `UPDATE ubixkelpie.projects SET mode = 'off' WHERE path = 'ubixsys/ubixshepherd';`
+- Back to proposals only: `UPDATE ubixkelpie.projects SET mode = 'propose' WHERE path = 'ubixsys/ubixshepherd';`
+- One project, fully: `UPDATE ubixkelpie.projects SET mode = 'off' WHERE path = 'ubixsys/ubixshepherd';`
 - One item: the `triage:off` label.
 - Everything on dev: `KELPIE_AUTOFIX_ENABLED=false` and redeploy, or `replicas: 0` on the worker.
 - The sweep alone: `suspend: true`.

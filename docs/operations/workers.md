@@ -87,3 +87,27 @@ What the log lines mean:
 A comment that produces no `GitLab webhook` line was filtered (loop guards, allow-list, draft, fork,
 Shepherd branch) or never delivered. Check the hook's recent deliveries before suspecting the worker.
 `glab api` against GitLab can answer HTTP 429; wait and retry rather than looping.
+
+## Which hooks feed which Kelpie (checked 2026-11-23)
+
+Triage on dev only happens for events that reach `kelpie.dev.ubixsys.com`. A project whose only hook points
+at prod never triages on dev, however its `projects` row reads there.
+
+| Project | Hook | Points at | Events | Purpose |
+|---|---|---|---|---|
+| `ubixsys/ubixshepherd` | 5 "Kelpie Automation" | dev | issues, merge requests, note, emoji, pipeline, job | everything dev needs, including threads |
+| `ubixsys/ubixshepherd` | 15 "Kelpie prod: re-run sign-off on approve" | prod | merge requests, emoji | re-runs the `require-approval` job on Approve or 👍 (see `docs/merge-signoff.md`); keep it |
+| `ubixsys/ubixkelpie` | 8 "Kelpie Automation" | prod | issues, merge requests, note, emoji | prod's sign-off re-run for Kelpie's own MRs |
+| `ubixsys/ubixkelpie` | 17 "Kelpie dev: note events" | dev | note only | lets dev triage review threads on Kelpie's own MRs; the secret is dev's `GITLAB_WEBHOOK_SECRET` |
+
+Both receivers see a note on `ubixsys/ubixkelpie`. Prod answers it only if prod has a `projects` row for the
+project; dev has one (`propose`). Check the layout with `glab api projects/<group>%2F<project>/hooks`
+(the secret is never returned).
+
+Two things the check found:
+
+- On dev, `ubixsys/ubixshepherd` is mode `push`, not `propose` as `docs/enrolment/ubixshepherd.md` says.
+- Triage sees the thread text only, not the repo. A finding it cannot verify from the thread gets
+  "Kelpie triage: needs human" and the label `kelpie::needs-you`; that is a verdict, not a failure.
+  The bot's 👀 reaction on a thread can fail with HTTP 404 (`Triage 👀 could not be placed`): a
+  token-permission matter, left alone.

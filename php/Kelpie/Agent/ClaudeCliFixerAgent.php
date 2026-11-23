@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Agent;
 
 use Kelpie\Agent\FixerAgentInterface as FixerAgent;
+use Kelpie\DataTransferObject\AgentRun;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
@@ -20,7 +21,8 @@ use Ubix\Service\JsonService;
  * via Anthropic-compatible variables) and the model for every role the CLI has, so no call goes to another model. No
  * GitLab or Vault values reach it. The thread text is untrusted input and is fenced as data. The CLI's JSON result gives
  * the closing words and the cost, which the spend caps count; when the CLI reports no cost (it prices from its own
- * table) the cost is estimated from the token counts at a deliberately high rate, and with no counts either the run fails.
+ * table) the cost is estimated from the token counts at a deliberately high rate. A run that fails (an error result, the
+ * turn limit, a non-zero exit, a timeout) still carries its cost, a flat charge when nothing says what it was.
  *
  * @see \Kelpie\Tests\Agent\ClaudeCliFixerAgentTest PHPUnit test case
  */
@@ -35,6 +37,11 @@ final class ClaudeCliFixerAgent implements FixerAgent
     private const float ESTIMATE_INPUT_USD_PER_MTOK = 10.0;
 
     private const float ESTIMATE_OUTPUT_USD_PER_MTOK = 40.0;
+
+    /**
+     * USD charged for a run whose cost and tokens are both unknown (a timeout, unreadable output): it spent something
+     */
+    private const float UNKNOWN_RUN_USD = 1.0;
 
     /**
      * Constructor
@@ -59,12 +66,12 @@ final class ClaudeCliFixerAgent implements FixerAgent
     /**
      * {@inheritDoc}
      */
-    public function fix(string $directory, Thread $thread, string $model, string $context = '', ?string $gateFailure = null): ?Completion
+    public function fix(string $directory, Thread $thread, string $model, string $context = '', ?string $gateFailure = null): AgentRun
     {
         if ($this->apiKey === '') {
             $this->logger->error('Autofix agent: OPENROUTER_API_KEY is not set');
 
-            return null;
+            return new AgentRun(false);
         }
 
         $env = [
@@ -96,36 +103,36 @@ final class ClaudeCliFixerAgent implements FixerAgent
 
         if ($result->exitCode !== 0) {
             $this->logger->warning('Autofix agent failed', ['exit_code' => $result->exitCode, 'model' => $model, 'timed_out' => $result->timedOut]);
-
-            return null;
         }
 
-        return $this->completion($result->stdout, $model);
+        // Read the result whatever the exit code: a run that hit its turn limit or failed still spent money
+        return $this->result($result->stdout, $model, $result->exitCode === 0);
     }
 
     /**
-     * The CLI's JSON result as a completion
+     * The CLI's JSON result as a run, with its cost
      *
      * @param string $stdout The CLI's output
      * @param string $model  The model
+     * @param bool   $exited Whether the CLI exited with 0
      *
-     * @return ?Completion Null when the CLI says the run was an error, or its result cannot be read (its cost unknown, it
-     *                     is not let past the spend cap as free)
+     * @return AgentRun Finished only when the CLI exited 0 and does not call the run an error. The cost is the CLI's; when
+     *                  it gives none, estimated high from the tokens; with no tokens either, or no readable result (a
+     *                  timeout), a flat charge, so a run is never counted as free
      */
-    private function completion(string $stdout, string $model): ?Completion
+    private function result(string $stdout, string $model, bool $exited): AgentRun
     {
         try {
             $decoded = $this->json->decode($stdout);
         } catch (Throwable $e) {
-            $this->logger->warning('Autofix agent: the result is not JSON, so the run counts as failed', ['error' => $e->getMessage(), 'model' => $model]);
+            $this->logger->warning('Autofix agent: the result is not JSON, so the run counts as failed at a flat charge', ['error' => $e->getMessage(), 'model' => $model]);
 
-            return null;
+            return new AgentRun(false, new Completion('', $model, 0, 0, self::UNKNOWN_RUN_USD));
         }
 
-        if (($decoded['is_error'] ?? false) === true) {
+        $error = ($decoded['is_error'] ?? false) === true;
+        if ($error) {
             $this->logger->warning('Autofix agent: the run ended in an error', ['model' => $model, 'subtype' => $decoded['subtype'] ?? '']);
-
-            return null;
         }
 
         $usage  = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
@@ -135,18 +142,14 @@ final class ClaudeCliFixerAgent implements FixerAgent
         $cost   = is_int($cost) || is_float($cost) ? (float) $cost : 0.0;
 
         if ($cost <= 0.0) {
-            if ($input + $output === 0) {
-                $this->logger->warning('Autofix agent: no cost and no token counts, so the run counts as failed', ['model' => $model]);
-
-                return null;
-            }
-
             // The CLI prices from its own table, which need not know this model: estimate high rather than count it free
-            $cost = ($input * self::ESTIMATE_INPUT_USD_PER_MTOK + $output * self::ESTIMATE_OUTPUT_USD_PER_MTOK) / 1000000;
-            $this->logger->info('Autofix agent: the CLI gave no cost, so it is estimated from the tokens', ['cost_usd' => $cost, 'model' => $model]);
+            $cost = $input + $output === 0 ? self::UNKNOWN_RUN_USD : ($input * self::ESTIMATE_INPUT_USD_PER_MTOK + $output * self::ESTIMATE_OUTPUT_USD_PER_MTOK) / 1000000;
+            $this->logger->info('Autofix agent: the CLI gave no cost, so it is estimated', ['cost_usd' => $cost, 'model' => $model]);
         }
 
-        return new Completion(is_string($decoded['result'] ?? null) ? trim($decoded['result']) : '', $model, $input, $output, $cost);
+        $completion = new Completion(is_string($decoded['result'] ?? null) ? trim($decoded['result']) : '', $model, $input, $output, $cost);
+
+        return new AgentRun($exited && !$error && $input + $output > 0, $completion);
     }
 
     /**

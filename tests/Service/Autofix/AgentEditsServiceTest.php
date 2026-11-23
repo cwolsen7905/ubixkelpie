@@ -143,7 +143,7 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
             return null;
         });
         $this->assertSame('The fixing agent did not finish.', $unfinished->failure);
-        $this->assertNull($unfinished->completion);
+        $this->assertSame(0.01, $unfinished->completion?->costUsd);
     }
 
     /**

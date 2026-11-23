@@ -65,16 +65,18 @@ final class AgentEditsService
         }
 
         try {
-            $completion = $this->agent->fix($directory, $thread, $model, $context);
+            $run = $this->agent->fix($directory, $thread, $model, $context);
         } finally {
             $attached = $checkout->attachWorkTree();
         }
 
+        // A run that did not finish still spent: its cost goes back with the failure, for the spend caps
+        $completion = $run->completion;
         if (!$attached) {
             return new ProposedEdits([], '', 'The checkout could not be restored after the fixing agent.', $completion);
         }
-        if ($completion === null) {
-            return new ProposedEdits([], '', 'The fixing agent did not finish.');
+        if (!$run->finished || $completion === null) {
+            return new ProposedEdits([], '', 'The fixing agent did not finish.', $completion);
         }
 
         $summary = mb_substr(trim((string) preg_replace('/\s+/', ' ', $completion->text)), 0, self::MAX_SUMMARY_LENGTH);

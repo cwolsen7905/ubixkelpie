@@ -113,13 +113,27 @@ final class EditApplyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * A new file in folders that do not exist yet makes them; a refused list makes none
+     *
+     * @return void
+     */
+    public function testNewFileMakesItsFolders(): void
+    {
+        $this->assertNull($this->service()->apply($this->dir, [new ProposedEdit('sub/deep/er/x_test.go', '', "package er\n")]));
+        $this->assertSame("package er\n", file_get_contents($this->dir . '/sub/deep/er/x_test.go'));
+
+        $this->assertNotNull($this->service()->apply($this->dir, [new ProposedEdit('fresh/y.txt', '', 'y'), new ProposedEdit('a.txt', 'absent', 'x')]));
+        $this->assertDirectoryDoesNotExist($this->dir . '/fresh');
+    }
+
+    /**
      * A new file only where it can be made: not over a file or a link, not in a missing folder, not in .git or outside
      *
      * @return void
      */
     public function testNewFileOnlyWhereItCanBeMade(): void
     {
-        foreach (['link.txt', 'nope/x.txt', '.git/hooks.txt', '../outside2.txt', 'sub/../../outside2.txt', '/tmp/x.txt'] as $path) {
+        foreach (['link.txt', 'link.txt/x.txt', '.git/hooks.txt', '.git/new/x.txt', '../outside2.txt', 'sub/../../outside2.txt', '/tmp/x.txt'] as $path) {
             $result = $this->service()->apply($this->dir, [new ProposedEdit($path, '', 'x')]);
 
             $this->assertNotNull($result, $path);

@@ -12,7 +12,8 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * An edit stands only if its file is a plain file inside the checkout (not under `.git`, no `..`, no symlink out),
  * its `old` text is not empty and occurs exactly once, and it changes something. An edit with an empty `old` creates
- * a file instead: only one that does not exist yet, in a folder that does, with some text. Edits apply in order, each
+ * a file instead: only one that does not exist yet, inside the checkout and outside `.git` (missing folders are made),
+ * with some text. Edits apply in order, each
  * to the text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
  * does not exist.
  *
@@ -85,7 +86,7 @@ final class EditApplyService
         }
 
         foreach ($texts as $path => $text) {
-            if (file_put_contents($path, $text) === false) {
+            if ((!is_dir(dirname($path)) && !mkdir(dirname($path), 0755, true)) || file_put_contents($path, $text) === false) {
                 $this->logger->error('Propose: could not write an edited file', ['path' => basename($path)]);
 
                 return 'An edited file could not be written.';
@@ -96,7 +97,10 @@ final class EditApplyService
     }
 
     /**
-     * Where a new file would go: nothing there yet, not even a link, in an existing folder inside the checkout
+     * Where a new file would go: nothing there yet, not even a link, inside the checkout and outside `.git`
+     *
+     * Its folder may not exist yet: the deepest folder of the path that does exist must be a real folder inside the
+     * checkout, and the rest is made when the edits are written (an agent may add a test in a new folder).
      *
      * @param string $root The checkout's real path
      * @param string $file The repo-relative path the model gave
@@ -109,17 +113,24 @@ final class EditApplyService
             return null;
         }
 
-        $folder = realpath(dirname($root . '/' . $file));
+        $parts   = explode('/', trim($file, '/'));
+        $name    = array_pop($parts);
+        $missing = [];
+        while ($parts !== [] && !file_exists($root . '/' . implode('/', $parts)) && !is_link($root . '/' . implode('/', $parts))) {
+            array_unshift($missing, array_pop($parts));
+        }
+
+        $folder = realpath($root . ($parts === [] ? '' : '/' . implode('/', $parts)));
         if ($folder === false || !is_dir($folder) || ($folder !== $root && !str_starts_with($folder, $root . '/'))) {
             return null;
         }
 
-        $relative = ltrim(substr($folder, strlen($root)), '/');
-        if ($relative === '.git' || str_starts_with($relative, '.git/')) {
+        $relative = ltrim(substr($folder, strlen($root)) . '/' . implode('/', $missing), '/');
+        if ($relative === '.git' || str_starts_with($relative, '.git/') || in_array('', $missing, true) || in_array('.', $missing, true)) {
             return null;
         }
 
-        $path = $folder . '/' . basename($file);
+        $path = rtrim($folder . '/' . implode('/', $missing), '/') . '/' . $name;
 
         return file_exists($path) || is_link($path) ? null : $path;
     }

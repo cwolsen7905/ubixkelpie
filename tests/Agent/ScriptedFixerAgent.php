@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Agent;
 
 use Closure;
 use Kelpie\Agent\FixerAgentInterface as FixerAgent;
+use Kelpie\DataTransferObject\AgentRun;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\Thread;
 
@@ -80,7 +81,7 @@ final class ScriptedFixerAgent implements FixerAgent
     /**
      * {@inheritDoc}
      */
-    public function fix(string $directory, Thread $thread, string $model, string $context = '', ?string $gateFailure = null): ?Completion
+    public function fix(string $directory, Thread $thread, string $model, string $context = '', ?string $gateFailure = null): AgentRun
     {
         $this->runs[]     = $gateFailure;
         $this->threads[]  = $thread->discussionId;
@@ -88,6 +89,7 @@ final class ScriptedFixerAgent implements FixerAgent
 
         $text = ($this->edit)($directory, $gateFailure);
 
-        return is_string($text) ? new Completion($text, $model, 500, 100, 0.02) : null;
+        // A failed run still spent, as a real one does
+        return is_string($text) ? new AgentRun(true, new Completion($text, $model, 500, 100, 0.02)) : new AgentRun(false, new Completion('', $model, 300, 0, 0.01));
     }
 }

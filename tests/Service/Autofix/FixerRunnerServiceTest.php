@@ -522,6 +522,23 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * An agent run that did not finish is still paid for: its cost is in the outcome row with the other calls
+     *
+     * @return void
+     */
+    public function testUnfinishedAgentRunIsStillCharged(): void
+    {
+        $this->proposal = ['edits' => [], 'summary' => 'Not in this file.'];
+        $agent          = new ScriptedFixerAgent(static function (): ?string {
+            return null;
+        });
+
+        $this->assertSame(FixOutcome::EditsRejected, $this->service(true, null, $agent)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertStringContainsString('The fixing agent did not finish.', $this->lastNote());
+        $this->assertEqualsWithDelta(0.012, $this->row()->costUsd, 0.0001);
+    }
+
+    /**
      * The agent is not tried when the propose model may not be used: same family as the review
      *
      * @return void

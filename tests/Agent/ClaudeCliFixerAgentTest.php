@@ -49,7 +49,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $runner = new ScriptedProcessRunner();
         $runner->output('claude', '{"type":"result","is_error":false,"result":"Fixed.","total_cost_usd":0.01,"usage":{"input_tokens":10,"output_tokens":5}}');
 
-        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('Fix the typo.'), 'openai/gpt-5.5');
+        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('Fix the typo.'), 'openai/gpt-5.5')->completion;
 
         putenv('KELPIE_BOT_GITLAB_TOKEN');
         putenv('VAULT_TOKEN');
@@ -85,8 +85,10 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $runner = new ScriptedProcessRunner();
         $runner->output('claude', '{"type":"result","is_error":false,"result":" Added the test. ","total_cost_usd":0.042,"usage":{"input_tokens":1200,"output_tokens":300}}');
 
-        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $run  = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $done = $run->completion;
 
+        $this->assertTrue($run->finished);
         $this->assertNotNull($done);
         $this->assertSame('Added the test.', $done->text);
         $this->assertSame('openai/gpt-5.5', $done->model);
@@ -105,7 +107,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $runner = new ScriptedProcessRunner();
         $runner->output('claude', '{"type":"result","is_error":false,"result":"Done.","total_cost_usd":0,"usage":{"input_tokens":200000,"cache_read_input_tokens":800000,"output_tokens":100000}}');
 
-        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5')->completion;
 
         $this->assertNotNull($done);
         $this->assertSame(1000000, $done->promptTokens);
@@ -113,27 +115,36 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
 
         $blank = new ScriptedProcessRunner();
         $blank->output('claude', '{"type":"result","is_error":false,"result":"Done."}');
-        $this->assertNull($this->agent($blank)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
+        $run = $this->agent($blank)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $this->assertFalse($run->finished);
+        $this->assertSame(1.0, $run->completion?->costUsd);
     }
 
     /**
-     * A run the CLI reports as an error, one whose result cannot be read, or one with no key, did not complete
+     * A run the CLI reports as an error, one whose result cannot be read, or one with no key, did not finish; a paid one keeps its cost
      *
      * @return void
      */
     public function testErrorResultAndMissingKeyAreFailures(): void
     {
         $runner = new ScriptedProcessRunner();
-        $runner->output('claude', '{"type":"result","subtype":"error_max_turns","is_error":true}');
+        $runner->output('claude', '{"type":"result","subtype":"error_max_turns","is_error":true,"total_cost_usd":0.31,"usage":{"input_tokens":90000,"output_tokens":4000}}');
 
-        $this->assertNull($this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
+        // The turn limit: not finished, but its cost is kept for the spend caps
+        $run = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $this->assertFalse($run->finished);
+        $this->assertSame(0.31, $run->completion?->costUsd);
 
         $garbled = new ScriptedProcessRunner();
         $garbled->output('claude', 'not json');
-        $this->assertNull($this->agent($garbled)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
+        $run = $this->agent($garbled)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $this->assertFalse($run->finished);
+        $this->assertSame(1.0, $run->completion?->costUsd);
 
         $none = new ScriptedProcessRunner();
-        $this->assertNull((new ClaudeCliFixerAgent($this->createStub(Logger::class), $none, new JsonService($this->createStub(Logger::class)), ''))->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
+        $run  = (new ClaudeCliFixerAgent($this->createStub(Logger::class), $none, new JsonService($this->createStub(Logger::class)), ''))->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $this->assertFalse($run->finished);
+        $this->assertNull($run->completion);
         $this->assertSame([], $none->calls());
     }
 
@@ -166,9 +177,11 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $runner = new ScriptedProcessRunner();
         $runner->fail('claude');
 
-        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5', '', 'phpcs: line 9 too long');
+        $run = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5', '', 'phpcs: line 9 too long');
 
-        $this->assertNull($done);
+        // A non-zero exit with no readable result: not finished, a flat charge
+        $this->assertFalse($run->finished);
+        $this->assertSame(1.0, $run->completion?->costUsd);
         $this->assertStringContainsString('phpcs: line 9 too long', $runner->calls()[0]['argv'][2]);
     }
 

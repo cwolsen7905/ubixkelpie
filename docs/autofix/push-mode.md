@@ -36,12 +36,16 @@ guard. It can read the whole repository, so it can add the missing test or chang
 the finding is really about. What it changed is measured from git, checked by the safety
 policy (size, file count, protected paths, no deletes), posted as the proposal's diff and
 stored as exact-text edits (one whole-file edit per file, or a new file), so a round replays it
-like any other proposal. Its cost counts toward the project's spend cap; a run whose
-result cannot be read counts as failed, not as free.
+like any other proposal. Its cost counts toward the project's spend cap. The CLI prices runs
+from its own table, which may not know the model: a missing or zero cost is estimated from the
+token counts at a deliberately high rate ($10 in / $40 out per million tokens), and a run with
+no cost and no counts, or a result that cannot be read, counts as failed, never as free.
 
-The checkout keeps its git repository outside the work tree the agent edits, and every git
-call names it and turns fsmonitor and hooks off, so a `.git/config` the agent might be talked
-into writing is never read by Kelpie's own git commands.
+The checkout keeps its git repository outside the work tree, and every git call names it and
+turns fsmonitor and hooks off. While the agent runs, the work tree has no `.git` at all; after
+it, a clean pointer is put back (replacing anything the agent left there), so a project gate
+that calls git still works and a `.git/config` the agent might be talked into writing is never
+read.
 
 `KELPIE_FIXER_AGENT=off` on the worker switches the agent off; the propose model alone then
 proposes, as before.

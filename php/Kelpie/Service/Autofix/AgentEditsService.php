@@ -59,7 +59,20 @@ final class AgentEditsService
     {
         $directory = $checkout->directory();
 
-        $completion = $this->agent->fix($directory, $thread, $model, $context);
+        // The agent never sees the repository; the pointer comes back clean whatever it did
+        if (!$checkout->detachWorkTree()) {
+            return new ProposedEdits([], '', 'The checkout could not be prepared for the fixing agent.');
+        }
+
+        try {
+            $completion = $this->agent->fix($directory, $thread, $model, $context);
+        } finally {
+            $attached = $checkout->attachWorkTree();
+        }
+
+        if (!$attached) {
+            return new ProposedEdits([], '', 'The checkout could not be restored after the fixing agent.', $completion);
+        }
         if ($completion === null) {
             return new ProposedEdits([], '', 'The fixing agent did not finish.');
         }

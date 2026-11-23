@@ -47,7 +47,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         putenv('KELPIE_BOT_GITLAB_TOKEN=tok-not-real');
         putenv('VAULT_TOKEN=vault-not-real');
         $runner = new ScriptedProcessRunner();
-        $runner->output('claude', '{"type":"result","is_error":false,"result":"Fixed."}');
+        $runner->output('claude', '{"type":"result","is_error":false,"result":"Fixed.","total_cost_usd":0.01,"usage":{"input_tokens":10,"output_tokens":5}}');
 
         $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('Fix the typo.'), 'openai/gpt-5.5');
 
@@ -93,6 +93,27 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertSame(1200, $done->promptTokens);
         $this->assertSame(300, $done->completionTokens);
         $this->assertSame(0.042, $done->costUsd);
+    }
+
+    /**
+     * No cost from the CLI (it prices from its own table) is estimated high from all the tokens, cache reads included
+     *
+     * @return void
+     */
+    public function testMissingCostIsEstimatedFromTheTokens(): void
+    {
+        $runner = new ScriptedProcessRunner();
+        $runner->output('claude', '{"type":"result","is_error":false,"result":"Done.","total_cost_usd":0,"usage":{"input_tokens":200000,"cache_read_input_tokens":800000,"output_tokens":100000}}');
+
+        $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+
+        $this->assertNotNull($done);
+        $this->assertSame(1000000, $done->promptTokens);
+        $this->assertEqualsWithDelta(14.0, $done->costUsd, 0.0001);
+
+        $blank = new ScriptedProcessRunner();
+        $blank->output('claude', '{"type":"result","is_error":false,"result":"Done."}');
+        $this->assertNull($this->agent($blank)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
     }
 
     /**

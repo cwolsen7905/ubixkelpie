@@ -60,7 +60,7 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
             file_put_contents($dir . '/pkg/brief.go', "package pkg\n\n// Tools: push, gate\n");
             file_put_contents($dir . '/pkg/brief_test.go', "package pkg\n");
 
-            return "Added gate to the brief\nand a test.";
+            return file_exists($dir . '/.git') ? 'The agent could see .git.' : "Added gate to the brief\nand a test.";
         });
 
         $this->assertSame('', $edits->failure);
@@ -70,6 +70,7 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $this->assertSame('pkg/brief.go', $edits->edits[0]->file);
         $this->assertSame('pkg/brief_test.go', $edits->edits[1]->file);
         $this->assertSame('', $edits->edits[1]->old);
+        $this->assertTrue(is_file($this->checkout->directory() . '/.git'));
 
         $logger = $this->createStub(Logger::class);
         $stored = (new StoredEditsService($logger, new JsonService($logger)))->decode($edits->editsJson);

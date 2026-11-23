@@ -19,7 +19,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - It pushes without force: a branch that moved is rejected, never overwritten
  * - It refuses branch names that could be read as options or refspecs
  * - The credential script does not outlive the call, and close() removes the checkout
- * - The repository is outside the work tree: a `.git/config` planted in the work tree is never read
+ * - The repository is outside the work tree: a `.git/config` planted while detached is never read, and attaching puts a clean pointer back
  *
  * @coversDefaultClass \Kelpie\Sandbox\Checkout
  */
@@ -53,8 +53,8 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
 
         $checkout = $this->checkout();
         $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
-        $this->assertSame($this->sha, trim($this->git(dirname($checkout->directory()), ['--git-dir=git', 'rev-parse', 'HEAD'])));
-        $this->assertFileDoesNotExist($checkout->directory() . '/.git');
+        $this->assertSame($this->sha, trim($this->git($checkout->directory(), ['rev-parse', 'HEAD'])));
+        $this->assertDirectoryExists(dirname($checkout->directory()) . '/git');
         $checkout->close();
     }
 
@@ -69,6 +69,8 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
         $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
         $dir    = $checkout->directory();
         $marker = $this->base . '/pwned';
+        $this->assertTrue($checkout->detachWorkTree());
+        $this->assertFileDoesNotExist($dir . '/.git');
         mkdir($dir . '/.git/hooks', 0700, true);
         file_put_contents($dir . '/.git/config', "[core]\n\tfsmonitor = touch " . $marker . "\n\thooksPath = .git/hooks\n");
         file_put_contents($dir . '/a.txt', "one\ntwo\n");
@@ -79,6 +81,12 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
 
         $this->assertNotNull($changes);
         $this->assertSame(['a.txt'], $changes->paths);
+        $this->assertFileDoesNotExist($marker);
+
+        // Put back clean: a gate that calls git finds the real repository, not the planted one
+        $this->assertTrue($checkout->attachWorkTree());
+        $this->assertTrue(is_file($dir . '/.git'));
+        $this->assertSame('x', trim($this->git($dir, ['log', '-1', '--format=%s'])));
         $this->assertFileDoesNotExist($marker);
         $checkout->close();
     }

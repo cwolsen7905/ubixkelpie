@@ -18,9 +18,10 @@ use Psr\Log\LoggerInterface as Logger;
  * the server. Every git call gets an exact, minimal environment.
  *
  * The repository lives outside the work tree (`<root>/git`, the work tree is `<root>/repo`) and every git call names
- * both, so nothing written in the work tree can become git configuration: the fixing agent edits the work tree, and a
- * `.git/config` it planted there (an fsmonitor, a pager, a hook path) is never read. Each call also turns fsmonitor
- * and hooks off outright.
+ * both, so nothing written in the work tree can become git configuration for Kelpie's own calls. Each call also turns
+ * fsmonitor and hooks off outright. While the fixing agent runs, the work tree's `.git` pointer is taken away
+ * (`detachWorkTree()`), so the agent sees no repository at all; `attachWorkTree()` puts back a clean pointer,
+ * replacing whatever the agent left at `.git`, so a project gate that calls git still finds the repository.
  *
  * @see \Kelpie\Tests\Sandbox\CheckoutTest PHPUnit test case
  */
@@ -90,11 +91,7 @@ final class Checkout
             return false;
         }
 
-        // The pointer file is not needed once every call names the repository, and the work tree is the agent's
         $this->cloned = true;
-        if (is_file($root . '/repo/.git') && !unlink($root . '/repo/.git')) {
-            return false;
-        }
 
         return $this->git(['checkout', '--detach', $sha])->exitCode === 0 && trim($this->git(['rev-parse', 'HEAD'])->stdout) === $sha;
     }
@@ -161,6 +158,37 @@ final class Checkout
         $result = $this->git(['diff', '--cached', '--no-color', '--no-ext-diff', '-M']);
 
         return $result->exitCode === 0 ? $result->stdout : null;
+    }
+
+    /**
+     * Take the work tree's `.git` pointer away, so the repository cannot be found from the work tree
+     *
+     * @return bool Whether there is no `.git` in the work tree now
+     */
+    public function detachWorkTree(): bool
+    {
+        $pointer = $this->directory() . '/.git';
+
+        return !is_file($pointer) || unlink($pointer);
+    }
+
+    /**
+     * Put a clean `.git` pointer back in the work tree, replacing anything at that path
+     *
+     * @return bool Whether the pointer is in place
+     */
+    public function attachWorkTree(): bool
+    {
+        if ($this->root === '') {
+            return false;
+        }
+
+        $pointer = $this->directory() . '/.git';
+        if (file_exists($pointer) || is_link($pointer)) {
+            $this->runner->run(['rm', '-rf', '--', $pointer], $this->root, $this->baseEnv(), 60);
+        }
+
+        return !file_exists($pointer) && !is_link($pointer) && file_put_contents($pointer, 'gitdir: ' . $this->root . "/git\n") !== false;
     }
 
     /**

@@ -19,13 +19,22 @@ use Ubix\Service\JsonService;
  * any file in it, but runs nothing. The environment is exact: PATH, a throwaway HOME, the model credential (OpenRouter,
  * via Anthropic-compatible variables) and the model for every role the CLI has, so no call goes to another model. No
  * GitLab or Vault values reach it. The thread text is untrusted input and is fenced as data. The CLI's JSON result gives
- * the closing words and the cost, which the spend caps count.
+ * the closing words and the cost, which the spend caps count; when the CLI reports no cost (it prices from its own
+ * table) the cost is estimated from the token counts at a deliberately high rate, and with no counts either the run fails.
  *
  * @see \Kelpie\Tests\Agent\ClaudeCliFixerAgentTest PHPUnit test case
  */
 final class ClaudeCliFixerAgent implements FixerAgent
 {
     private const int MAX_TURNS = 30;
+
+    /**
+     * USD per million tokens, used only when the CLI reports no cost: set above what the propose models cost, so an
+     * estimate errs toward the spend cap holding sooner
+     */
+    private const float ESTIMATE_INPUT_USD_PER_MTOK = 10.0;
+
+    private const float ESTIMATE_OUTPUT_USD_PER_MTOK = 40.0;
 
     /**
      * Constructor
@@ -119,16 +128,38 @@ final class ClaudeCliFixerAgent implements FixerAgent
             return null;
         }
 
-        $usage = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
-        $cost  = $decoded['total_cost_usd'] ?? null;
+        $usage  = is_array($decoded['usage'] ?? null) ? $decoded['usage'] : [];
+        $input  = $this->count($usage, 'input_tokens') + $this->count($usage, 'cache_read_input_tokens') + $this->count($usage, 'cache_creation_input_tokens');
+        $output = $this->count($usage, 'output_tokens');
+        $cost   = $decoded['total_cost_usd'] ?? null;
+        $cost   = is_int($cost) || is_float($cost) ? (float) $cost : 0.0;
 
-        return new Completion(
-            is_string($decoded['result'] ?? null) ? trim($decoded['result']) : '',
-            $model,
-            is_int($usage['input_tokens'] ?? null) ? $usage['input_tokens'] : 0,
-            is_int($usage['output_tokens'] ?? null) ? $usage['output_tokens'] : 0,
-            is_int($cost) || is_float($cost) ? (float) $cost : null,
-        );
+        if ($cost <= 0.0) {
+            if ($input + $output === 0) {
+                $this->logger->warning('Autofix agent: no cost and no token counts, so the run counts as failed', ['model' => $model]);
+
+                return null;
+            }
+
+            // The CLI prices from its own table, which need not know this model: estimate high rather than count it free
+            $cost = ($input * self::ESTIMATE_INPUT_USD_PER_MTOK + $output * self::ESTIMATE_OUTPUT_USD_PER_MTOK) / 1000000;
+            $this->logger->info('Autofix agent: the CLI gave no cost, so it is estimated from the tokens', ['cost_usd' => $cost, 'model' => $model]);
+        }
+
+        return new Completion(is_string($decoded['result'] ?? null) ? trim($decoded['result']) : '', $model, $input, $output, $cost);
+    }
+
+    /**
+     * A token count from the CLI's usage block
+     *
+     * @param array<mixed> $usage The usage block
+     * @param string       $key   The count's key
+     *
+     * @return int 0 when absent
+     */
+    private function count(array $usage, string $key): int
+    {
+        return is_int($usage[$key] ?? null) ? $usage[$key] : 0;
     }
 
     /**

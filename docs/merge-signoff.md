@@ -100,47 +100,6 @@ paid-tier GitLab feature. Confirm the instance's tier; without it, add the hook 
 `GITLAB_API_TOKEN` accepts one group-scoped token as the fallback; when it is unset,
 `KELPIE_BOT_GITLAB_TOKEN` is used instead.
 
-## Where it runs
-
-KelpieApi deploys to three environments, one per branch, and promotes automatically:
-
-| Branch | Namespace | Host | Vault path / role |
-| --- | --- | --- | --- |
-| `dev` | `kelpie-dev` | `kelpie.dev.ubixsys.com` | `kelpie/dev/app` / `kelpie-dev` |
-| `staging` | `kelpie-staging` | `kelpie.staging.ubixsys.com` | `kelpie/staging/app` / `kelpie-staging` |
-| `main` | `kelpie-prod` | `kelpie.prod.ubixsys.com` | `kelpie/prod/app` / `kelpie-prod` |
-
-**Prod is the one GitLab webhooks point at**: `https://kelpie.prod.ubixsys.com/gitlab/webhook`.
-Each hostname is covered by the `tls-wildcard-ubixsys-{dev,staging,prod}` wildcard certificates.
-
-The four variables in *Configuration* live in uBixVault at `<vault path>` above (read-only for the
-pod's `kelpie-<env>` role through `VAULT_APP_KV_PATH` in `app/KelpieApi/<env>-deploy.yaml`);
-nothing is committed. uBixVault fails closed on a missing key, so the pod never becomes ready
-without them. **Unverified until the first deploy:** that the pinned uBixCore exports every key
-at that path as an environment variable (what `getenv()` in `Dependencies.php` needs), as it does
-for kitg.
-
-Pipeline (`.gitlab-ci.yml`, uBixCore's template): `build -> test -> migrate -> deploy -> promote`.
-A green `deploy-dev` runs `promote-to-staging`; a green `deploy-staging` runs `promote-to-prod`,
-and `main` then waits for the manual `migrate-apply-prod` before `deploy-prod`. uBixCore's
-`ci/bin/promote.sh` fast-forwards only and never forces; it needs the project CI variable
-`GITLAB_PROMOTE_TOKEN`. `ci/bin/deploy.sh` waits for the rollout, so a pod that cannot read its
-secrets fails the deploy and stops promotion.
-
-### Outside this repo (kubernetes repo / GitLab) before the first deploy
-
-- Namespaces `kelpie-{dev,staging,prod}`, with the `regcred` pull secret and the
-  `tls-wildcard-ubixsys-{dev,staging,prod}` secrets replicated into them.
-- uBixVault roles `kelpie-{dev,staging,prod}` bound to those namespaces (`configure.sh` with
-  `APP_NAMESPACES`) and the KV secrets at the paths above (Vault: dev and staging use
-  `vault.dev`, prod uses `vault.prod`; prod holds production only).
-- DNS for the three hostnames, if the wildcard record does not already cover them.
-- GitLab: branches `staging` and `main` (they do not exist yet), protected, push allowed for
-  the promote token's user; CI variable `GITLAB_PROMOTE_TOKEN`; `ubixsys/ubixkelpie` readable
-  with the pull secret.
-- The runner's `~/.kube/devstageconfig` (or `KELPIE_KUBECONFIG`) must be able to apply into
-  the three namespaces.
-
 ## Requires
 
 uBixCore v0.47.0 or later: its `ApprovalWebhookService` handles the 👍 emoji, the fallback

@@ -33,7 +33,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * PHPUnit test case for \Kelpie\Service\Autofix\FixerRunnerBuilderService
  *
  * What must hold:
- * - It builds a runner for each project, each a new object
+ * - It builds a runner for each project, each a new object, with the fixing agent when it is switched on, running nothing
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\FixerRunnerBuilderService
  */
@@ -78,5 +78,19 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
 
         $this->assertNotSame($runners->make(true, 'ubixsys/ubixkelpie'), $runners->make(true, 'ubixsys/ubixkelpie'));
         $this->assertNotSame($runners->make(false, 'a/b'), $runners->make(true, 'a/b'));
+
+        $withAgent = new FixerRunnerBuilderService(
+            $logger,
+            new GitlabClientFactory($logger, $http, $factory, $factory, $json, $settings),
+            $triage,
+            $jobs,
+            $runner,
+            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
+            new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class)),
+            new SpendCapService($logger, new InMemoryProjects(), new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class))),
+            new AutofixSettings('https://gitlab.test/api/v4', 'tok-bot', gitBaseUrl: 'https://gitlab.test', openRouterKey: 'or-not-real', agentEnabled: true),
+        );
+        $this->assertNotSame($withAgent->make(true, 'a/b'), $withAgent->make(true, 'a/b'));
+        $this->assertSame([], $runner->calls());
     }
 }

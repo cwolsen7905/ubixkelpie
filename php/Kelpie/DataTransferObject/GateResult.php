@@ -19,11 +19,15 @@ final readonly class GateResult implements Dto
      * @param bool    $passed     Whether every step passed
      * @param ?string $failedStep The first failed step, null when it passed
      * @param string  $output     The failed step's output (tail), empty when it passed
+     * @param string  $ran        What was run, for the person (e.g. "`make check` passed."); empty when not said
+     * @param bool    $local      False when nothing ran here because the project's own pipeline is its gate
      */
     public function __construct(
         public bool $passed,
         public ?string $failedStep = null,
         public string $output = '',
+        public string $ran = '',
+        public bool $local = true,
     ) {
     }
 }

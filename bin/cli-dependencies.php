@@ -47,8 +47,7 @@ return static function (): Container {
     $container->set(
         FixerAgent::class,
         autowire(ClaudeCliFixerAgent::class)
-            ->constructorParameter('apiKey', (string) getenv('OPENROUTER_API_KEY'))
-            ->constructorParameter('model', (string) (getenv('KELPIE_FIXER_MODEL') ?: AutofixSettings::DEFAULT_MODEL)),
+            ->constructorParameter('apiKey', (string) getenv('OPENROUTER_API_KEY')),
     );
 
     // A model call takes far longer than the shared client's 5 s default (which GitLab keeps), so

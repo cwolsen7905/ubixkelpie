@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Kelpie\DataTransferObject\ChangeSet;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\DataTransferObject\FixProposal;
+use Kelpie\DataTransferObject\ProposedEdits;
 use Kelpie\DataTransferObject\SpendCheck;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
@@ -34,7 +35,9 @@ use Throwable;
  * Propose mode for one thread: triage it, then reply with a diff, a dismissal, a deferral or a reason it needs a person
  *
  * Off unless `$enabled` (`KELPIE_AUTOFIX_ENABLED=true`). For a thread triaged `fix` the propose model returns exact-text
- * edits, Kelpie applies them in a scratch checkout at the head it read, and the reply carries the diff git writes. A
+ * edits, Kelpie applies them in a scratch checkout at the head it read, and the reply carries the diff git writes. The
+ * propose model sees only the thread's file; when it finds no edit, or its edits do not apply, the fixing agent (when
+ * wired) works in the same checkout with the whole repository to read, and its change is measured and checked the same way. A
  * dismissal or a deferral is a reply with the reason. Nothing is pushed and nothing is resolved by a proposal. A head
  * that moved, a closed MR or a thread already answered supersedes the job (this job only, the one the worker holds).
  * Every thread it answers gets one row in the outcome table.
@@ -72,6 +75,7 @@ final class FixerRunnerService
      * @param ThreadOutcomeWriter $outcomes      The outcome record
      * @param SpendCapService     $spendCaps     The daily spend caps
      * @param string              $remoteUrl     The git URL of the project
+     * @param ?AgentEditsService  $agentEdits    The fixing agent, tried when the propose model has no usable edit; null for none
      */
     public function __construct(
         private readonly Logger $logger,
@@ -91,6 +95,7 @@ final class FixerRunnerService
         private readonly ThreadOutcomeWriter $outcomes,
         private readonly SpendCapService $spendCaps,
         private readonly string $remoteUrl,
+        private readonly ?AgentEditsService $agentEdits = null,
     ) {
     }
 
@@ -250,13 +255,23 @@ final class FixerRunnerService
 
         $edits      = $this->propose->propose($thread, $this->checkout->directory(), $verdict->reason, $steering, $projectPath);
         $this->paid = $edits->completion;
-        if ($edits->failure !== '') {
-            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $edits->failure, $edits->completion);
+        $failure    = $edits->failure;
+        if ($failure === '') {
+            $rejected = $this->editApplier->apply($this->checkout->directory(), $edits->edits);
+            $failure  = $rejected === null ? '' : 'The edits I got did not apply exactly: ' . $rejected;
         }
 
-        $rejected = $this->editApplier->apply($this->checkout->directory(), $edits->edits);
-        if ($rejected !== null) {
-            return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, 'The edits I got did not apply exactly: ' . $rejected, $edits->completion);
+        if ($failure !== '') {
+            $agent = $this->agentFix($thread, $projectPath, $verdict, $steering, $edits->completion);
+            if ($agent === null) {
+                return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $failure, $edits->completion);
+            }
+
+            $edits      = $agent;
+            $this->paid = $agent->completion;
+            if ($agent->failure !== '') {
+                return $this->refused($project, $projectPath, $mrIid, $id, $sha, $verdict, FixOutcome::EditsRejected, $failure . ' ' . $agent->failure, $agent->completion);
+            }
         }
 
         $changes = $this->checkout->stageAndMeasure();
@@ -297,6 +312,56 @@ final class FixerRunnerService
             new ThreadResult(TriageStatus::Proposed, 'proposed a change to `' . implode('`, `', $changes->paths) . '`'),
             $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Proposed, $summary, $edits->completion, $note, $edits->editsJson, $diff),
         ];
+    }
+
+    /**
+     * The fixing agent's go at a thread the propose model could not edit, in the same checkout
+     *
+     * Not tried without an agent, or when the project's code may not go to the propose model, or that model is in the
+     * review's family: the agent runs on the same model, under the same rules.
+     *
+     * @param Thread        $thread      The thread
+     * @param string        $projectPath The project path
+     * @param TriageVerdict $verdict     Triage's verdict
+     * @param string        $steering    What the author or a maintainer asked for
+     * @param ?Completion   $propose     The propose model call, already paid
+     *
+     * @return ?ProposedEdits The agent's edits or why there are none, with both calls' cost; null when not tried
+     */
+    private function agentFix(Thread $thread, string $projectPath, TriageVerdict $verdict, string $steering, ?Completion $propose): ?ProposedEdits
+    {
+        if ($this->agentEdits === null) {
+            return null;
+        }
+
+        $choice = $this->propose->choice($projectPath);
+        if ($choice->refusal !== '' || $this->families->sameAsReview($choice->model)) {
+            return null;
+        }
+
+        $context = 'Triage: ' . $verdict->reason . ($steering === '' ? '' : "\nThe author or a maintainer asked: " . $steering);
+        $edits   = $this->agentEdits->edit($this->checkout, $thread, $choice->model, $context);
+
+        return new ProposedEdits($edits->edits, $edits->summary, $edits->failure, $this->combined($propose, $edits->completion), $edits->editsJson);
+    }
+
+    /**
+     * Two model calls as one for the record: the later call's model, both calls' tokens and cost
+     *
+     * @param ?Completion $first  The first call
+     * @param ?Completion $second The second call
+     *
+     * @return ?Completion
+     */
+    private function combined(?Completion $first, ?Completion $second): ?Completion
+    {
+        if ($first === null || $second === null) {
+            return $second ?? $first;
+        }
+
+        $cost = $first->costUsd === null && $second->costUsd === null ? null : ($first->costUsd ?? 0.0) + ($second->costUsd ?? 0.0);
+
+        return new Completion($second->text, $second->model, $first->promptTokens + $second->promptTokens, $first->completionTokens + $second->completionTokens, $cost);
     }
 
     /**

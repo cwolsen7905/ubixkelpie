@@ -212,19 +212,21 @@ final class ReplyService
      * @param string $commitUrl    The commit's web URL, empty when unknown
      * @param string $summary      One line on what changed
      * @param bool   $resolve      Whether to resolve the thread after the reply
+     * @param string $gate         What the gate did, as a sentence
      *
      * @return ResponseOutcome Replied or Failed
      */
-    public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary, bool $resolve = false): ResponseOutcome
+    public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary, bool $resolve = false, string $gate = 'phpcs, phpstan and phpunit passed.'): ResponseOutcome
     {
         $short   = '`' . mb_substr($commit, 0, 12) . '`';
         $where   = $commitUrl === '' ? $short : '[' . $short . '](' . $this->clean($commitUrl) . ')';
         $summary = $this->oneLine($summary);
 
         $body = sprintf(
-            "Fixed: %s — %s\n\nGate: phpcs, phpstan and phpunit passed. %s\n\n<!-- kelpie:reply thread=%s class=%s -->",
+            "Fixed: %s — %s\n\nGate: %s %s\n\n<!-- kelpie:reply thread=%s class=%s -->",
             $where,
             $summary === '' ? 'see the commit.' : $summary,
+            $this->oneLine($gate),
             $resolve ? 'Resolving this thread; reopen it if I got it wrong.' : 'Leaving this thread open for you to confirm.',
             $discussionId,
             TriageClass::Fix->value,

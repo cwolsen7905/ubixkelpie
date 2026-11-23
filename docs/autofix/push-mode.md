@@ -19,11 +19,46 @@ maintainer's decisions, made per project.
 
 ## What a round does
 
-All the fixes go to the push round service: edits only in files the MR already changes, one
-checkout, the project gate on the whole result, one `fix(review)` commit with a `Thread:` line
-per thread, one plain push (never forced). A moved head or a rejected push changes nothing.
+All the fixes go to the push round service: edits only in files the MR already changes, test
+files, and files the thread's finding names by path (see below); one checkout, the project's gate
+on the whole result, one `fix(review)` commit with a `Thread:` line per thread, one plain push
+(never forced). A moved head or a rejected push changes nothing.
 Each pushed thread gets `Fixed:` with the commit and is resolved only if Kelpie opened it. The
 MR label becomes `triage: pushed`.
+
+## Where a fix comes from: the propose model, then the agent
+
+The propose model is one call that sees only the file the thread is on. When it finds no edit,
+or its edits do not apply, Kelpie runs the fixing agent in the same scratch checkout: the
+`claude` CLI, headless, with Read, Grep, Glob, Edit and Write only (no shell, no git, no
+network beyond the model), on the same model as the propose step and under the same family
+guard. It can read the whole repository, so it can add the missing test or change the file
+the finding is really about. What it changed is measured from git, checked by the safety
+policy (size, file count, protected paths, no deletes), posted as the proposal's diff and
+stored as exact-text edits (one whole-file edit per file, or a new file), so a round replays it
+like any other proposal. Its cost counts toward the project's spend cap.
+
+`KELPIE_FIXER_AGENT=off` on the worker switches the agent off; the propose model alone then
+proposes, as before.
+
+## Which files a fix may touch
+
+- a file the MR already changes;
+- a test file (`tests/` or `test/` folders, `_test.go`, `Test.php`, `.test.`/`.spec.` JS and TS
+  files, pytest files), new or existing;
+- a file the thread's opening note names by its path, such as `internal/dispatch/adapters.go`.
+
+Anything else is left out of the round and the thread says why. The safety policy's protected
+paths (CI, migrations, secrets, lock files, tool configuration, manifests) are refused whatever
+the list says.
+
+## The gate
+
+The round runs the project's gate: its `gate_command` (from the `projects` row), else
+`make check` when the Makefile has a `check` target, else Kelpie's PHP gate. The value `ci`
+runs nothing here: it is for a project whose toolchain Kelpie's image does not have (Go, for
+ubixshepherd). Its merge request pipeline then gates the pushed commit, and every `Fixed:`
+reply says the gate was not run here. A merge still needs a person's approval.
 
 ## Outcomes
 

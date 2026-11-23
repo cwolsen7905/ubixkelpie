@@ -11,8 +11,9 @@ use Psr\Log\LoggerInterface as Logger;
  * Applies a model's exact-text edits to a scratch checkout, or refuses all of them
  *
  * An edit stands only if its file is a plain file inside the checkout (not under `.git`, no `..`, no symlink out),
- * its `old` text is not empty and occurs exactly once, and it changes something. Edits apply in order, each to the
- * text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
+ * its `old` text is not empty and occurs exactly once, and it changes something. An edit with an empty `old` creates
+ * a file instead: only one that does not exist yet, in a folder that does, with some text. Edits apply in order, each
+ * to the text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
  * does not exist.
  *
  * @see \Kelpie\Tests\Service\Autofix\EditApplyServiceTest PHPUnit test case
@@ -51,7 +52,21 @@ final class EditApplyService
 
         $texts = [];
         foreach ($edits as $number => $edit) {
-            $path = $this->resolve($root, $edit->file);
+            if ($edit->old === '' && $edit->new !== '' && $this->resolve($root, $edit->file) === null) {
+                $path = $this->newFile($root, $edit->file);
+                if ($path === null || isset($texts[$path])) {
+                    return sprintf('Edit %d creates a file that cannot be made in the repository (`%s`).', $number + 1, $edit->file);
+                }
+
+                $texts[$path] = $edit->new;
+
+                continue;
+            }
+
+            // A file an earlier edit of this list creates is not on disk yet
+            $path    = $this->resolve($root, $edit->file);
+            $created = $path === null ? $this->newFile($root, $edit->file) : null;
+            $path  ??= $created !== null && isset($texts[$created]) ? $created : null;
             if ($path === null) {
                 return sprintf('Edit %d names a file that is not a plain file in the repository (`%s`).', $number + 1, $edit->file);
             }
@@ -81,6 +96,47 @@ final class EditApplyService
     }
 
     /**
+     * Where a new file would go: nothing there yet, not even a link, in an existing folder inside the checkout
+     *
+     * @param string $root The checkout's real path
+     * @param string $file The repo-relative path the model gave
+     *
+     * @return ?string
+     */
+    private function newFile(string $root, string $file): ?string
+    {
+        if (!$this->plainRelative($file)) {
+            return null;
+        }
+
+        $folder = realpath(dirname($root . '/' . $file));
+        if ($folder === false || !is_dir($folder) || ($folder !== $root && !str_starts_with($folder, $root . '/'))) {
+            return null;
+        }
+
+        $relative = ltrim(substr($folder, strlen($root)), '/');
+        if ($relative === '.git' || str_starts_with($relative, '.git/')) {
+            return null;
+        }
+
+        $path = $folder . '/' . basename($file);
+
+        return file_exists($path) || is_link($path) ? null : $path;
+    }
+
+    /**
+     * Whether a repo-relative path the model gave is plain: not empty, not absolute, no `..`, no NUL or backslash
+     *
+     * @param string $file The path
+     *
+     * @return bool
+     */
+    private function plainRelative(string $file): bool
+    {
+        return $file !== '' && !str_contains($file, "\0") && !str_starts_with($file, '/') && !str_contains($file, '\\') && !in_array('..', explode('/', $file), true);
+    }
+
+    /**
      * The real path of a repo-relative file, only if it is an existing plain file inside the checkout
      *
      * @param string $root The checkout's real path
@@ -90,7 +146,7 @@ final class EditApplyService
      */
     private function resolve(string $root, string $file): ?string
     {
-        if ($file === '' || str_contains($file, "\0") || str_starts_with($file, '/') || str_contains($file, '\\') || in_array('..', explode('/', $file), true)) {
+        if (!$this->plainRelative($file)) {
             return null;
         }
 

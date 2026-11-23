@@ -10,15 +10,17 @@ use Kelpie\GitLab\DiscussionWriter;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
-use Kelpie\Sandbox\GateRunner;
 use Psr\Log\LoggerInterface as Logger;
 use Throwable;
 
 /**
  * Pushes the fixes of one review round to an MR's source branch: one commit, one plain push
  *
- * Every fix is applied in one scratch checkout at the head it was made at. A fix that edits a file the MR does not
- * already change is left out, and so is one whose edits no longer apply; the rest go through the project gate together.
+ * Every fix is applied in one scratch checkout at the head it was made at. A fix may edit the files the MR already
+ * changes, test files, and files its thread names by path (a finding that says "the brief in `internal/x.go` was not
+ * updated"); a fix that edits any other file is left out, and so is one whose edits no longer apply. The rest go
+ * through the project's gate together (its `gate_command`, `make check`, or the PHP gate; `ci` leaves it to the merge
+ * request pipeline, and the replies say so).
  * A green gate gives one `fix(review)` commit with a `Thread:` line for each thread, pushed once and never forced. Each
  * fixed thread then gets a `Fixed:` reply with the commit, and is resolved only when Kelpie opened it. A red gate, a
  * moved head or a rejected push leaves every thread as it was. An automatic round also has a size cap: one that changes
@@ -31,17 +33,23 @@ final class PushRoundService
     private const array PROTECTED_BRANCHES = ['dev', 'staging', 'main', 'master'];
 
     /**
+     * Test files by the usual conventions: a tests folder, Go's `_test.go`, PHPUnit's `Test.php`, JS/TS `.test.`/`.spec.`, pytest
+     */
+    private const string TEST_FILE = '#(^|/)(tests?|__tests__|spec)/|_test\.go$|Test\.php$|\.(test|spec)\.[cm]?[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$#';
+
+    /**
      * Constructor
      *
-     * @param Logger              $logger    Logger
-     * @param DiscussionWriter    $writer    GitLab, as the bot
-     * @param ReplyService        $replies   Posts the replies
-     * @param EditApplyService    $editApply Applies the edits
-     * @param Checkout            $checkout  The scratch checkout and the push
-     * @param GateRunner          $gate      Runs the project gate on the result
-     * @param ThreadOutcomeWriter $outcomes  Where each proposal's fate is written
-     * @param AutofixJobWriter    $jobs      Where the fix commit is noted on the job
-     * @param string              $remoteUrl The project's git remote
+     * @param Logger              $logger      Logger
+     * @param DiscussionWriter    $writer      GitLab, as the bot
+     * @param ReplyService        $replies     Posts the replies
+     * @param EditApplyService    $editApply   Applies the edits
+     * @param Checkout            $checkout    The scratch checkout and the push
+     * @param IssueGateService    $gate        Runs the project's gate on the result
+     * @param ThreadOutcomeWriter $outcomes    Where each proposal's fate is written
+     * @param AutofixJobWriter    $jobs        Where the fix commit is noted on the job
+     * @param string              $remoteUrl   The project's git remote
+     * @param ?string             $gateCommand The project's own gate command, null for the default
      */
     public function __construct(
         private readonly Logger $logger,
@@ -49,10 +57,11 @@ final class PushRoundService
         private readonly ReplyService $replies,
         private readonly EditApplyService $editApply,
         private readonly Checkout $checkout,
-        private readonly GateRunner $gate,
+        private readonly IssueGateService $gate,
         private readonly ThreadOutcomeWriter $outcomes,
         private readonly AutofixJobWriter $jobs,
         private readonly string $remoteUrl,
+        private readonly ?string $gateCommand = null,
     ) {
     }
 
@@ -158,9 +167,9 @@ final class PushRoundService
                 continue;
             }
 
-            $outside = $root === false ? $fix['edits'][0]->file : $this->outside($root, $changed, $fix['edits']);
+            $outside = $root === false ? $fix['edits'][0]->file : $this->outside($root, $changed, $fix['edits'], $this->openingNote($project, $mrIid, $fix['discussionId']));
             if ($outside !== null) {
-                $this->fail($project, $projectPath, $mrIid, $fix['discussionId'], 'This fix edits `' . $outside . '`, which this merge request does not change, so I did not push it. Nothing was changed; apply the diff above by hand if you want it.');
+                $this->fail($project, $projectPath, $mrIid, $fix['discussionId'], 'This fix edits `' . $outside . '`, which this merge request does not change, is not a test and is not named in the thread, so I did not push it. Nothing was changed; apply the diff above by hand if you want it.');
 
                 continue;
             }
@@ -197,7 +206,7 @@ final class PushRoundService
         }
 
         try {
-            $gate = $this->gate->run($this->checkout->directory());
+            $gate = $this->gate->run($this->checkout->directory(), $this->gateCommand);
         } catch (Throwable $e) {
             $this->logger->error('Push round: gate crashed', ['error' => $e->getMessage(), 'mr_iid' => $mrIid]);
 
@@ -235,40 +244,75 @@ final class PushRoundService
 
             // Pushed, gate green: resolve only a thread Kelpie opened itself, never a person's.
             $notes = $this->writer->notes($project, $mrIid, $id);
-            $this->replies->fixed($project, $mrIid, $id, $commit, $url, $fix['summary'], $notes !== null && $this->replies->openedByKelpie($notes, $id));
+            $this->replies->fixed($project, $mrIid, $id, $commit, $url, $fix['summary'], $notes !== null && $this->replies->openedByKelpie($notes, $id), $gate->ran === '' ? 'passed.' : $gate->ran);
         }
 
         return null;
     }
 
     /**
-     * The first edited file the MR does not already change
+     * The thread's opening note, where a finding names the files it is about
      *
-     * The path is checked as written and again where it really lands: an edit to a symlink the MR changes would
-     * rewrite the file it points at, which the MR may not change, or one outside the checkout.
+     * @param string $project      The project ID
+     * @param int    $mrIid        The MR IID
+     * @param string $discussionId The thread
+     *
+     * @return string Empty when the thread cannot be read
+     */
+    private function openingNote(string $project, int $mrIid, string $discussionId): string
+    {
+        $notes = $this->writer->notes($project, $mrIid, $discussionId);
+
+        return $notes === null || $notes === [] ? '' : $notes[0]->body;
+    }
+
+    /**
+     * The first edited file a fix may not touch: not changed by the MR, not a test, not named in the thread
+     *
+     * The path is checked as written and again where it really lands: an edit to a symlink would rewrite the file it
+     * points at, which may not be one the fix may touch, or be outside the checkout.
      *
      * @param string         $root    The checkout's real path
      * @param string[]       $changed The paths the MR changes
      * @param ProposedEdit[] $edits   One fix's edits
+     * @param string         $finding The thread's opening note
      *
-     * @return ?string Null when every edit lands in a changed file
+     * @return ?string Null when every edit lands in a file the fix may touch
      */
-    private function outside(string $root, array $changed, array $edits): ?string
+    private function outside(string $root, array $changed, array $edits, string $finding): ?string
     {
         foreach ($edits as $edit) {
             $file = (string) preg_replace('#^(\./)+#', '', $edit->file);
-            if (!in_array($file, $changed, true)) {
+            if (!$this->mayTouch($file, $changed, $finding)) {
                 return $edit->file;
             }
 
-            // A file that does not exist is refused later by the edit step
+            // A file that does not exist yet is created by the edit step, which refuses one that cannot be made
             $real = realpath($root . '/' . $file);
-            if ($real !== false && (!str_starts_with($real, $root . '/') || !in_array(substr($real, strlen($root) + 1), $changed, true))) {
+            if ($real !== false && (!str_starts_with($real, $root . '/') || !$this->mayTouch(substr($real, strlen($root) + 1), $changed, $finding))) {
                 return $edit->file;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Whether a fix may touch a repo-relative file: one the MR changes, a test, or one the thread names by path
+     *
+     * @param string   $file    The path
+     * @param string[] $changed The paths the MR changes
+     * @param string   $finding The thread's opening note
+     *
+     * @return bool
+     */
+    private function mayTouch(string $file, array $changed, string $finding): bool
+    {
+        if (in_array($file, $changed, true) || preg_match(self::TEST_FILE, $file) === 1) {
+            return true;
+        }
+
+        return str_contains($file, '/') && preg_match('#(^|[^\w./-])' . preg_quote($file, '#') . '($|[^\w/-])#', $finding) === 1;
     }
 
     /**

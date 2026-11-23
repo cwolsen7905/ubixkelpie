@@ -92,6 +92,26 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
     }
 
     /**
+     * A file's text at the sha survives edits in the working tree; a new file has none
+     *
+     * @return void
+     */
+    public function testOriginalIsTheTextAtTheSha(): void
+    {
+        $checkout = $this->checkout();
+        $checkout->open($this->remote, 'feat/x', $this->sha);
+        $dir = $checkout->directory();
+        file_put_contents($dir . '/a.txt', "changed\n");
+        file_put_contents($dir . '/new.txt', "x\n");
+        $checkout->stageAndMeasure();
+
+        $this->assertSame("one\n", $checkout->original('a.txt'));
+        $this->assertSame('', $checkout->original('new.txt'));
+        $this->assertNull($checkout->original('--help'));
+        $checkout->close();
+    }
+
+    /**
      * The staged diff is what git writes, and it applies to the sha the checkout was made at
      *
      * @return void

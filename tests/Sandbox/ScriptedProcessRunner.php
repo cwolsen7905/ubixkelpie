@@ -27,6 +27,26 @@ final class ScriptedProcessRunner implements ProcessRunner
     private array $failures = [];
 
     /**
+     * What each program (argv[0]) prints on success
+     *
+     * @var array<string, string>
+     */
+    private array $outputs = [];
+
+    /**
+     * Make a program print this on stdout when it succeeds
+     *
+     * @param string $program The program, argv[0]
+     * @param string $stdout  What it prints
+     *
+     * @return void
+     */
+    public function output(string $program, string $stdout): void
+    {
+        $this->outputs[$program] = $stdout;
+    }
+
+    /**
      * Make the next calls of a program exit 2 with "<program> failed" on stdout
      *
      * @param string $program The program, argv[0]
@@ -63,6 +83,6 @@ final class ScriptedProcessRunner implements ProcessRunner
             return new ProcessResult(2, $program . ' failed: line 1', '');
         }
 
-        return new ProcessResult(0, '', '');
+        return new ProcessResult(0, $this->outputs[$program] ?? '', '');
     }
 }

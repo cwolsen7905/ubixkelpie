@@ -53,6 +53,7 @@ final class AutofixSettingsService
             botUsername:   (string) (getenv('KELPIE_BOT_USERNAME') ?: AutofixSettings::DEFAULT_BOT),
             skipAuthors:   $this->csv((string) getenv('KELPIE_SKIP_AUTHORS')),
             skipBranches:  $this->csv((string) getenv('KELPIE_SKIP_BRANCHES')),
+            agentEnabled:  getenv('KELPIE_FIXER_AGENT') !== 'off',
         );
     }
 

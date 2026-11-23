@@ -39,6 +39,7 @@ final readonly class AutofixSettings implements Dto
      * @param string   $botUsername   The bot's username
      * @param string[] $skipAuthors   Authors the sweep ignores
      * @param string[] $skipBranches  Branch prefixes the sweep ignores
+     * @param bool     $agentEnabled  Whether the fixing agent is tried when the propose model has no usable edit
      */
     public function __construct(
         public string $apiUrl = '',
@@ -56,6 +57,7 @@ final readonly class AutofixSettings implements Dto
         public string $botUsername = self::DEFAULT_BOT,
         public array $skipAuthors = [],
         public array $skipBranches = [],
+        public bool $agentEnabled = false,
     ) {
     }
 }

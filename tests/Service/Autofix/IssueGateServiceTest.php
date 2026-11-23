@@ -49,7 +49,28 @@ final class IssueGateServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             return array_keys($env) === ['HOME', 'PATH'];
         }), $this->greaterThan(0))->willReturn(new ProcessResult(0, '', ''));
 
-        $this->assertTrue($this->service($runner)->run($this->dir)->passed);
+        $result = $this->service($runner)->run($this->dir);
+        $this->assertTrue($result->passed);
+        $this->assertTrue($result->local);
+        $this->assertSame('`make check` passed.', $result->ran);
+    }
+
+    /**
+     * The gate command `ci` runs nothing and says the pipeline is the gate
+     *
+     * @return void
+     */
+    public function testPipelineGateRunsNothing(): void
+    {
+        file_put_contents($this->dir . '/Makefile', "check:\n\ttrue\n");
+        $runner = $this->createMock(ProcessRunner::class);
+        $runner->expects($this->never())->method('run');
+
+        $result = $this->service($runner)->run($this->dir, ' ci ');
+
+        $this->assertTrue($result->passed);
+        $this->assertFalse($result->local);
+        $this->assertStringContainsString('merge request pipeline is its gate', $result->ran);
     }
 
     /**

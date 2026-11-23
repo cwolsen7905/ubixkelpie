@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Kelpie can now fix review threads whose fix is in another file, or is a test.** The propose model sees only the
+  thread's file, so on ubixshepherd !450 it gave up on "add a failing-gate test" and on "the brief in
+  `internal/dispatch/adapters.go` was not updated". When the propose model has no usable edit, the fixing agent (the
+  `claude` CLI, file tools only, on the propose model and under the same family guard) now works in the same scratch
+  checkout with the whole repository to read. Its change is measured from git, checked by the safety policy, posted
+  as the proposal's diff and stored as exact-text edits (new files included), and its cost counts toward the spend
+  cap. `KELPIE_FIXER_AGENT=off` switches it off. A push round may now also edit test files and files the thread's
+  finding names by path, not only files the MR changes. The round's gate is the project's own (`gate_command`, else
+  `make check`, else the PHP gate) instead of always the PHP gate; `gate_command = 'ci'` leaves the gate to the MR
+  pipeline and the `Fixed:` reply says so (for ubixshepherd, whose Go toolchain is not in Kelpie's image). See
+  `docs/autofix/push-mode.md`.
+
 - **"Triage: retry" no longer stays silent on a thread Kelpie has not looked at.** From the MR author or a maintainer
   it queues the thread for triage; when it cannot be queued (the project is not enrolled, or a cap was hit) Kelpie
   replies in the thread once, with the reason (which cap was hit, or that the project is not enrolled), using its own bot-authored marker (separate from the over-cap note's) so it never

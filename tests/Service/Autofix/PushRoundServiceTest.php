@@ -13,6 +13,7 @@ use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\EditApplyService;
+use Kelpie\Service\Autofix\IssueGateService;
 use Kelpie\Service\Autofix\PushRoundCapService;
 use Kelpie\Service\Autofix\PushRoundService;
 use Kelpie\Service\Autofix\ReplyService;
@@ -29,6 +30,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A round of several threads is one commit and one push, with a `fix(review)` subject and one Thread line per thread
  * - Each fixed thread gets a `Fixed:` reply linking the commit; only a thread Kelpie opened is resolved
  * - A fix that edits a file the MR does not change is left out and its thread told; the rest still go in the one commit
+ * - A test file, and a file the thread's finding names by path, may be edited though the MR does not change them
+ * - The project's gate command is the gate; `ci` runs nothing here and every Fixed reply says so
  * - A fix whose edits no longer apply is left out; if none is left nothing is pushed and no gate runs
  * - An MR with too many files to check is refused (threads failed and told), not retried; unreadable files are retried
  * - An edit through a symlink is held to the file it lands on: not one the MR leaves unchanged, nor one outside the checkout
@@ -163,6 +166,59 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertSame(ThreadOutcome::Failed, $this->row('d2')->outcome);
         $this->assertStringContainsString('`b.txt`, which this merge request does not change', $this->lastNote('d2'));
         $this->assertSame([], $this->gitlab->resolved());
+    }
+
+    /**
+     * A new test file and a file the finding names go in, though the MR changes neither
+     *
+     * @return void
+     */
+    public function testATestAndAFileTheFindingNamesGoIn(): void
+    {
+        $this->gitlab->changedFiles(['a.txt']);
+        $this->gitlab->note('d3', 'The brief in `sub/c.txt` was not updated, and nothing tests it.', author: 'kelpie-bot');
+        $this->outcomes->record(new ThreadOutcomeRecord('g/p', 3, 'd3', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, 'Fix.'));
+        $fixes = [
+            ['discussionId' => 'd3', 'edits' => [new ProposedEdit('sub/c.txt', 'gamma', 'delta'), new ProposedEdit('sub/c_test.go', '', "package sub\n")], 'summary' => 'Update the brief and test it.'],
+        ];
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $fixes, 1, ThreadOutcome::Pushed));
+
+        $pushed = trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x']));
+        $this->assertNotSame($this->sha, $pushed);
+        $this->assertSame('delta', trim($this->git($this->remote, ['show', $pushed . ':sub/c.txt'])));
+        $this->assertSame('package sub', trim($this->git($this->remote, ['show', $pushed . ':sub/c_test.go'])));
+        $this->assertSame(ThreadOutcome::Pushed, $this->row('d3')->outcome);
+    }
+
+    /**
+     * A file the thread does not name, in a folder, that the MR does not change and that is no test, stays out
+     *
+     * @return void
+     */
+    public function testAnUnnamedOtherFileStaysOut(): void
+    {
+        $this->gitlab->changedFiles(['a.txt']);
+        $fixes = [['discussionId' => 'd1', 'edits' => [new ProposedEdit('sub/c.txt', 'gamma', 'delta')], 'summary' => 'Sneaky.']];
+
+        $this->assertNull($this->service()->run('1', 'g/p', 3, $this->sha, $fixes, 1));
+
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertStringContainsString('is not a test and is not named in the thread', $this->lastNote('d1'));
+    }
+
+    /**
+     * The gate command `ci` runs nothing here, and the Fixed reply says the pipeline is the gate
+     *
+     * @return void
+     */
+    public function testAPipelineGateRunsNothingAndSaysSo(): void
+    {
+        $this->assertNull($this->service(null, IssueGateService::PIPELINE_GATE)->run('1', 'g/p', 3, $this->sha, $this->fixes(), 1));
+
+        $this->assertNotSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $this->assertSame([], $this->gateRunner->calls());
+        $this->assertStringContainsString('Gate: not run here: this project\'s merge request pipeline is its gate.', $this->lastNote('d1'));
     }
 
     /**
@@ -375,6 +431,8 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->git($this->base . '/work', ['config', 'user.email', 't@example.com']);
         file_put_contents($this->base . '/work/a.txt', "one\n");
         file_put_contents($this->base . '/work/b.txt', "alpha\n");
+        mkdir($this->base . '/work/sub');
+        file_put_contents($this->base . '/work/sub/c.txt', "gamma\n");
         file_put_contents($this->base . '/outside.txt', "secret\n");
         symlink('b.txt', $this->base . '/work/link-in');
         symlink($this->base . '/outside.txt', $this->base . '/work/link-out');
@@ -426,14 +484,16 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     /**
      * Build the service: real git against the local remote, the fake GitLab and a scripted gate
      *
-     * @param ?ProcessRunner $gate What runs the gate's steps, a scripted green one by default
+     * @param ?ProcessRunner $gate        What runs the gate's steps, a scripted green one by default
+     * @param ?string        $gateCommand The project's gate command
      *
      * @return PushRoundService
      */
-    private function service(?ProcessRunner $gate = null): PushRoundService
+    private function service(?ProcessRunner $gate = null, ?string $gateCommand = null): PushRoundService
     {
         $logger = $this->createStub(Logger::class);
         $writer = $this->gitlab->writer($logger);
+        $runner = $gate ?? $this->gateRunner;
 
         return new PushRoundService(
             $logger,
@@ -441,10 +501,11 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             new ReplyService($logger, $writer, 'kelpie-bot'),
             new EditApplyService($logger),
             new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
-            new GateRunner($logger, $gate ?? $this->gateRunner),
+            new IssueGateService($logger, $runner, new GateRunner($logger, $runner)),
             $this->outcomes,
             $this->jobs,
             $this->remote,
+            $gateCommand,
         );
     }
 

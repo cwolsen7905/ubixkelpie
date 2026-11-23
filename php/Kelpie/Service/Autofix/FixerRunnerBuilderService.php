@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Autofix;
 
+use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Policy\SafetyPolicy;
@@ -15,6 +16,7 @@ use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
+use Ubix\Service\JsonService;
 
 /**
  * Builds a fixer runner for one project: its own claim, reply and checkout over the shared models and job table
@@ -23,6 +25,11 @@ use Psr\Log\LoggerInterface as Logger;
  */
 final class FixerRunnerBuilderService
 {
+    /**
+     * Seconds one agent run may take: well inside the job lease and the thread claim (30 minutes each)
+     */
+    private const int AGENT_TIMEOUT = 600;
+
     /**
      * Constructor
      *
@@ -79,6 +86,23 @@ final class FixerRunnerBuilderService
             $this->outcomes,
             $this->spendCaps,
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
+            $this->agentEdits(),
         );
+    }
+
+    /**
+     * The fixing agent, unless `KELPIE_FIXER_AGENT=off`
+     *
+     * @return ?AgentEditsService
+     */
+    private function agentEdits(): ?AgentEditsService
+    {
+        if (!$this->settings->agentEnabled) {
+            return null;
+        }
+
+        $json = new JsonService($this->logger);
+
+        return new AgentEditsService($this->logger, new ClaudeCliFixerAgent($this->logger, $this->processRunner, $json, $this->settings->openRouterKey, self::AGENT_TIMEOUT), $json);
     }
 }

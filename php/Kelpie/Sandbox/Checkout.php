@@ -142,6 +142,27 @@ final class Checkout
     }
 
     /**
+     * A file's text at the sha the checkout was opened at
+     *
+     * @param string $path Repo-relative path
+     *
+     * @return ?string The text; '' for a file the sha does not have; null when git could not say
+     */
+    public function original(string $path): ?string
+    {
+        if ($path === '' || str_starts_with($path, '-') || str_contains($path, "\0")) {
+            return null;
+        }
+        if ($this->git(['cat-file', '-e', 'HEAD:' . $path])->exitCode !== 0) {
+            return '';
+        }
+
+        $result = $this->git(['cat-file', 'blob', 'HEAD:' . $path]);
+
+        return $result->exitCode === 0 ? $result->stdout : null;
+    }
+
+    /**
      * Commit the staged changes
      *
      * @param string $message The commit message

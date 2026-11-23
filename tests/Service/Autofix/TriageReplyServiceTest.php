@@ -221,7 +221,7 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertCount(0, $this->inserts);
         $replies = $this->botNotes('other');
         $this->assertCount(1, $replies);
-        $this->assertStringContainsString('fix commits', $replies[0]['body']);
+        $this->assertStringContainsString('daily job cap', $replies[0]['body']);
 
         // The reply is the bot's: the command guard refuses it, so it can never queue a job
         $this->assertFalse($service->isCommand($this->payload($replies[0]['body'], 9, 'kelpie-bot', discussion: 'other')));
@@ -263,6 +263,18 @@ final class TriageReplyServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $this->gitlab = new FakeGitlab();
         $this->gitlab->note('other', 'Triage: retry', '-1 minutes');
+        // The fake job store reports 99 jobs; only a hard limit refuses a job, so set one below that
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD=50');
+    }
+
+    /**
+     * Leave no hard limit set
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD');
     }
 
     /**

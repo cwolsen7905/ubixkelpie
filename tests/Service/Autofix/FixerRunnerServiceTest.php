@@ -115,7 +115,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * At the daily cap: no GitLab write, no model call, the job left pending
+     * At the daily hard cap: no GitLab write, no model call, the job left pending
      *
      * @return void
      */
@@ -123,7 +123,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
 
-        $outcome = $this->service()->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+        $outcome = $this->service(true, '2.00')->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
 
         $this->assertSame(FixOutcome::OverCap, $outcome);
         $this->assertSame([], $this->calls());
@@ -132,14 +132,14 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * The cap holds the job and says so on the thread once, without answering it; after the reset the job runs
+     * The hard cap holds the job and says so on the thread once, without answering it; after the reset the job runs
      *
      * @return void
      */
     public function testCapNoticeIsPostedOnceAndTheJobRunsAfterTheReset(): void
     {
         $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
-        $service = $this->service();
+        $service = $this->service(true, '2.00');
 
         $held = [];
         foreach ([1, 2] as $sweep) {
@@ -172,7 +172,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     public function testHumanNoteAfterTheCapNoticeKeepsTheJobPendingWithoutASecondNotice(): void
     {
         $this->outcomes->record(new ThreadOutcomeRecord('g/p', 9, 'old', $this->sha, 'fix', 'propose', ThreadOutcome::Proposed, '', '', '', '', 0, 0, 2.5));
-        $service = $this->service();
+        $service = $this->service(true, '2.00');
         $service->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
         $this->gitlab->note('d1', 'Actually, leave it.');
 
@@ -713,11 +713,12 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     /**
      * Build the service: real git against the local remote, the fake GitLab and a scripted model
      *
-     * @param bool $enabled KELPIE_AUTOFIX_ENABLED
+     * @param bool    $enabled        KELPIE_AUTOFIX_ENABLED
+     * @param ?string $projectHardCap The project's daily spend hard cap; null for unlimited
      *
      * @return FixerRunnerService
      */
-    private function service(bool $enabled = true): FixerRunnerService
+    private function service(bool $enabled = true, ?string $projectHardCap = null): FixerRunnerService
     {
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
@@ -760,7 +761,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $this->jobs,
             $this->jobs,
             $this->outcomes,
-            new SpendCapService($logger, new InMemoryProjects(['g/p' => ProjectMode::Propose]), $this->outcomes),
+            new SpendCapService($logger, new InMemoryProjects(['g/p' => ProjectMode::Propose], $projectHardCap === null ? [] : ['g/p' => $projectHardCap]), $this->outcomes),
             $this->remote,
         );
     }

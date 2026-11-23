@@ -278,7 +278,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
-     * A reached cap makes no model call and says so on the issue
+     * A reached hard cap makes no model call and says so on the issue
      *
      * @return void
      */
@@ -287,7 +287,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $gitlab = new FakeFixGitlab();
         $model  = new ScriptedModelHttp([self::SELECT, self::EDIT]);
 
-        $outcome = $this->service($gitlab, $model, spentToday: 99.0)->fix('org/proj', 7);
+        $outcome = $this->service($gitlab, $model, project: new Project('org/proj', ProjectMode::Propose, maxCostUsdDay: '5.00', maxCostUsdDayHard: '5.00'), spentToday: 99.0)->fix('org/proj', 7);
 
         $this->assertSame(IssueFixOutcome::CapReached, $outcome);
         $this->assertSame([], $model->sent());

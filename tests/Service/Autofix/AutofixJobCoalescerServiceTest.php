@@ -102,7 +102,7 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
     }
 
     /**
-     * The per-thread and per-day caps stop a job too
+     * The per-thread and per-day hard caps stop a job too
      *
      * @return void
      */
@@ -115,16 +115,16 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
         $reader->method('countAttemptsForThread')->willReturn(2);
 
         $input = new AutofixJob('g/p', 5, 'new', 'note', 'd1');
-        $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps()))->enqueue($input, new DateTimeImmutable()));
+        $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps(attemptsPerThreadHard: 2)))->enqueue($input, new DateTimeImmutable()));
 
         $reader = $this->createStub(AutofixJobReader::class);
         $reader->method('countJobsSince')->willReturn(AutofixCaps::DEFAULT_JOBS_PER_PROJECT);
 
-        $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps()))->enqueue($input, new DateTimeImmutable()));
+        $this->assertSame(EnqueueOutcome::CapExceeded, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps(jobsPerProjectHard: AutofixCaps::DEFAULT_JOBS_PER_PROJECT)))->enqueue($input, new DateTimeImmutable()));
     }
 
     /**
-     * A cap stops the job from being created
+     * A hard cap stops the job from being created
      *
      * @return void
      */
@@ -135,7 +135,40 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
 
         $input = new AutofixJob('g/p', 5, 'new', 'note', 'd1');
 
-        $this->assertSame(EnqueueOutcome::CapExceeded, $this->coalescer(null, $writer, 3)->enqueue($input, new DateTimeImmutable()));
+        $this->assertSame(EnqueueOutcome::CapExceeded, $this->coalescer(null, $writer, 3, new AutofixCaps(commitsPerMrHard: 3))->enqueue($input, new DateTimeImmutable()));
+    }
+
+    /**
+     * Passing a soft cap is a warning, not a stop: the job is still created while the hard limit is unset
+     *
+     * @return void
+     */
+    public function testSoftCapIsNotAStop(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('createJob');
+
+        $input = new AutofixJob('g/p', 5, 'new', 'note', 'd1');
+
+        // Three commits is the soft cap; with no hard limit the job still goes in
+        $this->assertSame(EnqueueOutcome::Enqueued, $this->coalescer(null, $writer, 3)->enqueue($input, new DateTimeImmutable()));
+    }
+
+    /**
+     * A count far past the soft cap still enqueues while the hard limit is unset
+     *
+     * @return void
+     */
+    public function testUnsetHardCapIsUnlimited(): void
+    {
+        $writer = $this->createMock(AutofixJobWriter::class);
+        $writer->expects($this->once())->method('createJob');
+
+        $reader = $this->createStub(AutofixJobReader::class);
+        $reader->method('countJobsSince')->willReturn(AutofixCaps::DEFAULT_JOBS_PER_PROJECT * 10);
+
+        $input = new AutofixJob('g/p', 5, 'new', 'note', 'd1');
+        $this->assertSame(EnqueueOutcome::Enqueued, (new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps()))->enqueue($input, new DateTimeImmutable()));
     }
 
     /**
@@ -202,15 +235,16 @@ final class AutofixJobCoalescerServiceTest extends UbixConcreteClassOrEnumTestCa
      * @param ?AutofixJobRecord $open    The open job
      * @param AutofixJobWriter  $writer  The writer
      * @param int               $commits Fix commits on the MR
+     * @param ?AutofixCaps      $caps    The caps; null for the defaults
      *
      * @return AutofixJobCoalescerService The coalescer
      */
-    private function coalescer(?AutofixJobRecord $open, AutofixJobWriter $writer, int $commits = 0): AutofixJobCoalescerService
+    private function coalescer(?AutofixJobRecord $open, AutofixJobWriter $writer, int $commits = 0, ?AutofixCaps $caps = null): AutofixJobCoalescerService
     {
         $reader = $this->createStub(AutofixJobReader::class);
         $reader->method('getOpenJob')->willReturn($open);
         $reader->method('countFixCommitsForMr')->willReturn($commits);
 
-        return new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, new AutofixCaps());
+        return new AutofixJobCoalescerService($this->createStub(Logger::class), $reader, $writer, $caps ?? new AutofixCaps());
     }
 }

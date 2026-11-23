@@ -23,7 +23,8 @@ database's clock (`CURDATE()`, the same clock that stamps `date_last_updated`), 
 
 - the project cap: `projects.max_cost_usd_day` (default 2.00). A project with no row is off: the check says
   `not_enrolled`, not a cap, and the run is skipped and its job superseded;
-- the global cap: `KELPIE_MAX_COST_USD_DAY_GLOBAL`, default 10.00. Unset, blank, negative or not a number
+- the global cap: `KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT`, or `KELPIE_MAX_COST_USD_DAY_GLOBAL` as it is in Vault today (the `_SOFT`
+  name wins when both are set), default 10.00. Unset, blank, negative or not a number
   means the default. `0` is a real cap: nothing runs.
 
 The cap is reached when spend so far is at or above it. The check reads the spend and the call comes later,
@@ -37,7 +38,23 @@ A crash after a paid call (the outcome row failing to write, a reply that throws
 cost of the calls made so far, so the cap still counts them. A crash inside the triage call itself leaves no
 cost to record.
 
+## Soft and hard
+
+The caps above are the **soft** limits, today's values carried over (nothing in Vault has to move, and every hard limit
+starts unlimited so spend and job reports show where Kelpie really is before any stop is chosen): passing one logs a warning (`Soft spend cap passed`) and the run goes on.
+Each has a **hard** limit that stops the run, unlimited (NULL) by default:
+
+- the project hard cap: `projects.max_cost_usd_day_hard` (DECIMAL, NULL is unlimited);
+- the global hard cap: `KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD`. Unset or blank is unlimited; a value that is not a
+  non-negative number is unlimited and a logged warning, so a typo never stops the work. `0` stops everything.
+
+Only a reached hard cap is returned by `check` and held as below; the project hard cap is checked first. With
+no hard cap set, nothing stops on spend: set one to restore the old stop-at-the-cap behaviour.
+
 ## At the cap
+
+Below, "the cap" means a hard cap.
+
 
 `FixerRunnerService::run` checks after the thread is known to be unanswered and before it claims it or calls a
 model. It logs a warning (which cap, spend, cap, project) and returns `FixOutcome::OverCap`. The job is left

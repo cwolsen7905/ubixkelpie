@@ -60,6 +60,29 @@ final class ProjectSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase imp
     }
 
     /**
+     * The hard caps are unlimited (null) unless the row sets them
+     *
+     * @return void
+     */
+    public function testHardCaps(): void
+    {
+        $sql = $this->createStub(SqlService::class);
+        $sql->method('getRows')->willReturnOnConsecutiveCalls(
+            $this->rows([$this->row()]),
+            $this->rows([$this->row(['max_cost_usd_day_hard' => '5.00', 'max_issues_per_day_hard' => '60', 'max_issues_per_author_day_hard' => '20'])]),
+        );
+        $repository = $this->repository($this->createStub(Logger::class), $sql);
+
+        $unlimited = $repository->getByPath('g/p');
+        $limited   = $repository->getByPath('g/p');
+
+        $this->assertNotNull($unlimited);
+        $this->assertSame([null, null, null], [$unlimited->maxCostUsdDayHard, $unlimited->maxIssuesPerDayHard, $unlimited->maxIssuesPerAuthorDayHard]);
+        $this->assertNotNull($limited);
+        $this->assertSame(['5.00', 60, 20], [$limited->maxCostUsdDayHard, $limited->maxIssuesPerDayHard, $limited->maxIssuesPerAuthorDayHard]);
+    }
+
+    /**
      * No row
      *
      * @return void
@@ -144,16 +167,19 @@ final class ProjectSqlRepositoryTest extends UbixConcreteClassOrEnumTestCase imp
     private function row(array $overrides = []): array
     {
         return $overrides + [
-            'gate_command'              => null,
-            'max_cost_usd_day'          => '2.00',
-            'max_fix_commits_per_mr'    => '3',
-            'max_issues_per_author_day' => '10',
-            'max_issues_per_day'        => '30',
-            'mode'                      => 'push',
-            'path'                      => 'g/p',
-            'protected_paths'           => null,
-            'review_model'              => null,
-            'triage_model'              => null,
+            'gate_command'                   => null,
+            'max_cost_usd_day'               => '2.00',
+            'max_cost_usd_day_hard'          => null,
+            'max_fix_commits_per_mr'         => '3',
+            'max_issues_per_author_day'      => '10',
+            'max_issues_per_author_day_hard' => null,
+            'max_issues_per_day'             => '30',
+            'max_issues_per_day_hard'        => null,
+            'mode'                           => 'push',
+            'path'                           => 'g/p',
+            'protected_paths'                => null,
+            'review_model'                   => null,
+            'triage_model'                   => null,
         ];
     }
 

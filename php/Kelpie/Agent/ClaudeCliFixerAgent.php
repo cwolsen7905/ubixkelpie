@@ -100,16 +100,17 @@ final class ClaudeCliFixerAgent implements FixerAgent
      * @param string $stdout The CLI's output
      * @param string $model  The model
      *
-     * @return ?Completion Null when the CLI says the run was an error
+     * @return ?Completion Null when the CLI says the run was an error, or its result cannot be read (its cost unknown, it
+     *                     is not let past the spend cap as free)
      */
     private function completion(string $stdout, string $model): ?Completion
     {
         try {
             $decoded = $this->json->decode($stdout);
         } catch (Throwable $e) {
-            $this->logger->warning('Autofix agent: the result is not JSON', ['error' => $e->getMessage(), 'model' => $model]);
+            $this->logger->warning('Autofix agent: the result is not JSON, so the run counts as failed', ['error' => $e->getMessage(), 'model' => $model]);
 
-            return new Completion('', $model);
+            return null;
         }
 
         if (($decoded['is_error'] ?? false) === true) {

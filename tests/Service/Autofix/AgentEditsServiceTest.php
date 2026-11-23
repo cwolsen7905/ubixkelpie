@@ -25,7 +25,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - The agent's change, in any file and in new files, comes back as exact-text edits measured from git
  * - Those edits, stored and read back, replay to the same files in a fresh checkout at the head
- * - No change, a deleted file, too many files or an agent that did not finish is a failure with the reason, and keeps the cost
+ * - No change, a deleted file, too many files, an empty or non-UTF-8 file or an agent that did not finish is a failure with the reason
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\AgentEditsService
  */
@@ -120,6 +120,22 @@ final class AgentEditsServiceTest extends UbixConcreteClassOrEnumTestCase implem
             return 'Many.';
         });
         $this->assertStringContainsString('changed 6 files (limit 5)', $many->failure);
+        $this->checkout->close();
+
+        $empty = $this->edits(static function (string $dir): string {
+            file_put_contents($dir . '/pkg/brief.go', '');
+
+            return 'Emptied it.';
+        });
+        $this->assertStringContainsString('which a proposal cannot replay', $empty->failure);
+        $this->checkout->close();
+
+        $binary = $this->edits(static function (string $dir): string {
+            file_put_contents($dir . '/pkg/blob.bin', "\xff\xfe\x00bin");
+
+            return 'Added a blob.';
+        });
+        $this->assertStringContainsString('not UTF-8 text', $binary->failure);
         $this->checkout->close();
 
         $unfinished = $this->edits(static function (): ?string {

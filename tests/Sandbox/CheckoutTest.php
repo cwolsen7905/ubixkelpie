@@ -19,6 +19,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - It pushes without force: a branch that moved is rejected, never overwritten
  * - It refuses branch names that could be read as options or refspecs
  * - The credential script does not outlive the call, and close() removes the checkout
+ * - The repository is outside the work tree: a `.git/config` planted in the work tree is never read
  *
  * @coversDefaultClass \Kelpie\Sandbox\Checkout
  */
@@ -52,7 +53,33 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
 
         $checkout = $this->checkout();
         $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
-        $this->assertSame($this->sha, trim($this->git($checkout->directory(), ['rev-parse', 'HEAD'])));
+        $this->assertSame($this->sha, trim($this->git(dirname($checkout->directory()), ['--git-dir=git', 'rev-parse', 'HEAD'])));
+        $this->assertFileDoesNotExist($checkout->directory() . '/.git');
+        $checkout->close();
+    }
+
+    /**
+     * A `.git/config` planted in the work tree (as a prompt-injected agent might) is never read: its fsmonitor never runs
+     *
+     * @return void
+     */
+    public function testPlantedGitConfigInTheWorkTreeIsIgnored(): void
+    {
+        $checkout = $this->checkout();
+        $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
+        $dir    = $checkout->directory();
+        $marker = $this->base . '/pwned';
+        mkdir($dir . '/.git/hooks', 0700, true);
+        file_put_contents($dir . '/.git/config', "[core]\n\tfsmonitor = touch " . $marker . "\n\thooksPath = .git/hooks\n");
+        file_put_contents($dir . '/a.txt', "one\ntwo\n");
+
+        $changes = $checkout->stageAndMeasure();
+        $checkout->stagedDiff();
+        $checkout->commit('x');
+
+        $this->assertNotNull($changes);
+        $this->assertSame(['a.txt'], $changes->paths);
+        $this->assertFileDoesNotExist($marker);
         $checkout->close();
     }
 
@@ -108,6 +135,8 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
         $this->assertSame("one\n", $checkout->original('a.txt'));
         $this->assertSame('', $checkout->original('new.txt'));
         $this->assertNull($checkout->original('--help'));
+        $this->assertTrue($checkout->hasAtHead('a.txt'));
+        $this->assertFalse($checkout->hasAtHead('new.txt'));
         $checkout->close();
     }
 

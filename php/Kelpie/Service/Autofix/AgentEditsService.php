@@ -20,7 +20,8 @@ use Ubix\Service\JsonService;
  * is out of its reach. The agent reads the whole checkout and edits what the fix needs. What it changed is measured
  * from git, not from its words, and becomes one whole-file edit per file (old text at the head, new text after), or a
  * creation for a new file: the same exact-text form the propose model gives, so the proposal, the safety policy and
- * the push round treat both alike. A deleted or renamed file, too many files, a link or a very large file is refused.
+ * the push round treat both alike. A deleted or renamed file, too many files, a link, a very large file, an empty file
+ * or one that is not UTF-8 text is refused, since it could not be stored or replayed.
  *
  * @see \Kelpie\Tests\Service\Autofix\AgentEditsServiceTest PHPUnit test case
  */
@@ -119,6 +120,12 @@ final class AgentEditsService
         }
         if (strlen($new) > self::MAX_FILE_BYTES || strlen($old) > self::MAX_FILE_BYTES) {
             return 'The fixing agent changed `' . $path . '`, which is too large to store as a proposal.';
+        }
+        if ($new === '' || ($old === '' && $checkout->hasAtHead($path))) {
+            return 'The fixing agent left `' . $path . '` empty, or changed a file that was empty, which a proposal cannot replay.';
+        }
+        if (!mb_check_encoding($new, 'UTF-8') || !mb_check_encoding($old, 'UTF-8')) {
+            return 'The fixing agent changed `' . $path . '`, which is not UTF-8 text.';
         }
 
         return new ProposedEdit($path, $old, $new);

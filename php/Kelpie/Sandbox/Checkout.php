@@ -17,13 +17,28 @@ use Psr\Log\LoggerInterface as Logger;
  * `HEAD:refs/heads/<branch>`: no force flag, no `+` refspec, so a branch that moved is rejected by
  * the server. Every git call gets an exact, minimal environment.
  *
+ * The repository lives outside the work tree (`<root>/git`, the work tree is `<root>/repo`) and every git call names
+ * both, so nothing written in the work tree can become git configuration: the fixing agent edits the work tree, and a
+ * `.git/config` it planted there (an fsmonitor, a pager, a hook path) is never read. Each call also turns fsmonitor
+ * and hooks off outright.
+ *
  * @see \Kelpie\Tests\Sandbox\CheckoutTest PHPUnit test case
  */
 final class Checkout
 {
     private const int GIT_TIMEOUT = 300;
 
+    /**
+     * Given to every git call: no fsmonitor command, no hooks, whatever any configuration says
+     */
+    private const array SAFE_CONFIG = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+
     private string $root = '';
+
+    /**
+     * Whether the clone is done, so git calls name the repository outside the work tree
+     */
+    private bool $cloned = false;
 
     /**
      * Constructor
@@ -68,9 +83,16 @@ final class Checkout
         if (!mkdir($root, 0700) || !mkdir($root . '/repo', 0700)) {
             return false;
         }
-        $this->root = $root;
+        $this->root   = $root;
+        $this->cloned = false;
 
-        if (!$this->networkGit(['clone', '--no-tags', '--branch', $branch, '--', $url, $root . '/repo'], $root)) {
+        if (!$this->networkGit(['clone', '--no-tags', '--separate-git-dir', $root . '/git', '--branch', $branch, '--', $url, $root . '/repo'], $root)) {
+            return false;
+        }
+
+        // The pointer file is not needed once every call names the repository, and the work tree is the agent's
+        $this->cloned = true;
+        if (is_file($root . '/repo/.git') && !unlink($root . '/repo/.git')) {
             return false;
         }
 
@@ -142,6 +164,18 @@ final class Checkout
     }
 
     /**
+     * Whether the sha the checkout was opened at has this file
+     *
+     * @param string $path Repo-relative path
+     *
+     * @return bool
+     */
+    public function hasAtHead(string $path): bool
+    {
+        return $path !== '' && !str_starts_with($path, '-') && !str_contains($path, "\0") && $this->git(['cat-file', '-e', 'HEAD:' . $path])->exitCode === 0;
+    }
+
+    /**
      * A file's text at the sha the checkout was opened at
      *
      * @param string $path Repo-relative path
@@ -153,7 +187,7 @@ final class Checkout
         if ($path === '' || str_starts_with($path, '-') || str_contains($path, "\0")) {
             return null;
         }
-        if ($this->git(['cat-file', '-e', 'HEAD:' . $path])->exitCode !== 0) {
+        if (!$this->hasAtHead($path)) {
             return '';
         }
 
@@ -207,7 +241,8 @@ final class Checkout
         if ($this->root !== '' && str_starts_with(basename($this->root), 'kelpie-fix-')) {
             $this->runner->run(['rm', '-rf', '--', $this->root], sys_get_temp_dir(), $this->baseEnv(), 60);
         }
-        $this->root = '';
+        $this->root   = '';
+        $this->cloned = false;
     }
 
     /**
@@ -231,7 +266,7 @@ final class Checkout
      */
     private function git(array $args): ProcessResult
     {
-        return $this->runner->run(['git', ...$args], $this->directory(), $this->baseEnv(), self::GIT_TIMEOUT);
+        return $this->runner->run(['git', ...self::SAFE_CONFIG, ...$args], $this->directory(), $this->baseEnv(), self::GIT_TIMEOUT);
     }
 
     /**
@@ -252,7 +287,7 @@ final class Checkout
         }
 
         try {
-            $result = $this->runner->run(['git', ...$args], $cwd, $this->baseEnv() + ['GIT_ASKPASS' => $script, 'GIT_TERMINAL_PROMPT' => '0'], self::GIT_TIMEOUT);
+            $result = $this->runner->run(['git', ...self::SAFE_CONFIG, ...$args], $cwd, $this->baseEnv() + ['GIT_ASKPASS' => $script, 'GIT_TERMINAL_PROMPT' => '0'], self::GIT_TIMEOUT);
         } finally {
             unlink($script);
         }
@@ -272,11 +307,13 @@ final class Checkout
      */
     private function baseEnv(): array
     {
-        return [
+        $env = [
             'GIT_CONFIG_NOSYSTEM' => '1',
             'HOME'                => $this->root !== '' ? $this->root : sys_get_temp_dir(),
             'LC_ALL'              => 'C',
             'PATH'                => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin'),
         ];
+
+        return $this->cloned ? $env + ['GIT_DIR' => $this->root . '/git', 'GIT_WORK_TREE' => $this->root . '/repo'] : $env;
     }
 }

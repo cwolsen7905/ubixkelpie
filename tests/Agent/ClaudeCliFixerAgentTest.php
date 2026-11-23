@@ -47,6 +47,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         putenv('KELPIE_BOT_GITLAB_TOKEN=tok-not-real');
         putenv('VAULT_TOKEN=vault-not-real');
         $runner = new ScriptedProcessRunner();
+        $runner->output('claude', '{"type":"result","is_error":false,"result":"Fixed."}');
 
         $done = $this->agent($runner)->fix('/tmp/c/repo', $this->thread('Fix the typo.'), 'openai/gpt-5.5');
 
@@ -95,7 +96,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
-     * A run the CLI reports as an error, or one with no key, did not complete
+     * A run the CLI reports as an error, one whose result cannot be read, or one with no key, did not complete
      *
      * @return void
      */
@@ -105,6 +106,10 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $runner->output('claude', '{"type":"result","subtype":"error_max_turns","is_error":true}');
 
         $this->assertNull($this->agent($runner)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
+
+        $garbled = new ScriptedProcessRunner();
+        $garbled->output('claude', 'not json');
+        $this->assertNull($this->agent($garbled)->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));
 
         $none = new ScriptedProcessRunner();
         $this->assertNull((new ClaudeCliFixerAgent($this->createStub(Logger::class), $none, new JsonService($this->createStub(Logger::class)), ''))->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5'));

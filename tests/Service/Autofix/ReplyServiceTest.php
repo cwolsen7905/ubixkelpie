@@ -98,6 +98,30 @@ final class ReplyServiceTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * Needs-context asks what is missing, changes no label, and a person's reply makes the thread unanswered again
+     *
+     * @return void
+     */
+    public function testNeedsContextAsksAndIsAnsweredUntilAReply(): void
+    {
+        $this->gitlab->note('d1', 'Fix this.');
+
+        $outcome = $this->service()->respond('1', 3, 'd1', new TriageVerdict(TriageClass::NeedsContext, 'Which file do you mean?'));
+
+        $this->assertSame(ResponseOutcome::Replied, $outcome);
+        $this->assertSame([], $this->gitlab->labels());
+        $body = $this->gitlab->notes()['d1'][1]['body'];
+        $this->assertStringContainsString('needs more context', $body);
+        $this->assertStringContainsString('Which file do you mean?', $body);
+        $this->assertStringContainsString('<!-- kelpie:reply thread=d1 class=needs_context -->', $body);
+
+        $now   = new DateTimeImmutable();
+        $reply = new DiscussionNote(2, $body, 'kelpie-bot', $now);
+        $this->assertTrue($this->service()->isAnswered([new DiscussionNote(1, 'Fix this.', 'alice', $now), $reply], 'd1'));
+        $this->assertFalse($this->service()->isAnswered([new DiscussionNote(1, 'Fix this.', 'alice', $now), $reply, new DiscussionNote(3, 'The login form.', 'alice', $now)], 'd1'));
+    }
+
+    /**
      * A fix verdict stays silent in respond()
      *
      * @return void

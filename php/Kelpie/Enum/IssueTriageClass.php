@@ -11,9 +11,10 @@ namespace Kelpie\Enum;
  */
 enum IssueTriageClass: string
 {
-    case Fix        = 'fix';
-    case NeedsHuman = 'needs_human';
-    case NotADefect = 'not_a_defect';
+    case Fix          = 'fix';
+    case NeedsHuman   = 'needs_human';
+    case NotADefect   = 'not_a_defect';
+    case NeedsContext = 'needs_context';
 
     /**
      * The one `kelpie::*` label an issue of this class gets
@@ -26,6 +27,7 @@ enum IssueTriageClass: string
             self::Fix        => 'kelpie::fixable',
             self::NeedsHuman => 'kelpie::needs-human',
             self::NotADefect => 'kelpie::not-a-defect',
+            self::NeedsContext => 'kelpie::needs-context',
         };
     }
 
@@ -40,6 +42,7 @@ enum IssueTriageClass: string
             self::Fix        => 'Kelpie could attempt a fix',
             self::NeedsHuman => 'needs a human',
             self::NotADefect => 'not a defect',
+            self::NeedsContext => 'needs more context',
         };
     }
 }

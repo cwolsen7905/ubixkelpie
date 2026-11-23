@@ -143,7 +143,7 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
 
             if (str_contains((string) $request->getUri(), 'openrouter.test')) {
                 $json    = new JsonService($this->createStub(Logger::class));
-                $content = $json->encode(['class' => 'fix', 'reason' => 'Rename it.']);
+                $content = $json->encode(['class' => 'fix', 'confidence' => 'high', 'reason' => 'Rename it.']);
 
                 return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
             }

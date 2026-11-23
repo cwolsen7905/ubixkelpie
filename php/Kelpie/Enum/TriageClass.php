@@ -16,4 +16,5 @@ enum TriageClass: string
     case NotAnIssue   = 'not_an_issue';
     case AlreadyFixed = 'already_fixed';
     case Defer        = 'defer';
+    case NeedsContext = 'needs_context';
 }

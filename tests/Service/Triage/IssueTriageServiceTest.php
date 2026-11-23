@@ -60,7 +60,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
         foreach (IssueTriageClass::cases() as $class) {
             $gitlab = new FakeIssueGitlab();
 
-            $result = $this->service($gitlab, $this->answer('{"class": "' . $class->value . '", "reason": "because"}'))->triage('org/proj', 7);
+            $result = $this->service($gitlab, $this->answer('{"class": "' . $class->value . '", "confidence": "high", "reason": "because"}'))->triage('org/proj', 7);
 
             $this->assertSame(IssueTriageOutcome::Triaged, $result->outcome);
             $this->assertSame($class, $result->class);
@@ -126,7 +126,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
     {
         $gitlab = new FakeIssueGitlab();
 
-        $this->service($gitlab, $this->answer('{"class": "fix", "reason": "typo"}'))->triage('org/proj', 7);
+        $this->service($gitlab, $this->answer('{"class": "fix", "confidence": "high", "reason": "typo"}'))->triage('org/proj', 7);
 
         $this->assertStringContainsString('Fixing is not switched on yet', $gitlab->notesBy('kelpie-bot')[0]);
     }
@@ -149,6 +149,79 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertCount(1, $gitlab->notesBy('kelpie-bot'));
         $this->assertSame(1, $this->modelCalls());
         $this->assertSame(['kelpie::needs-human', 'kelpie::needs-human'], $gitlab->labels());
+    }
+
+    /**
+     * A fix the model is not sure of is labelled needs-human, and says why
+     *
+     * @return void
+     */
+    public function testALowConfidenceFixIsNeedsHuman(): void
+    {
+        foreach (['{"class": "fix", "confidence": "low", "reason": "maybe"}', '{"class": "fix", "reason": "maybe"}'] as $answer) {
+            $gitlab = new FakeIssueGitlab();
+
+            $result = $this->service($gitlab, $this->answer($answer))->triage('org/proj', 7);
+
+            $this->assertSame(IssueTriageClass::NeedsHuman, $result->class);
+            $this->assertSame(['kelpie::needs-human'], $gitlab->labels());
+            $this->assertStringContainsString('Not sure enough to fix automatically', $gitlab->notesBy('kelpie-bot')[0]);
+        }
+    }
+
+    /**
+     * Needs-context asks for what is missing, and its comment carries the class marker
+     *
+     * @return void
+     */
+    public function testNeedsContextAsksForMore(): void
+    {
+        $gitlab = new FakeIssueGitlab();
+
+        $this->service($gitlab, $this->answer('{"class": "needs_context", "confidence": "low", "reason": "Which page breaks?"}'))->triage('org/proj', 7);
+
+        $this->assertSame(['kelpie::needs-context'], $gitlab->labels());
+        $comment = $gitlab->notesBy('kelpie-bot')[0];
+        $this->assertStringContainsString('Which page breaks?', $comment);
+        $this->assertStringContainsString('Reply on this issue', $comment);
+        $this->assertStringEndsWith('class=needs_context -->', $comment);
+    }
+
+    /**
+     * An issue that was asked for context and carries the label is triaged again, and the newest comment wins afterwards
+     *
+     * @return void
+     */
+    public function testAnAnsweredNeedsContextIsTriagedAgain(): void
+    {
+        $gitlab = (new FakeIssueGitlab())->withLabel('kelpie::needs-context')->withNote('kelpie-bot', "Which page?\n\n<!-- kelpie:triage issue=7 class=needs_context -->");
+
+        $result = $this->service($gitlab, $this->answer('{"class": "fix", "confidence": "high", "reason": "the login page"}'))->triage('org/proj', 7, 'It is the login page.');
+
+        $this->assertSame(IssueTriageClass::Fix, $result->class);
+        $this->assertSame(1, $this->modelCalls());
+        $this->assertCount(2, $gitlab->notesBy('kelpie-bot'));
+
+        // The next run reads the newest marker (fix) as final: nothing more is asked or posted
+        $after = (new FakeIssueGitlab())->withLabel('kelpie::fixable')->withNote('kelpie-bot', "x\n\n<!-- kelpie:triage issue=7 class=needs_context -->")->withNote('kelpie-bot', "y\n\n<!-- kelpie:triage issue=7 class=fix -->");
+        $this->assertSame(IssueTriageClass::Fix, $this->service($after, $this->answer('{}'))->triage('org/proj', 7)->class);
+        $this->assertSame(1, $this->modelCalls());
+    }
+
+    /**
+     * A needs-context comment with no label yet is a crash to repair, not an answer: the label alone is added
+     *
+     * @return void
+     */
+    public function testNeedsContextWithoutItsLabelIsRepaired(): void
+    {
+        $gitlab = (new FakeIssueGitlab())->withNote('kelpie-bot', "Which page?\n\n<!-- kelpie:triage issue=7 class=needs_context -->");
+
+        $result = $this->service($gitlab, $this->answer('{}'))->triage('org/proj', 7);
+
+        $this->assertSame(IssueTriageClass::NeedsContext, $result->class);
+        $this->assertSame(['kelpie::needs-context'], $gitlab->labels());
+        $this->assertSame(0, $this->modelCalls());
     }
 
     /**
@@ -190,7 +263,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
         ];
 
         foreach ($issues as $gitlab) {
-            $result = $this->service($gitlab, $this->answer('{"class": "fix", "reason": "x"}'))->triage('org/proj', 7);
+            $result = $this->service($gitlab, $this->answer('{"class": "fix", "confidence": "high", "reason": "x"}'))->triage('org/proj', 7);
 
             $this->assertSame(IssueTriageOutcome::Skipped, $result->outcome);
             $this->assertNull($result->class);
@@ -230,7 +303,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
      */
     public function testGitlabFailuresFail(): void
     {
-        $answer = $this->answer('{"class": "fix", "reason": "x"}');
+        $answer = $this->answer('{"class": "fix", "confidence": "high", "reason": "x"}');
 
         $this->assertSame('issue could not be read', $this->service((new FakeIssueGitlab())->failing('GET'), $answer)->triage('org/proj', 7)->detail);
         $this->assertSame('comment could not be posted', $this->service((new FakeIssueGitlab())->failing('POST'), $answer)->triage('org/proj', 7)->detail);

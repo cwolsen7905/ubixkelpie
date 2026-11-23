@@ -9,8 +9,10 @@ use Kelpie\DataTransferObject\IssueTriageResult;
 use Kelpie\DataTransferObject\IssueTriageVerdict;
 use Kelpie\Enum\IssueTriageClass;
 use Kelpie\Enum\IssueTriageOutcome;
+use Kelpie\Enum\TriageConfidence;
 use Kelpie\GitLab\IssueClient;
 use Kelpie\OpenRouter\OpenRouterClient;
+use Kelpie\Policy\TriageConfidencePolicy;
 use Kelpie\Prompt\IssueTriagePrompt;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Exception\DtoException;
@@ -25,6 +27,10 @@ use Ubix\Service\JsonService;
  * the marker, reads the class from it and adds the label only. Triage never changes code, and
  * a failed model call posts nothing: the caller retries.
  *
+ * A `fix` the model is not sure enough of is `needs_human` (`TriageConfidencePolicy`). When the model cannot tell what the
+ * issue asks for it is `needs_context`: a short comment and the `kelpie::needs-context` label. A later run on such an issue
+ * (the person replied) triages it again, and the newest comment's class wins. The old label stays: `IssueClient` cannot remove one.
+ *
  * @see \Kelpie\Tests\Service\Triage\IssueTriageServiceTest PHPUnit test case
  */
 final class IssueTriageService
@@ -38,14 +44,15 @@ final class IssueTriageService
     /**
      * Constructor
      *
-     * @param Logger            $logger            Logger
-     * @param IssueClient       $issueClient       The GitLab issue client
-     * @param OpenRouterClient  $openRouterClient  The model client
-     * @param IssueTriagePrompt $prompt            The issue prompt
-     * @param JsonService       $jsonService       JSON service
-     * @param UsageStampService $usageStampService The usage footer
-     * @param TriageLlmService  $models            Picks the model per project, keeps training tiers off private code
-     * @param string            $botUsername       The bot's username; only its notes count as an earlier triage
+     * @param Logger                  $logger            Logger
+     * @param IssueClient             $issueClient       The GitLab issue client
+     * @param OpenRouterClient        $openRouterClient  The model client
+     * @param IssueTriagePrompt       $prompt            The issue prompt
+     * @param JsonService             $jsonService       JSON service
+     * @param UsageStampService       $usageStampService The usage footer
+     * @param TriageLlmService        $models            Picks the model per project, keeps training tiers off private code
+     * @param string                  $botUsername       The bot's username; only its notes count as an earlier triage
+     * @param ?TriageConfidencePolicy $confidencePolicy  The confidence a fix needs; the default threshold when null
      */
     public function __construct(
         private readonly Logger $logger,
@@ -56,6 +63,7 @@ final class IssueTriageService
         private readonly UsageStampService $usageStampService,
         private readonly TriageLlmService $models,
         private readonly string $botUsername = 'kelpie-bot',
+        private readonly ?TriageConfidencePolicy $confidencePolicy = null,
     ) {
     }
 
@@ -64,10 +72,11 @@ final class IssueTriageService
      *
      * @param string $project The project path with namespace
      * @param int    $iid     The issue number in the project
+     * @param string $reply   A person's reply to an earlier needs-context comment, empty when there is none; it is fenced as data like the issue
      *
      * @return IssueTriageResult
      */
-    public function triage(string $project, int $iid): IssueTriageResult
+    public function triage(string $project, int $iid, string $reply = ''): IssueTriageResult
     {
         $issue = $this->issueClient->issue($project, $iid);
         if ($issue === null) {
@@ -87,6 +96,10 @@ final class IssueTriageService
         }
 
         $class = $this->earlierClass($notes, $iid);
+        if ($class === IssueTriageClass::NeedsContext && in_array(IssueTriageClass::NeedsContext->label(), $issue->labels, true)) {
+            // Asked for context and labelled, so this run is the answer to that: triage again (no label means a crash before the label, repaired below)
+            $class = null;
+        }
         if ($class === null) {
             $choice = $this->models->choose($project, self::DEFAULT_MODEL);
             if ($choice->refusal !== '') {
@@ -95,10 +108,10 @@ final class IssueTriageService
                 return new IssueTriageResult(IssueTriageOutcome::Skipped, detail: $choice->refusal);
             }
 
-            $verdict = $this->classify($issue, $choice->model);
+            $verdict = $this->classify($issue, $choice->model, $reply);
             if ($verdict === null && $choice->fallback !== '') {
                 $this->logger->warning('Issue triage: model gave no answer, asking the fallback', ['fallback' => $choice->fallback, 'model' => $choice->model]);
-                $verdict = $this->classify($issue, $choice->fallback);
+                $verdict = $this->classify($issue, $choice->fallback, $reply);
             }
             if ($verdict === null) {
                 return new IssueTriageResult(IssueTriageOutcome::Failed, detail: 'no usable model answer');
@@ -137,7 +150,7 @@ final class IssueTriageService
     }
 
     /**
-     * The class of an earlier triage comment on this issue
+     * The class of the newest triage comment on this issue
      *
      * @param string[] $notes The bot's notes on the issue
      * @param int      $iid   The issue number
@@ -146,24 +159,26 @@ final class IssueTriageService
      */
     private function earlierClass(array $notes, int $iid): ?IssueTriageClass
     {
+        $class = null;
         foreach ($notes as $body) {
             if (preg_match('/<!-- kelpie:triage issue=' . $iid . ' class=([a-z_]+) -->/', $body, $m) === 1) {
-                return IssueTriageClass::tryFrom($m[1]);
+                $class = IssueTriageClass::tryFrom($m[1]); // The newest comment wins: a later triage replaces an earlier one
             }
         }
 
-        return null;
+        return $class;
     }
 
     /**
      * @param IssueDetails $issue The issue
      * @param string       $model The model to ask (`TriageLlmService`)
+     * @param string       $reply A person's reply to a needs-context comment, empty when none
      *
      * @return ?IssueTriageVerdict Null when the model gave nothing usable
      */
-    private function classify(IssueDetails $issue, string $model): ?IssueTriageVerdict
+    private function classify(IssueDetails $issue, string $model, string $reply): ?IssueTriageVerdict
     {
-        $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forIssue($issue));
+        $completion = $this->openRouterClient->chat($model, $this->prompt->system(), $this->prompt->forIssue($issue, $reply));
         $answer     = $completion?->text;
         if ($answer === null) {
             return null;
@@ -193,7 +208,7 @@ final class IssueTriageService
             return null;
         }
 
-        return new IssueTriageVerdict($class, $this->cleanReason($reason), $completion);
+        return ($this->confidencePolicy ?? new TriageConfidencePolicy($this->logger))->applyToIssue(new IssueTriageVerdict($class, $this->cleanReason($reason), $completion, TriageConfidence::fromAnswer($decoded['confidence'] ?? null)));
     }
 
     /**
@@ -222,7 +237,11 @@ final class IssueTriageService
     private function commentBody(IssueTriageVerdict $verdict, int $iid): string
     {
         $optOut = 'Add the `' . self::SKIP_LABEL . '` label to stop Kelpie on this issue.';
-        $note   = $verdict->class === IssueTriageClass::Fix ? 'Kelpie could attempt this. Fixing is not switched on yet, so Kelpie has not changed any code. ' . $optOut : 'Kelpie has not changed any code. ' . $optOut;
+        $note   = match ($verdict->class) {
+            IssueTriageClass::Fix          => 'Kelpie could attempt this. Fixing is not switched on yet, so Kelpie has not changed any code. ' . $optOut,
+            IssueTriageClass::NeedsContext => 'Reply on this issue with what is missing and Kelpie will look at it again. Kelpie has not changed any code. ' . $optOut,
+            default                        => 'Kelpie has not changed any code. ' . $optOut,
+        };
 
         return sprintf(
             "**Kelpie triage: %s**\n\n%s\n\n%s\n\n<!-- kelpie:triage issue=%d class=%s -->",

@@ -25,7 +25,7 @@ final class AutofixSettingsServiceTest extends UbixConcreteClassOrEnumTestCase i
 {
     private const array NAMES = [
         'GITLAB_API_URL', 'KELPIE_BOT_GITLAB_TOKEN', 'GITLAB_API_TOKEN', 'KELPIE_AUTOFIX_ENABLED', 'KELPIE_AUTOFIX_PROJECTS',
-        'CI_PROJECT_ID', 'CI_PROJECT_PATH', 'KELPIE_CLAIM_TTL_SECONDS', 'KELPIE_GIT_BASE_URL', 'KELPIE_FIXER_MODEL',
+        'CI_PROJECT_ID', 'CI_PROJECT_PATH', 'KELPIE_CLAIM_TTL_SECONDS', 'KELPIE_GIT_BASE_URL', 'KELPIE_FIXER_MODEL', 'KELPIE_FIXER_AGENT',
         'OPENROUTER_API_KEY', 'COMPOSER_AUTH', 'KELPIE_SWEEP_MAX_RUNS', 'KELPIE_BOT_USERNAME', 'KELPIE_SKIP_AUTHORS', 'KELPIE_SKIP_BRANCHES',
     ];
 
@@ -54,6 +54,21 @@ final class AutofixSettingsServiceTest extends UbixConcreteClassOrEnumTestCase i
         $this->assertSame(1800, $settings->claimTtl);
         $this->assertSame(5, $settings->sweepMaxRuns);
         $this->assertSame('kelpie-bot', $settings->botUsername);
+        $this->assertTrue($settings->agentEnabled);
+    }
+
+    /**
+     * Only "off" switches the fixing agent off
+     *
+     * @return void
+     */
+    public function testAgentSwitch(): void
+    {
+        putenv('KELPIE_FIXER_AGENT=off');
+        $this->assertFalse($this->settings()->agentEnabled);
+
+        putenv('KELPIE_FIXER_AGENT=on');
+        $this->assertTrue($this->settings()->agentEnabled);
     }
 
     /**

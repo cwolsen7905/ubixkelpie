@@ -80,6 +80,16 @@ and `docs/operations/worker.md`.
    1 row affected. Staging and prod were not touched. Rollback: `SET mode = 'propose'` (proposals only,
    nothing pushed), or `SET mode = 'off'`, with the same `WHERE`.
 
+   **Gate: `ci`.** ubixshepherd is Go, and Kelpie's image has no Go toolchain, so `make check` cannot run in
+   Kelpie's checkout. With `gate_command = 'ci'` a push round runs no gate here and leaves it to the MR
+   pipeline (`go-check`); each `Fixed:` reply says so. Run by hand on the dev database:
+
+   ```sql
+   UPDATE ubixkelpie.projects SET gate_command = 'ci' WHERE path = 'ubixsys/ubixshepherd';
+   ```
+
+   Rollback: `SET gate_command = NULL` (rounds then try `make check` and go red, so nothing is pushed).
+
    The other columns take their defaults (30 issues a day, 10 per author, 2.00 USD a day, 3 fix
    commits per MR). There is deliberately no migration: a migration would run on staging and prod too.
    The table is read on every pass, so no restart is needed.

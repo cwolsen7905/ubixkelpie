@@ -19,11 +19,56 @@ maintainer's decisions, made per project.
 
 ## What a round does
 
-All the fixes go to the push round service: edits only in files the MR already changes, one
-checkout, the project gate on the whole result, one `fix(review)` commit with a `Thread:` line
-per thread, one plain push (never forced). A moved head or a rejected push changes nothing.
+All the fixes go to the push round service: edits only in files the MR already changes, test
+files, and files the thread's finding names by path (see below); one checkout, the project's gate
+on the whole result, one `fix(review)` commit with a `Thread:` line per thread, one plain push
+(never forced). A moved head or a rejected push changes nothing.
 Each pushed thread gets `Fixed:` with the commit and is resolved only if Kelpie opened it. The
 MR label becomes `triage: pushed`.
+
+## Where a fix comes from: the propose model, then the agent
+
+The propose model is one call that sees only the file the thread is on. When it finds no edit,
+or its edits do not apply, Kelpie runs the fixing agent in the same scratch checkout: the
+`claude` CLI, headless, with Read, Grep, Glob, Edit and Write only (no shell, no git, no
+network beyond the model), on the same model as the propose step and under the same family
+guard. It can read the whole repository, so it can add the missing test or change the file
+the finding is really about. What it changed is measured from git, checked by the safety
+policy (size, file count, protected paths, no deletes), posted as the proposal's diff and
+stored as exact-text edits (one whole-file edit per file, or a new file), so a round replays it
+like any other proposal. Its cost counts toward the project's spend cap. The CLI prices runs
+from its own table, which may not know the model: a missing or zero cost is estimated from the
+token counts at a deliberately high rate ($10 in / $40 out per million tokens). A run that
+fails (an error, the 30-turn limit, a timeout) is still charged: its reported cost, the
+estimate, or a flat $1.00 when nothing says what it spent. It is never counted as free.
+
+The checkout keeps its git repository outside the work tree, and every git call names it and
+turns fsmonitor and hooks off. While the agent runs, the work tree has no `.git` at all; after
+it, a clean pointer is put back (replacing anything the agent left there), so a project gate
+that calls git still works and a `.git/config` the agent might be talked into writing is never
+read.
+
+`KELPIE_FIXER_AGENT=off` on the worker switches the agent off; the propose model alone then
+proposes, as before.
+
+## Which files a fix may touch
+
+- a file the MR already changes;
+- a test file (`tests/` or `test/` folders, `_test.go`, `Test.php`, `.test.`/`.spec.` JS and TS
+  files, pytest files), new or existing;
+- a file the thread's opening note names by its path, such as `internal/dispatch/adapters.go`.
+
+Anything else is left out of the round and the thread says why. The safety policy's protected
+paths (CI, migrations, secrets, lock files, tool configuration, manifests) are refused whatever
+the list says.
+
+## The gate
+
+The round runs the project's gate: its `gate_command` (from the `projects` row), else
+`make check` when the Makefile has a `check` target, else Kelpie's PHP gate. The value `ci`
+runs nothing here: it is for a project whose toolchain Kelpie's image does not have (Go, for
+ubixshepherd). Its merge request pipeline then gates the pushed commit, and every `Fixed:`
+reply says the gate was not run here. A merge still needs a person's approval.
 
 ## Outcomes
 

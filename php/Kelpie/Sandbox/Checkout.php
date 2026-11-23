@@ -17,13 +17,29 @@ use Psr\Log\LoggerInterface as Logger;
  * `HEAD:refs/heads/<branch>`: no force flag, no `+` refspec, so a branch that moved is rejected by
  * the server. Every git call gets an exact, minimal environment.
  *
+ * The repository lives outside the work tree (`<root>/git`, the work tree is `<root>/repo`) and every git call names
+ * both, so nothing written in the work tree can become git configuration for Kelpie's own calls. Each call also turns
+ * fsmonitor and hooks off outright. While the fixing agent runs, the work tree's `.git` pointer is taken away
+ * (`detachWorkTree()`), so the agent sees no repository at all; `attachWorkTree()` puts back a clean pointer,
+ * replacing whatever the agent left at `.git`, so a project gate that calls git still finds the repository.
+ *
  * @see \Kelpie\Tests\Sandbox\CheckoutTest PHPUnit test case
  */
 final class Checkout
 {
     private const int GIT_TIMEOUT = 300;
 
+    /**
+     * Given to every git call: no fsmonitor command, no hooks, whatever any configuration says
+     */
+    private const array SAFE_CONFIG = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+
     private string $root = '';
+
+    /**
+     * Whether the clone is done, so git calls name the repository outside the work tree
+     */
+    private bool $cloned = false;
 
     /**
      * Constructor
@@ -68,11 +84,14 @@ final class Checkout
         if (!mkdir($root, 0700) || !mkdir($root . '/repo', 0700)) {
             return false;
         }
-        $this->root = $root;
+        $this->root   = $root;
+        $this->cloned = false;
 
-        if (!$this->networkGit(['clone', '--no-tags', '--branch', $branch, '--', $url, $root . '/repo'], $root)) {
+        if (!$this->networkGit(['clone', '--no-tags', '--separate-git-dir', $root . '/git', '--branch', $branch, '--', $url, $root . '/repo'], $root)) {
             return false;
         }
+
+        $this->cloned = true;
 
         return $this->git(['checkout', '--detach', $sha])->exitCode === 0 && trim($this->git(['rev-parse', 'HEAD'])->stdout) === $sha;
     }
@@ -142,6 +161,70 @@ final class Checkout
     }
 
     /**
+     * Take the work tree's `.git` pointer away, so the repository cannot be found from the work tree
+     *
+     * @return bool Whether there is no `.git` in the work tree now
+     */
+    public function detachWorkTree(): bool
+    {
+        $pointer = $this->directory() . '/.git';
+
+        return !is_file($pointer) || unlink($pointer);
+    }
+
+    /**
+     * Put a clean `.git` pointer back in the work tree, replacing anything at that path
+     *
+     * @return bool Whether the pointer is in place
+     */
+    public function attachWorkTree(): bool
+    {
+        if ($this->root === '') {
+            return false;
+        }
+
+        $pointer = $this->directory() . '/.git';
+        if (file_exists($pointer) || is_link($pointer)) {
+            $this->runner->run(['rm', '-rf', '--', $pointer], $this->root, $this->baseEnv(), 60);
+        }
+
+        return !file_exists($pointer) && !is_link($pointer) && file_put_contents($pointer, 'gitdir: ' . $this->root . "/git\n") !== false;
+    }
+
+    /**
+     * Whether the sha the checkout was opened at has this file
+     *
+     * @param string $path Repo-relative path
+     *
+     * @return bool
+     */
+    public function hasAtHead(string $path): bool
+    {
+        return $path !== '' && !str_starts_with($path, '-') && !str_contains($path, "\0") && $this->git(['cat-file', '-e', 'HEAD:' . $path])->exitCode === 0;
+    }
+
+    /**
+     * A file's text at the sha the checkout was opened at
+     *
+     * @param string $path Repo-relative path
+     *
+     * @return ?string The text; '' for a file the sha does not have; null when git could not say
+     */
+    public function original(string $path): ?string
+    {
+        if ($path === '' || str_starts_with($path, '-') || str_contains($path, "\0")) {
+            return null;
+        }
+        if (!$this->hasAtHead($path)) {
+            return '';
+        }
+
+        $result = $this->git(['cat-file', 'blob', 'HEAD:' . $path]);
+
+        return $result->exitCode === 0 ? $result->stdout : null;
+    }
+
+    /**
      * Commit the staged changes
      *
      * @param string $message The commit message
@@ -186,7 +269,8 @@ final class Checkout
         if ($this->root !== '' && str_starts_with(basename($this->root), 'kelpie-fix-')) {
             $this->runner->run(['rm', '-rf', '--', $this->root], sys_get_temp_dir(), $this->baseEnv(), 60);
         }
-        $this->root = '';
+        $this->root   = '';
+        $this->cloned = false;
     }
 
     /**
@@ -210,7 +294,7 @@ final class Checkout
      */
     private function git(array $args): ProcessResult
     {
-        return $this->runner->run(['git', ...$args], $this->directory(), $this->baseEnv(), self::GIT_TIMEOUT);
+        return $this->runner->run(['git', ...self::SAFE_CONFIG, ...$args], $this->directory(), $this->baseEnv(), self::GIT_TIMEOUT);
     }
 
     /**
@@ -231,7 +315,7 @@ final class Checkout
         }
 
         try {
-            $result = $this->runner->run(['git', ...$args], $cwd, $this->baseEnv() + ['GIT_ASKPASS' => $script, 'GIT_TERMINAL_PROMPT' => '0'], self::GIT_TIMEOUT);
+            $result = $this->runner->run(['git', ...self::SAFE_CONFIG, ...$args], $cwd, $this->baseEnv() + ['GIT_ASKPASS' => $script, 'GIT_TERMINAL_PROMPT' => '0'], self::GIT_TIMEOUT);
         } finally {
             unlink($script);
         }
@@ -251,11 +335,13 @@ final class Checkout
      */
     private function baseEnv(): array
     {
-        return [
+        $env = [
             'GIT_CONFIG_NOSYSTEM' => '1',
             'HOME'                => $this->root !== '' ? $this->root : sys_get_temp_dir(),
             'LC_ALL'              => 'C',
             'PATH'                => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin'),
         ];
+
+        return $this->cloned ? $env + ['GIT_DIR' => $this->root . '/git', 'GIT_WORK_TREE' => $this->root . '/repo'] : $env;
     }
 }

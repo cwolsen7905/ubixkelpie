@@ -106,10 +106,11 @@ final class ProposalReactionBuilderService
             $replies,
             new EditApplyService($this->logger),
             new Checkout($this->logger, $this->processRunner, $this->settings->botToken),
-            new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth),
+            new IssueGateService($this->logger, $this->processRunner, new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth)),
             $this->outcomes,
             $this->jobs->writer(),
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
+            $this->modes->gateCommand($projectPath),
         );
     }
 

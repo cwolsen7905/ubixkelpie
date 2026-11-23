@@ -66,6 +66,23 @@ final class ProjectModeServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * The gate command comes from the row; no row has none
+     *
+     * @return void
+     */
+    public function testGateCommandComesFromTheRow(): void
+    {
+        $reader = $this->createStub(ProjectReader::class);
+        $reader->method('getByPath')->willReturnCallback(static function (string $path): ?Project {
+            return $path === 'g/p' ? new Project('g/p', ProjectMode::Push, gateCommand: 'ci') : null;
+        });
+        $service = new ProjectModeService($this->createStub(Logger::class), $reader);
+
+        $this->assertSame('ci', $service->gateCommand('g/p'));
+        $this->assertNull($service->gateCommand('g/none'));
+    }
+
+    /**
      * The enrolled paths
      *
      * @return void

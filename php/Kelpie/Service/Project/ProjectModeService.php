@@ -58,6 +58,16 @@ final class ProjectModeService
     }
 
     /**
+     * @param string $path The project path with namespace
+     *
+     * @return ?string The project's own gate command, null for none or no row
+     */
+    public function gateCommand(string $path): ?string
+    {
+        return $this->projects->getByPath($path)?->gateCommand;
+    }
+
+    /**
      * @return string[] The paths of every project that is not off, in path order
      */
     public function enrolledPaths(): array

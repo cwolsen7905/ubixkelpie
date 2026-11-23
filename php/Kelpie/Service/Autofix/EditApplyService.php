@@ -11,8 +11,10 @@ use Psr\Log\LoggerInterface as Logger;
  * Applies a model's exact-text edits to a scratch checkout, or refuses all of them
  *
  * An edit stands only if its file is a plain file inside the checkout (not under `.git`, no `..`, no symlink out),
- * its `old` text is not empty and occurs exactly once, and it changes something. Edits apply in order, each to the
- * text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
+ * its `old` text is not empty and occurs exactly once, and it changes something. An edit with an empty `old` creates
+ * a file instead: only one that does not exist yet, inside the checkout and outside `.git` (missing folders are made),
+ * with some text. Edits apply in order, each
+ * to the text the one before left. If any edit is refused nothing is written, so a proposal either applies in full or
  * does not exist.
  *
  * @see \Kelpie\Tests\Service\Autofix\EditApplyServiceTest PHPUnit test case
@@ -51,7 +53,21 @@ final class EditApplyService
 
         $texts = [];
         foreach ($edits as $number => $edit) {
-            $path = $this->resolve($root, $edit->file);
+            if ($edit->old === '' && $edit->new !== '' && $this->resolve($root, $edit->file) === null) {
+                $path = $this->newFile($root, $edit->file);
+                if ($path === null || isset($texts[$path])) {
+                    return sprintf('Edit %d creates a file that cannot be made in the repository (`%s`).', $number + 1, $edit->file);
+                }
+
+                $texts[$path] = $edit->new;
+
+                continue;
+            }
+
+            // A file an earlier edit of this list creates is not on disk yet
+            $path    = $this->resolve($root, $edit->file);
+            $created = $path === null ? $this->newFile($root, $edit->file) : null;
+            $path  ??= $created !== null && isset($texts[$created]) ? $created : null;
             if ($path === null) {
                 return sprintf('Edit %d names a file that is not a plain file in the repository (`%s`).', $number + 1, $edit->file);
             }
@@ -70,7 +86,7 @@ final class EditApplyService
         }
 
         foreach ($texts as $path => $text) {
-            if (file_put_contents($path, $text) === false) {
+            if ((!is_dir(dirname($path)) && !mkdir(dirname($path), 0755, true)) || file_put_contents($path, $text) === false) {
                 $this->logger->error('Propose: could not write an edited file', ['path' => basename($path)]);
 
                 return 'An edited file could not be written.';
@@ -78,6 +94,57 @@ final class EditApplyService
         }
 
         return null;
+    }
+
+    /**
+     * Where a new file would go: nothing there yet, not even a link, inside the checkout and outside `.git`
+     *
+     * Its folder may not exist yet: the deepest folder of the path that does exist must be a real folder inside the
+     * checkout, and the rest is made when the edits are written (an agent may add a test in a new folder).
+     *
+     * @param string $root The checkout's real path
+     * @param string $file The repo-relative path the model gave
+     *
+     * @return ?string
+     */
+    private function newFile(string $root, string $file): ?string
+    {
+        if (!$this->plainRelative($file)) {
+            return null;
+        }
+
+        $parts   = explode('/', trim($file, '/'));
+        $name    = array_pop($parts);
+        $missing = [];
+        while ($parts !== [] && !file_exists($root . '/' . implode('/', $parts)) && !is_link($root . '/' . implode('/', $parts))) {
+            array_unshift($missing, array_pop($parts));
+        }
+
+        $folder = realpath($root . ($parts === [] ? '' : '/' . implode('/', $parts)));
+        if ($folder === false || !is_dir($folder) || ($folder !== $root && !str_starts_with($folder, $root . '/'))) {
+            return null;
+        }
+
+        $relative = ltrim(substr($folder, strlen($root)) . '/' . implode('/', $missing), '/');
+        if ($relative === '.git' || str_starts_with($relative, '.git/') || in_array('', $missing, true) || in_array('.', $missing, true)) {
+            return null;
+        }
+
+        $path = rtrim($folder . '/' . implode('/', $missing), '/') . '/' . $name;
+
+        return file_exists($path) || is_link($path) ? null : $path;
+    }
+
+    /**
+     * Whether a repo-relative path the model gave is plain: not empty, not absolute, no `..`, no NUL or backslash
+     *
+     * @param string $file The path
+     *
+     * @return bool
+     */
+    private function plainRelative(string $file): bool
+    {
+        return $file !== '' && !str_contains($file, "\0") && !str_starts_with($file, '/') && !str_contains($file, '\\') && !in_array('..', explode('/', $file), true);
     }
 
     /**
@@ -90,7 +157,7 @@ final class EditApplyService
      */
     private function resolve(string $root, string $file): ?string
     {
-        if ($file === '' || str_contains($file, "\0") || str_starts_with($file, '/') || str_contains($file, '\\') || in_array('..', explode('/', $file), true)) {
+        if (!$this->plainRelative($file)) {
             return null;
         }
 

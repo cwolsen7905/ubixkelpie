@@ -19,6 +19,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - It pushes without force: a branch that moved is rejected, never overwritten
  * - It refuses branch names that could be read as options or refspecs
  * - The credential script does not outlive the call, and close() removes the checkout
+ * - The repository is outside the work tree: a `.git/config` planted while detached is never read, and attaching puts a clean pointer back
  *
  * @coversDefaultClass \Kelpie\Sandbox\Checkout
  */
@@ -53,6 +54,40 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
         $checkout = $this->checkout();
         $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
         $this->assertSame($this->sha, trim($this->git($checkout->directory(), ['rev-parse', 'HEAD'])));
+        $this->assertDirectoryExists(dirname($checkout->directory()) . '/git');
+        $checkout->close();
+    }
+
+    /**
+     * A `.git/config` planted in the work tree (as a prompt-injected agent might) is never read: its fsmonitor never runs
+     *
+     * @return void
+     */
+    public function testPlantedGitConfigInTheWorkTreeIsIgnored(): void
+    {
+        $checkout = $this->checkout();
+        $this->assertTrue($checkout->open($this->remote, 'feat/x', $this->sha));
+        $dir    = $checkout->directory();
+        $marker = $this->base . '/pwned';
+        $this->assertTrue($checkout->detachWorkTree());
+        $this->assertFileDoesNotExist($dir . '/.git');
+        mkdir($dir . '/.git/hooks', 0700, true);
+        file_put_contents($dir . '/.git/config', "[core]\n\tfsmonitor = touch " . $marker . "\n\thooksPath = .git/hooks\n");
+        file_put_contents($dir . '/a.txt', "one\ntwo\n");
+
+        $changes = $checkout->stageAndMeasure();
+        $checkout->stagedDiff();
+        $checkout->commit('x');
+
+        $this->assertNotNull($changes);
+        $this->assertSame(['a.txt'], $changes->paths);
+        $this->assertFileDoesNotExist($marker);
+
+        // Put back clean: a gate that calls git finds the real repository, not the planted one
+        $this->assertTrue($checkout->attachWorkTree());
+        $this->assertTrue(is_file($dir . '/.git'));
+        $this->assertSame('x', trim($this->git($dir, ['log', '-1', '--format=%s'])));
+        $this->assertFileDoesNotExist($marker);
         $checkout->close();
     }
 
@@ -88,6 +123,28 @@ final class CheckoutTest extends UbixConcreteClassOrEnumTestCase implements IUbi
         $this->assertSame(2, $changes->changedLines);
         $this->assertFalse($changes->deletesOrRenamesFiles);
         $this->assertFalse($changes->weakensTests);
+        $checkout->close();
+    }
+
+    /**
+     * A file's text at the sha survives edits in the working tree; a new file has none
+     *
+     * @return void
+     */
+    public function testOriginalIsTheTextAtTheSha(): void
+    {
+        $checkout = $this->checkout();
+        $checkout->open($this->remote, 'feat/x', $this->sha);
+        $dir = $checkout->directory();
+        file_put_contents($dir . '/a.txt', "changed\n");
+        file_put_contents($dir . '/new.txt', "x\n");
+        $checkout->stageAndMeasure();
+
+        $this->assertSame("one\n", $checkout->original('a.txt'));
+        $this->assertSame('', $checkout->original('new.txt'));
+        $this->assertNull($checkout->original('--help'));
+        $this->assertTrue($checkout->hasAtHead('a.txt'));
+        $this->assertFalse($checkout->hasAtHead('new.txt'));
         $checkout->close();
     }
 

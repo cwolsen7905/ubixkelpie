@@ -22,7 +22,7 @@ fallback to the environment list when the table is empty: an unenrolled project 
 | --- | --- | --- |
 | `path` | Project path with namespace (unique) | |
 | `mode` | `off`, `propose` or `push` | `off` |
-| `gate_command` | The project's own gate | the default gate |
+| `gate_command` | The project's own gate, split on spaces (no shell). `ci`: no gate here, the merge request pipeline is the gate (for a toolchain Kelpie's image lacks) | `make check`, else the PHP gate |
 | `protected_paths` | JSON list of extra globs the fixer must not touch | none |
 | `triage_model` | Triage model for this project (threads and issues); a `-contributor` model is refused unless the project is public | `KELPIE_TRIAGE_MODEL` |
 | `review_model` | Review model override (stored, not read yet) | the review's default |

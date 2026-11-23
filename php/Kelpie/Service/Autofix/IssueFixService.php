@@ -257,15 +257,15 @@ final class IssueFixService
             return $this->handOff($issues, $project, $iid, 'the push of `' . $branch . '` was refused.');
         }
 
-        $url = $opener->create($project, $branch, $this->target, $this->mrTitle($iid, $issue->title), $this->mrDescription($iid, $summary, $changes->paths), [self::MR_LABEL], $this->reviewerIds($opener));
+        $url = $opener->create($project, $branch, $this->target, $this->mrTitle($iid, $issue->title), $this->mrDescription($iid, $summary, $changes->paths, $gate->local), [self::MR_LABEL], $this->reviewerIds($opener));
         if ($url === null) {
             $this->logger->error('Issue fix: the merge request could not be opened after the push', ['branch' => $branch, 'issue_iid' => $iid, 'project_path' => $project]);
 
-            return $this->handOff($issues, $project, $iid, 'the gate passed and `' . $branch . '` is pushed, but the merge request could not be opened. A person can open it from that branch.', pushed: true, diff: $diff);
+            return $this->handOff($issues, $project, $iid, ($gate->local ? 'the gate passed and `' : '`') . $branch . '` is pushed, but the merge request could not be opened. A person can open it from that branch.', pushed: true, diff: $diff);
         }
 
         $this->record($project, $iid, ThreadOutcome::Pushed, $summary, $edits->editsJson, $diff);
-        $issues->comment($project, $iid, sprintf("**Kelpie opened a merge request: %s**\n\n%s\n\nThe gate passed. Nothing is merged: a person reviews and merges it.\n\n<!-- kelpie:fix issue=%d result=opened -->", $url, $summary, $iid));
+        $issues->comment($project, $iid, sprintf("**Kelpie opened a merge request: %s**\n\n%s\n\n%s Nothing is merged: a person reviews and merges it.\n\n<!-- kelpie:fix issue=%d result=opened -->", $url, $summary, $gate->local ? 'The gate passed.' : 'The gate was not run here: the merge request pipeline gates it.', $iid));
         $issues->addLabel($project, $iid, self::FIX_PROPOSED_LABEL);
 
         $this->logger->info('Issue fix: merge request opened', ['issue_iid' => $iid, 'project_path' => $project]);
@@ -355,12 +355,15 @@ final class IssueFixService
      * @param int      $iid     The issue number
      * @param string   $summary The change in a sentence or two
      * @param string[] $paths   The files changed
+     * @param bool     $local   Whether the gate ran here (false: the project's pipeline is its gate)
      *
      * @return string
      */
-    private function mrDescription(int $iid, string $summary, array $paths): string
+    private function mrDescription(int $iid, string $summary, array $paths, bool $local = true): string
     {
-        return sprintf("%s\n\nFiles: `%s`\n\nThe project's gate passed on this branch before it was pushed. Opened by Kelpie from the issue; it does not merge or approve.\n\nCloses #%d\n\n<!-- kelpie:fix issue=%d -->", $summary, implode('`, `', $paths), $iid, $iid);
+        $gate = $local ? 'The project\'s gate passed on this branch before it was pushed.' : 'The gate was not run before the push: this project\'s merge request pipeline is its gate.';
+
+        return sprintf("%s\n\nFiles: `%s`\n\n%s Opened by Kelpie from the issue; it does not merge or approve.\n\nCloses #%d\n\n<!-- kelpie:fix issue=%d -->", $summary, implode('`, `', $paths), $gate, $iid, $iid);
     }
 
     /**

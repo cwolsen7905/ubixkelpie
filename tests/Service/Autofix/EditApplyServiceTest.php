@@ -102,6 +102,52 @@ final class EditApplyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * An empty old text creates a new file in an existing folder, and a later edit can build on it
+     *
+     * @return void
+     */
+    public function testNewFileIsCreated(): void
+    {
+        $this->assertNull($this->service()->apply($this->dir, [new ProposedEdit('sub/c_test.go', '', "package sub\n"), new ProposedEdit('sub/c_test.go', 'package sub', 'package sub_test')]));
+        $this->assertSame("package sub_test\n", file_get_contents($this->dir . '/sub/c_test.go'));
+    }
+
+    /**
+     * A new file in folders that do not exist yet makes them; a refused list makes none
+     *
+     * @return void
+     */
+    public function testNewFileMakesItsFolders(): void
+    {
+        $this->assertNull($this->service()->apply($this->dir, [new ProposedEdit('sub/deep/er/x_test.go', '', "package er\n")]));
+        $this->assertSame("package er\n", file_get_contents($this->dir . '/sub/deep/er/x_test.go'));
+
+        $this->assertNotNull($this->service()->apply($this->dir, [new ProposedEdit('fresh/y.txt', '', 'y'), new ProposedEdit('a.txt', 'absent', 'x')]));
+        $this->assertDirectoryDoesNotExist($this->dir . '/fresh');
+    }
+
+    /**
+     * A new file only where it can be made: not over a file or a link, not in a missing folder, not in .git or outside
+     *
+     * @return void
+     */
+    public function testNewFileOnlyWhereItCanBeMade(): void
+    {
+        foreach (['link.txt', 'link.txt/x.txt', '.git/hooks.txt', '.git/new/x.txt', '../outside2.txt', 'sub/../../outside2.txt', '/tmp/x.txt'] as $path) {
+            $result = $this->service()->apply($this->dir, [new ProposedEdit($path, '', 'x')]);
+
+            $this->assertNotNull($result, $path);
+            $this->assertStringContainsString('cannot be made', $result, $path);
+        }
+        $this->assertFileDoesNotExist(dirname($this->dir) . '/outside2.txt');
+        $this->assertFileDoesNotExist($this->dir . '/.git/hooks.txt');
+        $this->assertSame("secret\n", file_get_contents(dirname($this->dir) . '/outside.txt'));
+
+        $this->assertSame('Edit 2 creates a file that cannot be made in the repository (`n.txt`).', $this->service()->apply($this->dir, [new ProposedEdit('n.txt', '', 'a'), new ProposedEdit('n.txt', '', 'b')]));
+        $this->assertFileDoesNotExist($this->dir . '/n.txt');
+    }
+
+    /**
      * A file in a subdirectory is fine
      *
      * @return void

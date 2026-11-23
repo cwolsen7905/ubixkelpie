@@ -74,6 +74,6 @@ final class GateRunner
             }
         }
 
-        return new GateResult(true);
+        return new GateResult(true, ran: 'phpcs, phpstan and phpunit passed.');
     }
 }

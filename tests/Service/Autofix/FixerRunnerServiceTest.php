@@ -17,6 +17,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
+use Kelpie\Service\Autofix\AgentEditsService;
 use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\EditApplyService;
 use Kelpie\Service\Autofix\FixerRunnerService;
@@ -26,6 +27,7 @@ use Kelpie\Service\Autofix\TriageStatusService;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
+use Kelpie\Tests\Agent\ScriptedFixerAgent;
 use Kelpie\Tests\GitLab\FakeGitlab;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
 use Kelpie\Tests\Service\Triage\TriageLlms;
@@ -46,6 +48,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A fix is proposed, never pushed: the reply carries the diff git wrote, it applies to the triaged sha, the branch is untouched
  * - A dismissal and a deferral are replies with the reason, and the thread stays open
  * - Edits that do not apply exactly, touch a protected path or break a limit become a needs-human reply, not a proposal
+ * - When the propose model has no usable edit, the fixing agent's change in any file is proposed, checked the same way
  * - Triage and propose models from the review's family are refused
  * - A run that stops on the MR (closed, head moved, answered) supersedes only its own job, running or pending
  * - Every thread it answers has one outcome row with the models and the cost
@@ -461,6 +464,97 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * The propose model sees one file and finds no edit; the agent adds a test in another file, and that is the proposal
+     *
+     * @return void
+     */
+    public function testAgentFixesWhatTheProposeModelCannot(): void
+    {
+        $this->proposal = ['edits' => [], 'summary' => 'The fix is a test, and only a.txt is shown.'];
+        $agent          = new ScriptedFixerAgent(static function (string $dir): string {
+            file_put_contents($dir . '/a_test.txt', "checks one\n");
+
+            return 'Added a test for one.';
+        });
+
+        $outcome = $this->service(true, null, $agent)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1);
+
+        $this->assertSame(FixOutcome::Proposed, $outcome);
+        $this->assertSame(['d1'], $agent->threads());
+        $this->assertSame(['Triage: It is a typo.'], $agent->contexts());
+        $body = $this->lastNote();
+        $this->assertStringContainsString('Kelpie proposes this change', $body);
+        $this->assertStringContainsString('+checks one', $body);
+        $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
+        $row = $this->row();
+        $this->assertSame(ThreadOutcome::Proposed, $row->outcome);
+        $this->assertStringContainsString('a_test.txt', $row->editsJson);
+        $this->assertSame('openai/gpt-5.5', $row->proposeModel);
+        $this->assertEqualsWithDelta(0.022, $row->costUsd, 0.0001);
+    }
+
+    /**
+     * An agent that changes nothing, or touches a protected path, is refused like the propose model, both reasons told
+     *
+     * @return void
+     */
+    public function testAgentChangeIsCheckedLikeAProposal(): void
+    {
+        $this->proposal = ['edits' => [], 'summary' => 'Not in this file.'];
+        $nothing        = new ScriptedFixerAgent(static function (): string {
+            return 'It needs a design call.';
+        });
+
+        $this->assertSame(FixOutcome::EditsRejected, $this->service(true, null, $nothing)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertStringContainsString('found no safe edit: Not in this file. The fixing agent made no change: It needs a design call.', $this->lastNote());
+
+        $this->tearDown();
+        $this->setUp();
+        $this->proposal = ['edits' => [], 'summary' => 'Not in this file.'];
+        $ci             = new ScriptedFixerAgent(static function (string $dir): string {
+            file_put_contents($dir . '/.gitlab-ci.yml', "stages: [x]\n");
+
+            return 'Changed CI.';
+        });
+
+        $this->assertSame(FixOutcome::Unsafe, $this->service(true, null, $ci)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertStringContainsString('protected path', $this->lastNote());
+    }
+
+    /**
+     * An agent run that did not finish is still paid for: its cost is in the outcome row with the other calls
+     *
+     * @return void
+     */
+    public function testUnfinishedAgentRunIsStillCharged(): void
+    {
+        $this->proposal = ['edits' => [], 'summary' => 'Not in this file.'];
+        $agent          = new ScriptedFixerAgent(static function (): ?string {
+            return null;
+        });
+
+        $this->assertSame(FixOutcome::EditsRejected, $this->service(true, null, $agent)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertStringContainsString('The fixing agent did not finish.', $this->lastNote());
+        $this->assertEqualsWithDelta(0.012, $this->row()->costUsd, 0.0001);
+    }
+
+    /**
+     * The agent is not tried when the propose model may not be used: same family as the review
+     *
+     * @return void
+     */
+    public function testAgentIsNotTriedWithARefusedModel(): void
+    {
+        putenv('KELPIE_PROPOSE_MODEL=anthropic/claude-sonnet-5.5');
+        $agent = new ScriptedFixerAgent(static function (): string {
+            return 'x';
+        });
+
+        $this->assertSame(FixOutcome::EditsRejected, $this->service(true, null, $agent)->run('1', 'g/p', 3, $this->thread(), $this->sha, 1));
+        $this->assertSame([], $agent->threads());
+    }
+
+    /**
      * A general comment has no file to edit
      *
      * @return void
@@ -713,12 +807,13 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     /**
      * Build the service: real git against the local remote, the fake GitLab and a scripted model
      *
-     * @param bool    $enabled        KELPIE_AUTOFIX_ENABLED
-     * @param ?string $projectHardCap The project's daily spend hard cap; null for unlimited
+     * @param bool                $enabled        KELPIE_AUTOFIX_ENABLED
+     * @param ?string             $projectHardCap The project's daily spend hard cap; null for unlimited
+     * @param ?ScriptedFixerAgent $agent          The fixing agent, null for none
      *
      * @return FixerRunnerService
      */
-    private function service(bool $enabled = true, ?string $projectHardCap = null): FixerRunnerService
+    private function service(bool $enabled = true, ?string $projectHardCap = null, ?ScriptedFixerAgent $agent = null): FixerRunnerService
     {
         $logger   = $this->createStub(Logger::class);
         $json     = new JsonService($logger);
@@ -763,6 +858,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $this->outcomes,
             new SpendCapService($logger, new InMemoryProjects(['g/p' => ProjectMode::Propose], $projectHardCap === null ? [] : ['g/p' => $projectHardCap]), $this->outcomes),
             $this->remote,
+            $agent === null ? null : new AgentEditsService($logger, $agent, $json),
         );
     }
 

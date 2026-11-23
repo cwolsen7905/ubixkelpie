@@ -16,6 +16,31 @@ in the project if their jobs together reach it. A job is checked against commits
 per thread, the project ceiling and the per-MR cap, in that order, and the first one hit is the
 one reported.
 
+## Soft and hard limits
+
+Every cap has two limits. The value in the table is the **soft** limit: when a job passes it, Kelpie
+warns and keeps going. A warning is one plain MR note (marker `<!-- kelpie:over-soft-cap -->`, label
+`kelpie::over-soft-cap`, at most once per MR per 24 hours) for the MR-scoped caps, or a log line for the
+project-wide job cap. The **hard** limit is what stops the work: a job at a hard limit is refused, with
+the over-cap note below. A hard limit is unlimited by default, so out of the box nothing stops; set one
+to make a cap stop work.
+
+| Cap | Hard variable |
+|---|---|
+| Jobs per MR | `KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD` |
+| Jobs per project | `KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD` |
+| Commits per MR | `KELPIE_AUTOFIX_COMMITS_PER_MR_HARD` |
+| Attempts per thread | `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD` |
+
+A hard variable that is missing or empty is unlimited. A value that is not a whole number of at least 1
+is also unlimited and logs a warning (`Invalid autofix hard cap setting, treating it as unlimited`), so a
+typo never stops the work. Set a hard limit at or above its soft limit; below it, the soft warning never fires.
+
+The per-project count caps in the `projects` table (`max_issues_per_day`, `max_issues_per_author_day`)
+and the spend cap (`max_cost_usd_day`) are soft limits too, with `*_hard` columns next to them (NULL is
+unlimited). The spend hard caps are enforced, see `docs/design/spend-caps.md`; the two issue-count hard
+columns are stored and read but nothing enforces the issue-count caps yet.
+
 ## Setting them
 
 Set the variable in uBixVault, in `kelpie/<env>/app`, next to the other `KELPIE_*` settings. A value
@@ -28,7 +53,7 @@ The variables are read when a process starts. After changing one, restart the po
 
 ## The over-cap note
 
-When a job is refused because the MR is at its per-MR cap, or the project is at its ceiling, Kelpie
+When a job is refused because the MR is at its hard per-MR limit, or the project is at its hard ceiling, Kelpie
 says so on the MR instead of dropping the job silently. It posts one plain MR note (not a thread, so
 nothing to resolve) that names the cap that was hit:
 

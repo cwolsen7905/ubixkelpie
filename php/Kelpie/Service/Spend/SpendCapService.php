@@ -22,6 +22,11 @@ final class SpendCapService
     private const float DEFAULT_GLOBAL_CAP = 10.0;
 
     /**
+     * @var array<string, string> The day each soft warning was last logged, by scope
+     */
+    private array $warned = [];
+
+    /**
      * Constructor
      *
      * @param Logger              $logger   Logger
@@ -68,16 +73,34 @@ final class SpendCapService
 
         // Soft caps warn and continue
         $projectSoft = (float) $project->maxCostUsdDay;
-        if ($spent >= $projectSoft) {
+        if ($spent >= $projectSoft && $this->firstToday('project:' . $projectPath)) {
             $this->logger->warning('Soft spend cap passed: project daily spend', ['project_path' => $projectPath, 'spent' => $spent, 'soft_cap' => $projectSoft]);
         }
 
         $globalSoft = $this->globalCap();
-        if ($globalSpent >= $globalSoft) {
+        if ($globalSpent >= $globalSoft && $this->firstToday('global')) {
             $this->logger->warning('Soft spend cap passed: global daily spend', ['spent' => $globalSpent, 'soft_cap' => $globalSoft]);
         }
 
         return new SpendCheck();
+    }
+
+    /**
+     * Whether this soft warning has not been logged yet today in this process (once per scope per day, not per check)
+     *
+     * @param string $scope The scope: `global` or `project:<path>`
+     *
+     * @return bool
+     */
+    private function firstToday(string $scope): bool
+    {
+        $today = gmdate('Y-m-d');
+        if (($this->warned[$scope] ?? '') === $today) {
+            return false;
+        }
+        $this->warned[$scope] = $today;
+
+        return true;
     }
 
     /**

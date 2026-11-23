@@ -161,6 +161,57 @@ final class AutofixJobServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
+     * Passing the MR's soft job cap still enqueues the job, and leaves one warning note on the MR
+     *
+     * @return void
+     */
+    public function testSoftMrCapWarnsAndStillEnqueues(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 5, 'mr3' => 30], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $notes = array_merge(...array_values($gitlab->notes()));
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertCount(1, $notes);
+        $this->assertStringContainsString(CapNoticeService::SOFT_MARKER, $notes[0]['body']);
+        $this->assertStringContainsString('(30 of 30 in 24 h)', $notes[0]['body']);
+    }
+
+    /**
+     * One job under the soft cap is not a warning: the count is read before the new job is created
+     *
+     * @return void
+     */
+    public function testJustUnderTheSoftCapSaysNothing(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 5, 'mr3' => 29], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
+     * The project-wide soft cap only logs: no MR note, and the job still runs
+     *
+     * @return void
+     */
+    public function testSoftProjectCapOnlyLogs(): void
+    {
+        $gitlab = new FakeGitlab();
+        $now    = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        [$outcome] = $this->countingService(['project' => 200, 'mr3' => 1], $gitlab)->pendingJob(new AutofixJob('g/p', 3, self::SHA, 'note', 'd1'), $now);
+
+        $this->assertSame(EnqueueOutcome::Enqueued, $outcome);
+        $this->assertSame([], $gitlab->requests());
+    }
+
+    /**
      * The settings change the caps
      *
      * @return void

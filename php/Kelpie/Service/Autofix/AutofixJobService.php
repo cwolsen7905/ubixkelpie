@@ -13,6 +13,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobReaderInterface as AutofixJobReader;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Psr\Log\LoggerInterface as Logger;
+use Throwable;
 
 /**
  * The autofix job table as the fixer's callers see it: get the one pending job for a thread, or why not
@@ -55,6 +56,9 @@ final class AutofixJobService
      */
     public function pendingJob(AutofixJob $input, DateTimeImmutable $now): array
     {
+        // Read before the enqueue, so the counts do not include the job about to be created: a soft cap is passed when the
+        // job would be over it, the same test the hard cap uses
+        $soft    = $this->softCapPassed($input, $now);
         $outcome = $this->coalescer->enqueue($input, $now);
         if ($outcome === EnqueueOutcome::CapExceeded) {
             $this->noticeDailyCap($input, $now);
@@ -62,7 +66,10 @@ final class AutofixJobService
             return [$outcome, null];
         }
 
-        $this->noticeSoftCap($input, $now);
+        // Only a job that was really created warns; a coalesced one is the same job as before
+        if ($outcome === EnqueueOutcome::Enqueued && $soft !== null) {
+            $this->noticeSoftCap($input, $soft, $now);
+        }
 
         $job = $this->repository->getOpenJob($input->projectPath, $input->mrIid, $this->coalescer->threadKey($input));
         if ($job === null || $job->getId() === null || $job->getStatus() !== 'pending' || $job->getHeadSha() !== $input->headSha) {
@@ -140,40 +147,64 @@ final class AutofixJobService
     }
 
     /**
-     * When work is proceeding past a soft cap, say so once on the MR (or in the log for the project cap)
+     * Which soft cap, if any, a job would pass, with the count and the limit
      *
-     * A soft cap is a warning: the work keeps running. The MR-scoped caps (commits, attempts, MR jobs) get an MR note;
-     * the project cap is not MR-scoped, so it only logs. Never throws.
+     * Never throws: a failed count is logged and reads as no soft cap, because a warning must not break enqueueing.
      *
      * @param AutofixJob        $input The job
      * @param DateTimeImmutable $now   The current time
      *
+     * @return ?array{cap: string, used: int, limit: int} The soft cap passed; null when none, or when it could not be read
+     */
+    private function softCapPassed(AutofixJob $input, DateTimeImmutable $now): ?array
+    {
+        try {
+            $cap = $this->coalescer->softCapExceededFor($input, $now);
+            if ($cap === null) {
+                return null;
+            }
+
+            $caps  = $this->coalescer->caps();
+            $since = $now->modify('-1 day');
+            $mrIid = $input->mrIid;
+
+            return match ($cap) {
+                'jobs_per_project'    => ['cap' => $cap, 'used' => $this->repository->countJobsSince($input->projectPath, $since), 'limit' => $caps->jobsPerProject],
+                'commits_per_mr'      => ['cap' => $cap, 'used' => $this->repository->countFixCommitsForMr($input->projectPath, $mrIid), 'limit' => $caps->commitsPerMr],
+                'attempts_per_thread' => ['cap' => $cap, 'used' => $this->repository->countAttemptsForThread($input->projectPath, $mrIid, $this->coalescer->threadKey($input)), 'limit' => $caps->attemptsPerThread],
+                default               => ['cap' => $cap, 'used' => $this->repository->countJobsForMrSince($input->projectPath, $mrIid, $since), 'limit' => $caps->jobsPerMr],
+            };
+        } catch (Throwable $exception) {
+            $this->logger->warning('Soft cap check failed, skipping the warning', ['project_path' => $input->projectPath, 'mr_iid' => $input->mrIid, 'exception' => $exception->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Say a soft cap was passed: an MR note for the MR-scoped caps, a log line for the project-wide cap
+     *
+     * A soft cap is a warning: the work keeps running. Never throws, so the job already created is still handed back.
+     *
+     * @param AutofixJob                                $input The job
+     * @param array{cap: string, used: int, limit: int} $soft  The soft cap passed
+     * @param DateTimeImmutable                         $now   The current time
+     *
      * @return void
      */
-    private function noticeSoftCap(AutofixJob $input, DateTimeImmutable $now): void
+    private function noticeSoftCap(AutofixJob $input, array $soft, DateTimeImmutable $now): void
     {
-        $cap = $this->coalescer->softCapExceededFor($input, $now);
-        if ($cap === null) {
-            return;
+        try {
+            if ($soft['cap'] === 'jobs_per_project') {
+                $this->logger->warning('Soft cap passed: project daily job count', ['project_path' => $input->projectPath, 'used' => $soft['used'], 'soft_cap' => $soft['limit']]);
+
+                return;
+            }
+
+            $this->notice ??= new CapNoticeService($this->logger);
+            $this->notice->softCapExceeded($soft['cap'], $input->projectPath, $input->mrIid, $soft['used'], $soft['limit'], $now);
+        } catch (Throwable $exception) {
+            $this->logger->warning('Soft cap notice failed', ['project_path' => $input->projectPath, 'mr_iid' => $input->mrIid, 'exception' => $exception->getMessage()]);
         }
-
-        $caps = $this->coalescer->caps();
-        if ($cap === 'jobs_per_project') {
-            $since = $now->modify('-1 day');
-            $this->logger->warning('Soft cap passed: project daily job count', ['project_path' => $input->projectPath, 'used' => $this->repository->countJobsSince($input->projectPath, $since), 'soft_cap' => $caps->jobsPerProject]);
-
-            return;
-        }
-
-        $since          = $now->modify('-1 day');
-        $mrIid          = $input->mrIid;
-        [$limit, $used] = match ($cap) {
-            'commits_per_mr'      => [$caps->commitsPerMr, $this->repository->countFixCommitsForMr($input->projectPath, $mrIid)],
-            'attempts_per_thread' => [$caps->attemptsPerThread, $this->repository->countAttemptsForThread($input->projectPath, $mrIid, $this->coalescer->threadKey($input))],
-            default               => [$caps->jobsPerMr, $this->repository->countJobsForMrSince($input->projectPath, $mrIid, $since)],
-        };
-
-        $this->notice ??= new CapNoticeService($this->logger);
-        $this->notice->softCapExceeded($cap, $input->projectPath, $mrIid, $used, $limit, $now);
     }
 }

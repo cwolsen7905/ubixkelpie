@@ -78,6 +78,25 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
+     * The soft warning is logged once per project per day, not on every check
+     *
+     * @return void
+     */
+    public function testSoftWarningIsLoggedOncePerDay(): void
+    {
+        $this->spend('g/p', 2.0);
+        $logger = $this->createMock(Logger::class);
+        $logger->expects($this->once())->method('warning')->with('Soft spend cap passed: project daily spend');
+        $projects = $this->createStub(ProjectReader::class);
+        $projects->method('getByPath')->willReturn(new Project('g/p', ProjectMode::Propose));
+        $service = new SpendCapService($logger, $projects, $this->outcomes);
+
+        $service->check('g/p');
+        $service->check('g/p');
+        $service->check('g/p');
+    }
+
+    /**
      * @return void
      */
     public function testRerunsOnOneThreadAllCount(): void

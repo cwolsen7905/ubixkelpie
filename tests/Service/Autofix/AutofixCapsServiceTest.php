@@ -23,7 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY', 'KELPIE_AUTOFIX_COMMITS_PER_MR_HARD', 'KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD'];
+    private const array NAMES = ['KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD', 'KELPIE_AUTOFIX_COMMITS_PER_MR', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY', 'KELPIE_AUTOFIX_COMMITS_PER_MR_SOFT', 'KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_SOFT', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_SOFT', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_SOFT', 'KELPIE_AUTOFIX_COMMITS_PER_MR_HARD', 'KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD', 'KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD', 'KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD'];
 
     /**
      * Test that the class is following uBix standards
@@ -97,6 +97,26 @@ final class AutofixCapsServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_PROJECT, $caps->jobsPerProject);
         $this->assertSame(AutofixCaps::DEFAULT_JOBS_PER_MR, $caps->jobsPerMr);
+    }
+
+    /**
+     * The `_SOFT` name sets the soft limit, and wins over the plain name that Vault holds today, which still works alone
+     *
+     * @return void
+     */
+    public function testSoftNameWinsAndPlainNameStillWorks(): void
+    {
+        putenv('KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY=12');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY=300');
+        putenv('KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_SOFT=250');
+        putenv('KELPIE_AUTOFIX_COMMITS_PER_MR_SOFT=5');
+
+        $caps = (new AutofixCapsService($this->createStub(Logger::class)))->fromEnvironment();
+
+        $this->assertSame(12, $caps->jobsPerMr);
+        $this->assertSame(250, $caps->jobsPerProject);
+        $this->assertSame(5, $caps->commitsPerMr);
+        $this->assertNull($caps->jobsPerMrHard);
     }
 
     /**

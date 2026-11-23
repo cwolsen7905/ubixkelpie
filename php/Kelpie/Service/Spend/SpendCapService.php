@@ -110,10 +110,14 @@ final class SpendCapService
      */
     private function globalCap(): float
     {
-        $raw = trim((string) getenv('KELPIE_MAX_COST_USD_DAY_GLOBAL'));
+        // `_SOFT` is the soft name for the same setting and wins when both are set; the plain name is what Vault holds today
+        $raw = trim((string) getenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT'));
+        if ($raw === '') {
+            $raw = trim((string) getenv('KELPIE_MAX_COST_USD_DAY_GLOBAL'));
+        }
         if ($raw === '' || !is_numeric($raw) || (float) $raw < 0.0) {
             if ($raw !== '') {
-                $this->logger->warning('KELPIE_MAX_COST_USD_DAY_GLOBAL is not a non-negative number, using the default', ['value' => $raw]);
+                $this->logger->warning('The global soft spend cap is not a non-negative number, using the default', ['value' => $raw]);
             }
 
             return self::DEFAULT_GLOBAL_CAP;

@@ -8,7 +8,10 @@
   `KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD` for global spend, and new nullable `*_hard` columns on `projects` for daily
   spend and the two issue counts (migration `20261122120000_projects_hard_caps`; the issue-count caps are not enforced
   yet). **Behaviour change:** with no hard limit set, a cap no longer stops anything; set a hard limit where you want
-  the old stop. See `docs/autofix/caps.md` and `docs/design/spend-caps.md`.
+  the old stop. **uBixVault:** no change is needed on deploy: the keys already set
+  (`KELPIE_AUTOFIX_*`, `KELPIE_MAX_COST_USD_DAY_GLOBAL`) are now the soft limits, so alerts start at today's values, and every
+  hard limit is unlimited until you set it. Each soft key also has a `_SOFT` name (it wins when both are set); prefer that
+  for new settings. See `docs/autofix/caps.md` and `docs/design/spend-caps.md`.
 
 - **"Triage: retry" no longer stays silent on a thread Kelpie has not looked at.** From the MR author or a maintainer
   it queues the thread for triage; when it cannot be queued (the project is not enrolled, or a cap was hit) Kelpie

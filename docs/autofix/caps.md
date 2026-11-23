@@ -41,6 +41,10 @@ and the spend cap (`max_cost_usd_day`) are soft limits too, with `*_hard` column
 unlimited). The spend hard caps are enforced, see `docs/design/spend-caps.md`; the two issue-count hard
 columns are stored and read but nothing enforces the issue-count caps yet.
 
+Each soft variable also has a `_SOFT` name (`KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_SOFT` and so on). It is the
+same setting; when both are set the `_SOFT` one wins. The plain names are what uBixVault holds today, so
+today's limits carry over as the soft limits with no Vault change, and all four hard limits start unlimited.
+
 ## Setting them
 
 Set the variable in uBixVault, in `kelpie/<env>/app`, next to the other `KELPIE_*` settings. A value

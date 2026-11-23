@@ -15,6 +15,9 @@ use Psr\Log\LoggerInterface as Logger;
  * whole number of at least 1. A variable that is not set (or empty) gives the default; one that is not a valid
  * number gives the default and a logged warning, so a typo in Vault never switches a cap off.
  *
+ * Each of those is the cap's soft limit, and `<name>_SOFT` is the same setting under its soft name: when both are set the
+ * `_SOFT` one wins, so a value already in Vault under the plain name keeps working as the soft limit.
+ *
  * Each cap also has a hard limit, `KELPIE_AUTOFIX_JOBS_PER_MR_PER_DAY_HARD`, `KELPIE_AUTOFIX_JOBS_PER_PROJECT_PER_DAY_HARD`,
  * `KELPIE_AUTOFIX_COMMITS_PER_MR_HARD` and `KELPIE_AUTOFIX_ATTEMPTS_PER_THREAD_HARD`. A hard limit that is not set (or empty)
  * is unlimited; one that is not a valid number is unlimited and a logged warning, so a typo never stops the work.
@@ -64,8 +67,8 @@ final class AutofixCapsService
      */
     private function read(string $name, int $default): int
     {
-        $raw = getenv($name);
-        if ($raw === false || trim($raw) === '') {
+        $raw = $this->soft($name);
+        if ($raw === '') {
             return $default;
         }
 
@@ -77,6 +80,20 @@ final class AutofixCapsService
         }
 
         return (int) $value;
+    }
+
+    /**
+     * The raw soft setting: `<name>_SOFT` when it is set, else the plain name (the setting before hard limits existed)
+     *
+     * @param string $name The plain variable name
+     *
+     * @return string The value, trimmed; empty when neither is set
+     */
+    private function soft(string $name): string
+    {
+        $soft = trim((string) getenv($name . '_SOFT'));
+
+        return $soft !== '' ? $soft : trim((string) getenv($name));
     }
 
     /**

@@ -169,6 +169,31 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     }
 
     /**
+     * The global soft cap is the plain setting Vault holds today, or `_SOFT` (which wins); either only warns, never stops
+     *
+     * @return void
+     */
+    public function testGlobalSoftCapReadsThePlainOrTheSoftName(): void
+    {
+        $this->spend('g/other', 3.0);
+
+        foreach ([['KELPIE_MAX_COST_USD_DAY_GLOBAL', '3', true], ['KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT', '3', true], ['KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT', '4', false]] as [$name, $value, $warns]) {
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL=10');
+            putenv($name . '=' . $value);
+            $logger = $this->createMock(Logger::class);
+            $logger->expects($warns ? $this->once() : $this->never())->method('warning')->with('Soft spend cap passed: global daily spend');
+            $projects = $this->createStub(ProjectReader::class);
+            $projects->method('getByPath')->willReturn(new Project('g/p', ProjectMode::Propose));
+
+            $check = (new SpendCapService($logger, $projects, $this->outcomes))->check('g/p');
+
+            $this->assertNull($check->cap, $name . '=' . $value);
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+            putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
+        }
+    }
+
+    /**
      * @return void
      */
     public function testZeroGlobalHardCapBlocksEverything(): void
@@ -185,6 +210,7 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     {
         $this->outcomes = new InMemoryOutcomeStore();
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD');
     }
 
@@ -194,6 +220,7 @@ final class SpendCapServiceTest extends UbixConcreteClassOrEnumTestCase implemen
     protected function tearDown(): void
     {
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL');
+        putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_SOFT');
         putenv('KELPIE_MAX_COST_USD_DAY_GLOBAL_HARD');
     }
 

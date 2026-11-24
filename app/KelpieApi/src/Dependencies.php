@@ -16,9 +16,11 @@ use Kelpie\Repository\IssueTriageJob\IssueTriageJobSqlRepository;
 use Kelpie\Repository\IssueTriageJob\IssueTriageJobWriterInterface as IssueTriageJobWriter;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\Project\ProjectSqlRepository;
+use Kelpie\Repository\Project\ProjectWriterInterface as ProjectWriter;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
+use Kelpie\Security\ApiTokenMiddleware;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\TriageReplyService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
@@ -162,6 +164,9 @@ return static function (): Container {
         IssueTriageJobWriter::class           => autowire(IssueTriageJobSqlRepository::class),
         // Per-project modes and settings (K-30): the one place that says which projects Kelpie acts on and how far.
         ProjectReader::class                  => autowire(ProjectSqlRepository::class),
+        ProjectWriter::class                  => autowire(ProjectSqlRepository::class),
+        // Settings API (docs/settings-api.md): its own bearer token, not the webhook secret; unset answers 503.
+        ApiTokenMiddleware::class             => autowire()->constructorParameter('token', getenv('KELPIE_SETTINGS_API_TOKEN') ?: ''),
         // Thumbs on a proposal and "Triage:" replies (K-32): queued as jobs for `kelpie:work`, never run in the webhook.
         ThreadOutcomeReader::class            => autowire(ThreadOutcomeSqlRepository::class),
         ThreadOutcomeWriter::class            => autowire(ThreadOutcomeSqlRepository::class),

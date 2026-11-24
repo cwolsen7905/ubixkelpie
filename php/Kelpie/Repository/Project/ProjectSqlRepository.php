@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Kelpie\Repository\Project;
 
+use InvalidArgumentException;
 use Kelpie\DataTransferObject\Project;
+use Kelpie\DataTransferObject\ProjectSettingsPatch;
 use Kelpie\DataTransferObject\SqlRepository\ProjectOptions;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
+use Kelpie\Repository\Project\ProjectWriterInterface as ProjectWriter;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
@@ -20,11 +23,22 @@ use Ubix\Service\Sql\SqlServiceInterface as SqlService;
  *
  * @see \Kelpie\Tests\Repository\Project\ProjectSqlRepositoryTest PHPUnit test case
  */
-final class ProjectSqlRepository implements ProjectReader
+final class ProjectSqlRepository implements ProjectReader, ProjectWriter
 {
     private const string COLUMNS = 'path, mode, gate_command, protected_paths, triage_model, review_model,
         max_issues_per_day, max_issues_per_author_day, max_cost_usd_day, max_fix_commits_per_mr,
         max_cost_usd_day_hard, max_issues_per_day_hard, max_issues_per_author_day_hard';
+
+    /**
+     * The columns a settings patch may write; `path`, `gate_command` and `protected_paths` are not among them
+     */
+    private const array SETTING_COLUMNS = [
+        'mode', 'triage_model', 'review_model',
+        'max_issues_per_day', 'max_issues_per_day_hard',
+        'max_issues_per_author_day', 'max_issues_per_author_day_hard',
+        'max_cost_usd_day', 'max_cost_usd_day_hard',
+        'max_fix_commits_per_mr',
+    ];
 
     /**
      * Constructor
@@ -56,6 +70,45 @@ final class ProjectSqlRepository implements ProjectReader
     public function getEnrolled(): array
     {
         return $this->query(new ProjectOptions());
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getAll(): array
+    {
+        $projects = [];
+        foreach ($this->sqlService->getRows('SELECT ' . self::COLUMNS . ' FROM ubixkelpie.projects ORDER BY path') as $row) {
+            $projects[] = $this->hydrate($row);
+        }
+
+        return $projects;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @throws InvalidArgumentException When the patch names a column that is not a setting
+     */
+    public function updateSettings(string $path, ProjectSettingsPatch $patch): void
+    {
+        $assignments = [];
+        $parameters  = ['path' => $path];
+
+        foreach ($patch->changes as $column => $value) {
+            if (!in_array($column, self::SETTING_COLUMNS, true)) {
+                throw new InvalidArgumentException('Not a project setting: ' . $column);
+            }
+            // The column name is from the list above, never from the caller; the value is always bound.
+            $assignments[]       = $column . ' = :' . $column;
+            $parameters[$column] = $value instanceof ProjectMode ? $value->value : $value;
+        }
+
+        if ($assignments === []) {
+            return;
+        }
+
+        $this->sqlService->query('UPDATE ubixkelpie.projects SET ' . implode(', ', $assignments) . ' WHERE path = :path', $parameters);
     }
 
     /**

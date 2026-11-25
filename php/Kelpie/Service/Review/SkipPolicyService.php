@@ -92,4 +92,17 @@ final class SkipPolicyService
     {
         return $round > $settings->maxRounds && !in_array($settings->extraLabel, $settings->labels, true);
     }
+
+    /**
+     * Whether this run is the merge request's last automatic round: the next push is not reviewed without the label
+     *
+     * @param ReviewSettings $settings The settings
+     * @param int            $round    This run's round
+     *
+     * @return bool
+     */
+    public function isLastRound(ReviewSettings $settings, int $round): bool
+    {
+        return $round === $settings->maxRounds && !in_array($settings->extraLabel, $settings->labels, true);
+    }
 }

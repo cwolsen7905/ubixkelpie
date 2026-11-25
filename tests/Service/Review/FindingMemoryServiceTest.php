@@ -53,6 +53,7 @@ final class FindingMemoryServiceTest extends UbixConcreteClassOrEnumTestCase imp
         $this->assertSame([1, 'abc'], [$memory->summaryRound, $memory->summarySha]);
         $row = $memory->open[0];
         $this->assertSame(['aaaaaaaaaaaa', 'src/Transfer.php', 'Withdraw and deposit are saved separately', 15], [$row->id, $row->file, $row->title, $row->line]);
+        $this->assertSame([Severity::Major, Severity::Minor], [$memory->open[0]->severity, $memory->open[1]->severity]);
     }
 
     /**

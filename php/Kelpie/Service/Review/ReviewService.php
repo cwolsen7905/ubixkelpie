@@ -10,6 +10,8 @@ use Kelpie\DataTransferObject\Review\ReviewResult;
 use Kelpie\DataTransferObject\Review\ReviewSettings;
 use Kelpie\DataTransferObject\Review\ReviewUsage;
 use Kelpie\DataTransferObject\Review\ThreadMemory;
+use Kelpie\Enum\Review\FindingsLevel;
+use Kelpie\Enum\Review\ReviewStatus;
 use Kelpie\GitLab\Review\ReviewGitlab;
 use Kelpie\Prompt\Review\ReviewPrompt;
 use Psr\Log\LoggerInterface as Logger;
@@ -23,6 +25,9 @@ use Ubix\Service\JsonService;
  * engine dedupe against each other. Exit: 0 reviewed or deliberately skipped, 1 a standing high-confidence blocker
  * or major in blocking mode, 75 could not run (the job is allowed to fail on 75, so being unconfigured is never a
  * red pipeline). A shadow run never exits 1 and posts only its own labelled summary note.
+ *
+ * Every run that gets past the gates leaves one `kelpie-review::…` label saying where the review is and, once it knows,
+ * one `kelpie-findings::…` label for the worst finding still open.
  *
  * @see \Kelpie\Tests\Service\Review\ReviewServiceTest PHPUnit test case
  */
@@ -46,6 +51,7 @@ final class ReviewService
      * @param ThreadPostService    $threadPostService    Posts the findings
      * @param SummaryRenderService $summaryRenderService Writes the notes
      * @param ReviewUsageService   $reviewUsageService   Sums the usage
+     * @param ReviewLabelService   $reviewLabelService   Sets the status and findings labels
      */
     public function __construct(
         private readonly Logger $logger,
@@ -61,6 +67,7 @@ final class ReviewService
         private readonly ThreadPostService $threadPostService,
         private readonly SummaryRenderService $summaryRenderService,
         private readonly ReviewUsageService $reviewUsageService,
+        private readonly ReviewLabelService $reviewLabelService,
     ) {
     }
 
@@ -120,23 +127,24 @@ final class ReviewService
             $this->logger->info('Review skipped', ['reason' => $reason]);
             $posted = $this->putSummary($settings, $memory, sprintf("**AI review: skipped.** No model call was made: %s.\n\n_On `%s`._", $reason, substr($settings->headSha, 0, 8)), $round, new ReviewUsage(), false);
 
-            return new ReviewOutcome(0, $posted->lines);
+            return new ReviewOutcome(0, [...$posted->lines, ...$this->reviewLabelService->mark($settings, ReviewStatus::Skipped, $this->reviewLabelService->level($memory))]);
         }
 
         if ($this->skipPolicyService->roundsExhausted($settings, $round)) {
             $note   = sprintf('**AI review: round limit reached.** This merge request has had %d automated review rounds. Add the `%s` label to allow more; a person should review it either way.', $settings->maxRounds, $settings->extraLabel);
             $posted = $this->putSummary($settings, $memory, $note, $round - 1, new ReviewUsage(), false);
 
-            return new ReviewOutcome(0, $posted->lines);
+            return new ReviewOutcome(0, [...$posted->lines, ...$this->reviewLabelService->mark($settings, ReviewStatus::HardCap, $this->reviewLabelService->level($memory))]);
         }
 
         $tooLarge = $this->skipPolicyService->tooLarge($settings, $diff);
         if ($tooLarge !== null) {
             $posted = $this->putSummary($settings, $memory, '**AI review: too large, human review required.** ' . $tooLarge, $round, new ReviewUsage(), false);
 
-            return new ReviewOutcome(0, $posted->lines);
+            return new ReviewOutcome(0, [...$posted->lines, ...$this->reviewLabelService->mark($settings, ReviewStatus::Unreviewed, $this->reviewLabelService->level($memory))]);
         }
 
+        $this->reviewLabelService->mark($settings, ReviewStatus::Reviewing, null);
         [$result, $usage] = $this->modelResult($settings, $memory, $diff);
         if ($result === null) {
             return $this->unreviewed($settings, $memory, 'the model did not return a valid review after a retry.', $round, $usage);
@@ -148,9 +156,14 @@ final class ReviewService
         $tally  = $this->threadPostService->post($settings, $result, $memory);
         array_push($lines, ...$tally->output);
 
-        $body   = $result->findings === [] && $tally->stale === [] ? $this->summaryRenderService->clean($settings, $result, $diff, $round) : $this->summaryRenderService->noteWithFindings($settings, $result, $tally, $round);
+        $body = $result->findings === [] && $tally->stale === [] ? $this->summaryRenderService->clean($settings, $result, $diff, $round) : $this->summaryRenderService->noteWithFindings($settings, $result, $tally, $round);
+        if ($this->skipPolicyService->isLastRound($settings, $round)) {
+            $body .= sprintf("\n\n**This was the last automatic review round.** A push after this is not reviewed unless the merge request has the `%s` label.", $settings->extraLabel);
+        }
         $posted = $this->putSummary($settings, $memory, $body, $round, $usage, true);
         array_push($lines, ...$posted->lines);
+        $level = $this->reviewLabelService->level($memory, $result);
+        array_push($lines, ...$this->reviewLabelService->mark($settings, $this->finishedStatus($settings, $level, $round), $level));
         $failed = $tally->failed + ($posted->exitCode === 0 ? 0 : 1);
 
         if ($failed > 0) {
@@ -335,9 +348,28 @@ final class ReviewService
         $lines = [];
         if ($settings->token !== '' || $settings->dryRun) {
             $lines = $this->putSummary($settings, $memory, sprintf("**AI review: UNREVIEWED.** %s\n\nNo automated review ran on this commit; a person must review it.", $why), $round, $usage ?? new ReviewUsage(), $usage !== null)->lines;
+            array_push($lines, ...$this->reviewLabelService->mark($settings, ReviewStatus::Unreviewed, null));
         }
 
         return new ReviewOutcome(ReviewOutcome::UNREVIEWED, $lines);
+    }
+
+    /**
+     * The status a review that ran leaves: clean when nothing is open, else last-round on the last automatic round
+     *
+     * @param ReviewSettings $settings The settings
+     * @param FindingsLevel  $level    The worst finding open
+     * @param int            $round    The round
+     *
+     * @return ReviewStatus
+     */
+    private function finishedStatus(ReviewSettings $settings, FindingsLevel $level, int $round): ReviewStatus
+    {
+        return match (true) {
+            $level === FindingsLevel::None                              => ReviewStatus::Clean,
+            $this->skipPolicyService->isLastRound($settings, $round)    => ReviewStatus::LastRound,
+            default                                                     => ReviewStatus::Reviewed,
+        };
     }
 
     /**

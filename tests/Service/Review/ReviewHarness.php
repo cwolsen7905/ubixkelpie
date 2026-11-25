@@ -11,6 +11,7 @@ use Kelpie\Service\Review\FindingMemoryService;
 use Kelpie\Service\Review\RepoGitService;
 use Kelpie\Service\Review\RepoToolsService;
 use Kelpie\Service\Review\ReviewAgentService;
+use Kelpie\Service\Review\ReviewLabelService;
 use Kelpie\Service\Review\ReviewParserService;
 use Kelpie\Service\Review\ReviewService;
 use Kelpie\Service\Review\ReviewUsageService;
@@ -80,6 +81,7 @@ final class ReviewHarness
             $this->poster,
             $render,
             new ReviewUsageService($logger),
+            new ReviewLabelService($logger, $this->reviewGitlab, $this->memory),
         );
     }
 

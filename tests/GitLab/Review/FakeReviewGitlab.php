@@ -12,7 +12,8 @@ use Psr\Log\NullLogger;
 use Ubix\Service\JsonService;
 
 /**
- * An in-memory GitLab for merge request 3 of project 1: discussions, notes, the user, the diff version, and a request log
+ * An in-memory GitLab for merge request 3 of project 1: discussions, notes, the user, the diff version, project labels,
+ * the merge request's labels, and a request log
  */
 final class FakeReviewGitlab implements HttpClient
 {
@@ -52,6 +53,20 @@ final class FakeReviewGitlab implements HttpClient
      */
     private $afterRead = null;
 
+    /**
+     * The project's labels, by name
+     *
+     * @var array<string, array<mixed>>
+     */
+    private array $projectLabels = [];
+
+    /**
+     * The merge request's labels
+     *
+     * @var list<string>
+     */
+    private array $mrLabels = [];
+
     private int $nextId = 100;
 
     /**
@@ -76,6 +91,45 @@ final class FakeReviewGitlab implements HttpClient
         }
 
         return $this->write($request->getMethod(), $path, $json);
+    }
+
+    /**
+     * Set the project's labels and the merge request's
+     *
+     * @param string[] $project The project's label names
+     * @param string[] $mr      The merge request's labels
+     *
+     * @return self
+     */
+    public function withLabels(array $project, array $mr = []): self
+    {
+        $this->projectLabels = [];
+        foreach ($project as $name) {
+            $this->projectLabels[$name] = ['name' => $name];
+        }
+        $this->mrLabels = array_values($mr);
+
+        return $this;
+    }
+
+    /**
+     * The project's labels as created: name => the POSTed body
+     *
+     * @return array<string, array<mixed>>
+     */
+    public function projectLabels(): array
+    {
+        return $this->projectLabels;
+    }
+
+    /**
+     * The merge request's labels now
+     *
+     * @return list<string>
+     */
+    public function mrLabels(): array
+    {
+        return $this->mrLabels;
     }
 
     /**
@@ -258,6 +312,9 @@ final class FakeReviewGitlab implements HttpClient
         if (str_ends_with($path, '/user')) {
             return $this->json(['id' => 9]);
         }
+        if (str_ends_with($path, '/labels')) {
+            return $this->json(array_values($this->projectLabels));
+        }
         if (str_ends_with($path, '/versions')) {
             return $this->json([['base_commit_sha' => 'b1', 'head_commit_sha' => 'h1', 'start_commit_sha' => 's1']]);
         }
@@ -287,6 +344,16 @@ final class FakeReviewGitlab implements HttpClient
      */
     private function write(string $method, string $path, array $json): Response
     {
+        if ($method === 'POST' && str_ends_with($path, '/labels')) {
+            $name                       = is_string($json['name'] ?? null) ? $json['name'] : '';
+            $this->projectLabels[$name] = $json;
+
+            return $this->json($json);
+        }
+        if ($method === 'PUT' && preg_match('~/merge_requests/\d+$~', $path) === 1) {
+            return $this->json(['labels' => $this->relabel($json)]);
+        }
+
         $id = $this->nextId;
         $this->nextId++;
         $body = is_string($json['body'] ?? null) ? $json['body'] : '';
@@ -308,6 +375,28 @@ final class FakeReviewGitlab implements HttpClient
         $this->discussions[] = ['id' => 'd' . $id, 'notes' => [['author' => ['id' => 9], 'body' => $body, 'id' => $id, 'resolved' => str_ends_with($path, '/notes') ? null : false]]];
 
         return $this->json(['id' => 'd' . $id]);
+    }
+
+    /**
+     * Apply `add_labels` and `remove_labels` to the merge request's labels
+     *
+     * @param array<mixed> $json The body
+     *
+     * @return list<string> The labels now
+     */
+    private function relabel(array $json): array
+    {
+        $remove = is_string($json['remove_labels'] ?? null) ? explode(',', $json['remove_labels']) : [];
+        $add    = is_string($json['add_labels'] ?? null) ? explode(',', $json['add_labels']) : [];
+        $labels = array_values(array_diff($this->mrLabels, $remove));
+        foreach ($add as $label) {
+            if (!in_array($label, $labels, true)) {
+                $labels[] = $label;
+            }
+        }
+        $this->mrLabels = $labels;
+
+        return $labels;
     }
 
     /**

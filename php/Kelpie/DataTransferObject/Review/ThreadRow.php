@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\DataTransferObject\Review;
 
+use Kelpie\Enum\Review\Severity;
 use Ubix\DataTransferObject\DtoInterface as Dto;
 
 /**
@@ -16,11 +17,12 @@ final readonly class ThreadRow implements Dto
     /**
      * Constructor
      *
-     * @param string $id    The finding id from the marker
-     * @param string $file  The file, `-` when the thread text does not name one
-     * @param string $title The finding title, or the id when the text has none
-     * @param int    $line  The line the thread points at, 0 when unknown
-     * @param string $sha   The commit the thread was posted on, empty when unknown
+     * @param string    $id       The finding id from the marker
+     * @param string    $file     The file, `-` when the thread text does not name one
+     * @param string    $title    The finding title, or the id when the text has none
+     * @param int       $line     The line the thread points at, 0 when unknown
+     * @param string    $sha      The commit the thread was posted on, empty when unknown
+     * @param ?Severity $severity The severity the thread opened with, null when its text does not say
      */
     public function __construct(
         public string $id,
@@ -28,6 +30,7 @@ final readonly class ThreadRow implements Dto
         public string $title,
         public int $line,
         public string $sha,
+        public ?Severity $severity = null,
     ) {
     }
 }

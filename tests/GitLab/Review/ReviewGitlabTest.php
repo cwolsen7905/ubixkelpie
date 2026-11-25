@@ -143,6 +143,30 @@ final class ReviewGitlabTest extends UbixConcreteClassOrEnumTestCase implements 
     }
 
     /**
+     * Labels are listed and created on the project and changed on the merge request
+     *
+     * @return void
+     */
+    public function testLabels(): void
+    {
+        $fake   = (new FakeReviewGitlab())->withLabels(['a'], ['x', 'y']);
+        $gitlab = $this->gitlab($fake);
+
+        $this->assertSame(['a'], $gitlab->labelNames(SettingsBuilder::make()));
+        $this->assertTrue($gitlab->createLabel(SettingsBuilder::make(), 'b', '#123456', 'what b is'));
+        $this->assertTrue($gitlab->changeLabels(SettingsBuilder::make(), ['z'], ['x']));
+        $this->assertTrue($gitlab->changeLabels(SettingsBuilder::make(), [], []));
+
+        $this->assertSame(['color' => '#123456', 'description' => 'what b is', 'name' => 'b'], $fake->projectLabels()['b']);
+        $this->assertSame(['y', 'z'], $fake->mrLabels());
+        $this->assertSame(['/api/v4/projects/1/labels', '/api/v4/projects/1/merge_requests/3'], [...$fake->paths('POST'), ...$fake->paths('PUT')]);
+
+        $broken = $this->gitlab((new FakeReviewGitlab())->refuseWrites());
+        $this->assertFalse($broken->createLabel(SettingsBuilder::make(), 'b', '#123456', 'd'));
+        $this->assertFalse($broken->changeLabels(SettingsBuilder::make(), ['z'], []));
+    }
+
+    /**
      * A transport exception is a failure, not an exception
      *
      * @return void

@@ -8,6 +8,7 @@ use Kelpie\DataTransferObject\Review\Finding;
 use Kelpie\DataTransferObject\Review\ReviewSettings;
 use Kelpie\DataTransferObject\Review\ThreadMemory;
 use Kelpie\DataTransferObject\Review\ThreadRow;
+use Kelpie\Enum\Review\Severity;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -213,6 +214,8 @@ final class FindingMemoryService
             $sha = $note['position']['head_sha'];
         }
 
-        return new ThreadRow($id, $file, $title, $line, $sha);
+        $severity = preg_match('~^\*\*([a-z]+)\*\*~', $first, $v) === 1 ? Severity::tryFrom($v[1]) : null;
+
+        return new ThreadRow($id, $file, $title, $line, $sha, $severity);
     }
 }

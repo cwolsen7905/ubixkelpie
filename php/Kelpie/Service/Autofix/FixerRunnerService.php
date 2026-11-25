@@ -58,6 +58,11 @@ final class FixerRunnerService
     private ?Completion $paid = null;
 
     /**
+     * The review family of the run in hand, resolved once so every outcome row agrees
+     */
+    private string $reviewFamily = '';
+
+    /**
      * Constructor
      *
      * @param Logger              $logger        Logger
@@ -174,15 +179,17 @@ final class FixerRunnerService
         }
 
         $this->jobWriter->markRunning($jobId);
-        $statusRun  = $this->status->start($project, $mrIid, [$thread]);
-        $class      = null;
-        $result     = null;
-        $verdict    = null;
-        $this->paid = null;
+        $statusRun          = $this->status->start($project, $mrIid, [$thread]);
+        $class              = null;
+        $result             = null;
+        $verdict            = null;
+        $this->paid         = null;
+        $this->reviewFamily = '';
 
         try {
-            $verdict = $this->triageService->triage($thread, null, $steering, $projectPath);
-            $class   = $verdict->class->value;
+            $this->reviewFamily = $this->families->reviewFamily($this->propose->choice($projectPath)->openSource);
+            $verdict            = $this->triageService->triage($thread, null, $steering, $projectPath);
+            $class              = $verdict->class->value;
 
             [$outcome, $result, $record] = match ($verdict->class) {
                 TriageClass::Fix                          => $this->proposeFix($project, $projectPath, $mrIid, $thread, $sha, $mr->sourceBranch, $mr->targetBranch, $mr->draft, $verdict, $steering),
@@ -487,7 +494,7 @@ final class FixerRunnerService
             $reason,
             $verdict->completion->model ?? '',
             $propose->model ?? '',
-            $this->families->reviewFamily($this->propose->choice($projectPath)->openSource),
+            $this->reviewFamily,
             $prompt,
             $answer,
             $cost,

@@ -15,7 +15,8 @@ use Psr\Log\LoggerInterface as Logger;
  *
  * `AI_REVIEW_MODEL_PUBLIC`, when set, replaces `AI_REVIEW_MODEL` for a project whose repository GitLab detects an
  * open-source license in (`ProjectInfo::OPEN_SOURCE_LICENSES`): such a model may be a tier that trains on the code
- * it reads. A license that could not be read keeps the regular model. The worker applies the same rule
+ * it reads. A license that could not be read keeps the regular model. The regular model stays behind the
+ * open-source one as `fallbackModel`, used when the open-source one gives no valid review. The worker applies the same rule
  * (`LlmFamilyService`), so it knows which family wrote a project's review.
  *
  * @see \Kelpie\Tests\Service\Review\ReviewSettingsServiceTest PHPUnit test case
@@ -35,16 +36,17 @@ final class ReviewSettingsService
     /**
      * The settings of an environment
      *
-     * @param array<string, string> $env        The environment
-     * @param bool                  $dryRun     Whether to never call GitLab
-     * @param string                $repo       The checkout, empty for AI_REVIEW_REPO, CI_PROJECT_DIR or the working directory
-     * @param string                $diffFile   Review this diff file instead of git's
-     * @param string                $cannedFile Use this file as the model's reply
-     * @param string                $existing   A JSON file of discussions to dedupe against
+     * @param array<string, string> $env           The environment
+     * @param bool                  $dryRun        Whether to never call GitLab
+     * @param string                $repo          The checkout, empty for AI_REVIEW_REPO, CI_PROJECT_DIR or the working directory
+     * @param string                $diffFile      Review this diff file instead of git's
+     * @param string                $cannedFile    Use this file as the model's reply
+     * @param string                $existing      A JSON file of discussions to dedupe against
+     * @param string                $fallbackModel The model to fall back to when the model gives no valid review
      *
      * @return ReviewSettings
      */
-    public function fromEnvironment(array $env, bool $dryRun = false, string $repo = '', string $diffFile = '', string $cannedFile = '', string $existing = ''): ReviewSettings
+    public function fromEnvironment(array $env, bool $dryRun = false, string $repo = '', string $diffFile = '', string $cannedFile = '', string $existing = '', string $fallbackModel = ''): ReviewSettings
     {
         $this->logger->debug('Reading the review settings from the environment');
 
@@ -78,6 +80,7 @@ final class ReviewSettingsService
             diffFile:      $diffFile,
             cannedFile:    $cannedFile,
             existing:      $existing,
+            fallbackModel: $fallbackModel,
         );
     }
 
@@ -99,7 +102,11 @@ final class ReviewSettingsService
 
         $this->logger->info('Open-source project: reviewing with the open-source model', ['license' => $license, 'model' => $public]);
 
-        return $this->fromEnvironment(['AI_REVIEW_MODEL' => $public] + $env, $settings->dryRun, $settings->repo, $settings->diffFile, $settings->cannedFile, $settings->existing);
+        // A training tier the OpenRouter account's data policy excludes answers 404 on every call: keep the regular
+        // model behind it, so the merge request is still reviewed rather than left unreviewed.
+        $fallback = $public === $settings->model ? '' : $settings->model;
+
+        return $this->fromEnvironment(['AI_REVIEW_MODEL' => $public] + $env, $settings->dryRun, $settings->repo, $settings->diffFile, $settings->cannedFile, $settings->existing, $fallback);
     }
 
     /**

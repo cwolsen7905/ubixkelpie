@@ -127,6 +127,8 @@ final class ReviewSettingsServiceTest extends UbixConcreteClassOrEnumTestCase im
         $public = $service->forLicense($settings, $env, 'BSD-3-Clause');
         $this->assertSame(['openrouter/meta/muse-spark-1.3-contributor', 'meta/muse-spark-1.3-contributor'], [$public->model, $public->apiModel]);
         $this->assertSame([7, '/r'], [$public->mrIid, $public->repo]);
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $public->fallbackModel, 'the regular model stays behind the public one');
+        $this->assertSame('', $settings->fallbackModel, 'none by default');
 
         $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, $env, '')->model, 'no license');
         $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, $env, null)->model, 'license not read');

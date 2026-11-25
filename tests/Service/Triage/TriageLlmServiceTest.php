@@ -105,7 +105,8 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * The choice says whether the project is open source, so the family guard knows which model wrote the review
+     * The choice says whether the project is open source, so the family guard knows which models may have written the
+     * review; null when the project could not be read, so the guard fails closed
      *
      * @return void
      */
@@ -114,6 +115,8 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertTrue(TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y')->openSource);
         $this->assertFalse(TriageLlms::make($this->logger(), 'private')->choose('g/p', 'x/y')->openSource);
         $this->assertTrue(TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choosePropose('g/p', 'x/y')->openSource);
+        $this->assertNull(TriageLlms::make($this->logger(), null)->choose('g/p', 'x/y')->openSource, 'project unreadable');
+        $this->assertNull(TriageLlms::make($this->logger(), null)->choosePropose('g/p', 'x/y')->openSource, 'project unreadable');
     }
 
     /**

@@ -75,7 +75,7 @@ final class TriageLlmService
             $model = $regular;
         }
 
-        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), $fallback, $this->isOpenSource($info));
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), $fallback, $this->openSource($info));
     }
 
     /**
@@ -95,7 +95,7 @@ final class TriageLlmService
             $model = $public;
         }
 
-        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), openSource: $this->isOpenSource($info));
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), openSource: $this->openSource($info));
     }
 
     /**
@@ -159,5 +159,18 @@ final class TriageLlmService
     private function info(?string $project): ?ProjectInfo
     {
         return $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
+    }
+
+    /**
+     * Whether a project is open source, for the family guard: null when its license could not be read, so the guard
+     * fails closed instead of treating an unread project as closed source
+     *
+     * @param ?ProjectInfo $info What GitLab says about the project; null when it could not be read
+     *
+     * @return ?bool
+     */
+    private function openSource(?ProjectInfo $info): ?bool
+    {
+        return $info === null ? null : $this->isOpenSource($info);
     }
 }

@@ -20,6 +20,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - It is named kelpie:review
  * - A mode other than advisory or blocking exits 2 with a message
  * - A dry run over a diff file and a canned reply prints the review and exits 0, calling no GitLab
+ * - An open-source project uses the public model when configured
  * - It exits with the review's code: 75 when it could not run
  *
  * @coversDefaultClass \Kelpie\Console\Command\ReviewCommand
@@ -85,6 +86,48 @@ final class ReviewCommandTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * An open-source project uses the public model when configured
+     *
+     * @return void
+     */
+    public function testOpenSourceLicenseUsesThePublicModel(): void
+    {
+        $harness = new ReviewHarness($this->createStub(Logger::class));
+        $harness->gitlab()->withLicense('mit');
+        $harness->model()->text((string) file_get_contents(SettingsBuilder::fixtures() . '/canned-ok.json'));
+        $tester = new CommandTester($this->command($harness));
+
+        putenv('AI_REVIEW_MODEL=openrouter/private-review-model');
+        putenv('AI_REVIEW_MODEL_PUBLIC=openrouter/public-review-model');
+        putenv('AI_REVIEW_GITLAB_TOKEN=review-token-not-real');
+        putenv('CI_API_V4_URL=https://gitlab.test/api/v4');
+        putenv('CI_PROJECT_ID=1');
+        putenv('CI_MERGE_REQUEST_IID=3');
+        putenv('CI_MERGE_REQUEST_TITLE=Add the transfer');
+        putenv('CI_COMMIT_SHA=abcdef1234567890abcdef1234567890abcdef12');
+        putenv('OPENROUTER_API_KEY=test-key-not-real');
+
+        try {
+            $exit = $tester->execute(['--diff' => SettingsBuilder::fixtures() . '/sample.diff']);
+        } finally {
+            putenv('AI_REVIEW_MODEL');
+            putenv('AI_REVIEW_MODEL_PUBLIC');
+            putenv('AI_REVIEW_GITLAB_TOKEN');
+            putenv('CI_API_V4_URL');
+            putenv('CI_PROJECT_ID');
+            putenv('CI_MERGE_REQUEST_IID');
+            putenv('CI_MERGE_REQUEST_TITLE');
+            putenv('CI_COMMIT_SHA');
+            putenv('OPENROUTER_API_KEY');
+        }
+
+        $this->assertSame(0, $exit);
+        $sent = $harness->model()->sent();
+        $this->assertCount(1, $sent);
+        $this->assertSame('public-review-model', $sent[0]['model'] ?? null);
+    }
+
+    /**
      * A review that cannot run exits 75
      *
      * @return void
@@ -100,13 +143,15 @@ final class ReviewCommandTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * @param ?ReviewHarness $harness The harness to wire into the command
+     *
      * @return ReviewCommand
      */
-    private function command(): ReviewCommand
+    private function command(?ReviewHarness $harness = null): ReviewCommand
     {
         $logger = $this->createStub(Logger::class);
 
-        $harness = new ReviewHarness($logger);
+        $harness ??= new ReviewHarness($logger);
 
         return new ReviewCommand($logger, new ReviewSettingsService($logger), $harness->service(), $harness->reviewGitlab());
     }

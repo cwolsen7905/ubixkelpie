@@ -6,8 +6,11 @@
   reads the license GitLab detected in the repo and, for an open-source one (BSD, MIT, Apache, GPL, ...), reviews
   with that model instead of `AI_REVIEW_MODEL`: `meta/muse-spark-1.3-contributor` costs $0.10/$0.20 per million
   tokens against Haiku's $0.10/$0.50. A repo with no license, or one the job cannot read, stays on
-  `AI_REVIEW_MODEL`. The worker applies the same rule, so triage and edit proposals still refuse a model from the
-  family that wrote that project's review. Triage defaults change to match: `deepseek/deepseek-v4.1-flash` (was
+  `AI_REVIEW_MODEL`. When the open-source model gives no valid review (a training tier the OpenRouter account's
+  data policy excludes answers 404), the review runs again on `AI_REVIEW_MODEL` instead of going unreviewed, and
+  the summary names the model that wrote it. Since either model may have written an open-source project's review,
+  triage and edit proposals refuse both families there, and also on a project whose license the worker could not
+  read (fail closed); a closed-source project refuses only the regular family. Triage defaults change to match: `deepseek/deepseek-v4.1-flash` (was
   `google/gemini-3.8-flash`, eight times the price) and, for open-source projects, `upstage/solar-pro-4-contributor`
   (was Muse Spark, which the guard would now refuse there).
 

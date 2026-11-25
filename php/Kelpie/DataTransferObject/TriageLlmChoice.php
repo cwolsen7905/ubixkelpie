@@ -19,13 +19,14 @@ final readonly class TriageLlmChoice implements Dto
      * @param string $model      The model id
      * @param string $refusal    Why the model must not be called, safe to show to a human; empty when it may
      * @param string $fallback   The model to ask once when `$model` gives no answer; empty for none
-     * @param bool   $openSource Whether the project is known to be open source, which picks the review's model too
+     * @param ?bool  $openSource Whether the project is open source, null when not known (its license could not be
+     *                           read); the family guard refuses both review families unless it is false
      */
     public function __construct(
         public string $model,
         public string $refusal = '',
         public string $fallback = '',
-        public bool $openSource = false,
+        public ?bool $openSource = null,
     ) {
     }
 }

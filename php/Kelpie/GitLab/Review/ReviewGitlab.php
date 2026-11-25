@@ -152,13 +152,88 @@ final class ReviewGitlab
     }
 
     /**
+     * The names of the labels the project can use, its group's included
+     *
+     * @param ReviewSettings $settings The settings
+     *
+     * @return ?list<string> Null when they could not be read
+     */
+    public function labelNames(ReviewSettings $settings): ?array
+    {
+        $names = [];
+        for ($page = 1; $page <= 10; $page++) {
+            $chunk = $this->send($settings, 'GET', $this->projectUrl($settings) . '/labels?per_page=100&page=' . $page, null);
+            if ($chunk === null) {
+                return null;
+            }
+            foreach ($chunk as $label) {
+                if (is_array($label) && is_string($label['name'] ?? null)) {
+                    $names[] = $label['name'];
+                }
+            }
+            if (count($chunk) < 100) {
+                break;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Create a project label
+     *
+     * @param ReviewSettings $settings    The settings
+     * @param string         $name        The label
+     * @param string         $colour      Its colour, `#rrggbb`
+     * @param string         $description What it means
+     *
+     * @return bool Whether GitLab accepted it
+     */
+    public function createLabel(ReviewSettings $settings, string $name, string $colour, string $description): bool
+    {
+        return $this->send($settings, 'POST', $this->projectUrl($settings) . '/labels', ['color' => $colour, 'description' => $description, 'name' => $name]) !== null;
+    }
+
+    /**
+     * Add and take off labels on the merge request, leaving its other labels alone
+     *
+     * @param ReviewSettings $settings The settings
+     * @param string[]       $add      The labels to add
+     * @param string[]       $remove   The labels to take off (one it does not carry is ignored)
+     *
+     * @return bool Whether GitLab accepted it
+     */
+    public function changeLabels(ReviewSettings $settings, array $add, array $remove): bool
+    {
+        $body = [];
+        if ($add !== []) {
+            $body['add_labels'] = implode(',', $add);
+        }
+        if ($remove !== []) {
+            $body['remove_labels'] = implode(',', $remove);
+        }
+
+        return $body === [] || $this->send($settings, 'PUT', $this->mrUrl($settings), $body) !== null;
+    }
+
+    /**
+     * @param ReviewSettings $settings The settings
+     *
+     * @return string
+     */
+    private function projectUrl(ReviewSettings $settings): string
+    {
+        return sprintf('%s/projects/%s', $settings->apiUrl, rawurlencode($settings->project));
+    }
+
+    /**
      * @param ReviewSettings $settings The settings
      *
      * @return string
      */
     private function mrUrl(ReviewSettings $settings): string
     {
-        return sprintf('%s/projects/%s/merge_requests/%d', $settings->apiUrl, rawurlencode($settings->project), $settings->mrIid);
+        return sprintf('%s/merge_requests/%d', $this->projectUrl($settings), $settings->mrIid);
     }
 
     /**

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The AI review now labels the merge request with where it is and the worst finding still open.**
+  `kelpie-review::` is one of `reviewing`, `reviewed`, `clean`, `last-round`, `hard-cap`, `skipped` or `unreviewed`;
+  `kelpie-findings::` is one of `blocker`, `major`, `minor-only` or `none`. On ubixvault !74 the review used its third
+  and last round with five threads open, and nothing on the MR said so: the summary read "round 3 of 3" and the
+  round-limit note only appears on a fourth push. The last round now says so in the summary and in the
+  `last-round` label. The labels are created in the project when first needed. See "Labels" in `docs/ai-review.md`.
+
 - **A settings API, so a web page can read and edit each project's settings.** `GET /api/v1/projects`,
   `GET /api/v1/projects/{path}` and `PATCH /api/v1/projects/{path}` on `KelpieApi` show and change a project's mode,
   soft and hard caps and models, validated whole; a hard cap of `null` is unlimited. It takes its own bearer token,

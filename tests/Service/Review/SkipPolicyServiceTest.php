@@ -90,6 +90,9 @@ final class SkipPolicyServiceTest extends UbixConcreteClassOrEnumTestCase implem
         $this->assertFalse($policy->roundsExhausted(SettingsBuilder::make(), 3));
         $this->assertTrue($policy->roundsExhausted(SettingsBuilder::make(), 4));
         $this->assertFalse($policy->roundsExhausted(SettingsBuilder::make(['labels' => ['review:extra']]), 4));
+        $this->assertTrue($policy->isLastRound(SettingsBuilder::make(), 3));
+        $this->assertFalse($policy->isLastRound(SettingsBuilder::make(), 2));
+        $this->assertFalse($policy->isLastRound(SettingsBuilder::make(['labels' => ['review:extra']]), 3));
     }
 
     /**

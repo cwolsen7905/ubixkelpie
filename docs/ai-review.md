@@ -184,6 +184,35 @@ runs replace that note.
 Output schema: `{verdict, summary, findings:[{severity, confidence, file, line, title,
 why, fingerprint}]}`; see `ci/ai-review/prompt.md`.
 
+## Labels
+
+`kelpie:review` keeps two labels on the merge request, so the MR list shows where the review is without
+opening the MR. Each is a set of which the MR carries one at a time: setting one takes the rest of its set
+off, and the MR's other labels are left alone. (This GitLab's free plan does not enforce scoped labels, so the
+review keeps each set exclusive itself.) The labels are created in the project the first time a run needs
+them, with a colour and a description. The shell job does not set them.
+
+| `kelpie-review::` | When |
+|---|---|
+| `reviewing` | the model is running on the latest commit |
+| `reviewed` | the review ran and threads are open |
+| `clean` | the review ran and no review thread is open |
+| `last-round` | this was round `AI_REVIEW_MAX_ROUNDS` and threads are open: the next push is not reviewed without `review:extra` |
+| `hard-cap` | a push past the round limit: no review ran, a person must review |
+| `skipped` | docs only or nothing reviewable |
+| `unreviewed` | the review could not run, or the diff is over the size cap |
+
+| `kelpie-findings::` | The worst finding still open |
+|---|---|
+| `blocker` / `major` | an open thread of that severity |
+| `minor-only` | only minor or nit threads (an open thread whose severity cannot be read counts as minor) |
+| `none` | no review thread is open |
+
+The worst finding counts the threads already open and this run's findings a person has not dismissed.
+`reviewing` and an unreviewed run leave the findings label as it was. The last round also says so in the
+summary note. A shadow run sets no label; a dry run prints the labels it would set. A label GitLab refuses is
+logged and never fails the job.
+
 ## Overrides
 
 - **Dismiss a finding:** resolve its thread with a reply starting `Dismissed: <reason>`.

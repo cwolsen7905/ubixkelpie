@@ -236,7 +236,9 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $harness->service()->review($settings);
 
         $this->assertSame($threadsAfterFirst, count($harness->gitlab()->threads()));
-        $this->assertCount(1, $harness->gitlab()->paths('PUT'));
+        $this->assertCount(1, array_filter($harness->gitlab()->paths('PUT'), static function (string $path): bool {
+            return str_contains($path, '/notes/');
+        }));
         $this->assertStringContainsString('round=1', $harness->gitlab()->noteBodies()[1]);
         $this->assertStringContainsString('Already open: 3.', $harness->gitlab()->noteBodies()[1]);
 
@@ -579,6 +581,90 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $harness->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'shadow' => true]));
 
         $this->assertCount(1, $harness->gitlab()->paths('PUT'));
+    }
+
+    /**
+     * A review leaves its status and the worst open finding; a clean one says clean and none
+     *
+     * @return void
+     */
+    public function testLabelsAfterAReview(): void
+    {
+        $harness = $this->harness();
+        $harness->gitlab()->withLabels([], ['backend']);
+
+        $harness->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json')]));
+
+        $this->assertSame(['backend', 'kelpie-review::reviewed', 'kelpie-findings::blocker'], $harness->gitlab()->mrLabels());
+        $this->assertArrayHasKey('kelpie-review::reviewing', $harness->gitlab()->projectLabels());
+
+        $repo  = new TempRepo(['clean.json' => '{"verdict":"pass","summary":"Nothing wrong.","findings":[]}']);
+        $clean = $this->harness();
+        try {
+            $clean->service()->review($this->settings(['cannedFile' => $repo->path() . '/clean.json']));
+        } finally {
+            $repo->remove();
+        }
+
+        $this->assertSame(['kelpie-review::clean', 'kelpie-findings::none'], $clean->gitlab()->mrLabels());
+    }
+
+    /**
+     * The last automatic round says so in the summary and the label; past it the label is hard-cap
+     *
+     * @return void
+     */
+    public function testLastRoundAndHardCapLabels(): void
+    {
+        $previous = static function (int $round): array {
+            return ['id' => 'dS', 'notes' => [['author' => ['id' => 9], 'body' => '<!-- ai-review:summary round=' . $round . ' sha=abc1230 -->' . "\nold", 'id' => 40, 'resolved' => null]]];
+        };
+
+        $last = $this->harness();
+        $last->gitlab()->withDiscussions([$previous(2)]);
+        $last->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json')]));
+
+        $this->assertStringContainsString('**This was the last automatic review round.**', $last->gitlab()->noteBodies()[0]);
+        $this->assertStringContainsString('`review:extra` label', $last->gitlab()->noteBodies()[0]);
+        $this->assertSame(['kelpie-review::last-round', 'kelpie-findings::blocker'], $last->gitlab()->mrLabels());
+
+        $capped = $this->harness();
+        $capped->gitlab()->withDiscussions([$previous(3)]);
+        $capped->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json')]));
+
+        $this->assertSame(['kelpie-review::hard-cap', 'kelpie-findings::none'], $capped->gitlab()->mrLabels());
+
+        $extra = $this->harness();
+        $extra->gitlab()->withDiscussions([$previous(2)]);
+        $extra->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'labels' => ['review:extra']]));
+
+        $this->assertStringNotContainsString('last automatic review round', $extra->gitlab()->noteBodies()[0]);
+        $this->assertContains('kelpie-review::reviewed', $extra->gitlab()->mrLabels());
+    }
+
+    /**
+     * Skipped and unreviewed runs say so in the label; a dry run prints the labels it would set
+     *
+     * @return void
+     */
+    public function testSkippedUnreviewedAndDryRunLabels(): void
+    {
+        $tooLarge = $this->harness();
+        $tooLarge->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'maxLines' => 3]));
+        $this->assertSame(['kelpie-review::unreviewed', 'kelpie-findings::none'], $tooLarge->gitlab()->mrLabels());
+
+        $failed = $this->harness();
+        $failed->model()->text('looks fine to me')->text('still no json');
+        putenv('OPENROUTER_API_KEY=test-key-not-real');
+        try {
+            $failed->service()->review($this->settings());
+        } finally {
+            putenv('OPENROUTER_API_KEY');
+        }
+        $this->assertSame(['kelpie-review::unreviewed'], $failed->gitlab()->mrLabels());
+
+        $dry = $this->harness()->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'dryRun' => true, 'token' => '']));
+        $this->assertStringContainsString('--- would set the labels: kelpie-review::reviewed, kelpie-findings::blocker ---', implode("\n", $dry->lines));
     }
 
     /**

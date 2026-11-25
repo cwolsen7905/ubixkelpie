@@ -42,6 +42,8 @@ final readonly class ReviewSettings implements Dto
      * @param string   $diffFile      Review this diff file instead of git's (no merge request needed)
      * @param string   $cannedFile    Use this file as the model's reply
      * @param string   $existing      A JSON file of discussions to dedupe against, instead of the API
+     * @param string   $fallbackModel The model to review with when `$model` gives no valid review (the regular model
+     *                                behind an open-source one), as `$model` is written; empty for none
      */
     public function __construct(
         public bool $blocking,
@@ -68,6 +70,7 @@ final readonly class ReviewSettings implements Dto
         public string $diffFile = '',
         public string $cannedFile = '',
         public string $existing = '',
+        public string $fallbackModel = '',
     ) {
     }
 }

@@ -146,6 +146,12 @@ final class ReviewService
 
         $this->reviewLabelService->mark($settings, ReviewStatus::Reviewing, null);
         [$result, $usage] = $this->modelResult($settings, $memory, $diff);
+        if ($result === null && $settings->fallbackModel !== '') {
+            $this->logger->warning('Review model gave no valid review, trying the fallback', ['model' => $settings->model, 'fallback' => $settings->fallbackModel]);
+            $settings        = $this->withFallback($settings);
+            [$result, $used] = $this->modelResult($settings, $memory, $diff);
+            $usage           = $this->reviewUsageService->plus($usage, $used);
+        }
         if ($result === null) {
             return $this->unreviewed($settings, $memory, 'the model did not return a valid review after a retry.', $round, $usage);
         }
@@ -198,6 +204,45 @@ final class ReviewService
         }
 
         return $settings->dryRun ? [] : $this->reviewGitlab->discussions($settings);
+    }
+
+    /**
+     * The settings to review with the fallback model instead, so the summary's stamp names the model that wrote it
+     *
+     * @param ReviewSettings $settings Settings whose `fallbackModel` is set
+     *
+     * @return ReviewSettings The same settings with the fallback as the model and no fallback left
+     */
+    private function withFallback(ReviewSettings $settings): ReviewSettings
+    {
+        $model = $settings->fallbackModel;
+
+        return new ReviewSettings(
+            blocking:      $settings->blocking,
+            shadow:        $settings->shadow,
+            dryRun:        $settings->dryRun,
+            model:         $model,
+            apiModel:      str_starts_with($model, 'openrouter/') ? substr($model, strlen('openrouter/')) : $model,
+            effort:        $settings->effort,
+            maxLines:      $settings->maxLines,
+            maxBytes:      $settings->maxBytes,
+            maxRounds:     $settings->maxRounds,
+            extraLabel:    $settings->extraLabel,
+            maxTurns:      $settings->maxTurns,
+            apiUrl:        $settings->apiUrl,
+            token:         $settings->token,
+            project:       $settings->project,
+            mrIid:         $settings->mrIid,
+            title:         $settings->title,
+            labels:        $settings->labels,
+            baseSha:       $settings->baseSha,
+            headSha:       $settings->headSha,
+            repo:          $settings->repo,
+            summaryMarker: $settings->summaryMarker,
+            diffFile:      $settings->diffFile,
+            cannedFile:    $settings->cannedFile,
+            existing:      $settings->existing,
+        );
     }
 
     /**

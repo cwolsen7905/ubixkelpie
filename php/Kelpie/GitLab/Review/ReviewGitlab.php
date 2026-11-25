@@ -100,6 +100,25 @@ final class ReviewGitlab
     }
 
     /**
+     * The license key GitLab detected in the project's repository (e.g. `bsd-3-clause`)
+     *
+     * @param ReviewSettings $settings The settings
+     *
+     * @return ?string Empty when GitLab detected none, null when the project could not be read
+     */
+    public function license(ReviewSettings $settings): ?string
+    {
+        $project = $this->send($settings, 'GET', $this->projectUrl($settings) . '?license=true', null);
+        if ($project === null) {
+            return null;
+        }
+        $license = $project['license'] ?? null;
+        $key     = is_array($license) ? ($license['key'] ?? null) : null;
+
+        return is_string($key) ? $key : '';
+    }
+
+    /**
      * Post a plain note on the merge request
      *
      * @param ReviewSettings $settings The settings

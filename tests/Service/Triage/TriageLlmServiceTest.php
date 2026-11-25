@@ -24,7 +24,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  */
 final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase implements IUbixConcreteClassOrEnumTestCase
 {
-    private const string MUSE = 'meta/muse-spark-1.3-contributor';
+    private const string PUBLIC_MODEL = 'upstage/solar-pro-4-contributor';
 
     /**
      * Test that the class is following uBix standards
@@ -74,13 +74,13 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
         $projects = $this->createStub(ProjectReader::class);
         $projects->method('getByPath')->willReturnCallback(static function (string $path): ?Project {
-            return $path === 'ubixsys/replikate' ? new Project($path, triageModel: self::MUSE) : null;
+            return $path === 'ubixsys/replikate' ? new Project($path, triageModel: self::PUBLIC_MODEL) : null;
         });
 
         $choice = TriageLlms::make($this->logger(), 'private', $projects, 'ubixsys/replikate', 'bsd-3-clause')->choose('7', 'x/y');
         putenv('KELPIE_TRIAGE_MODEL');
 
-        $this->assertSame(self::MUSE, $choice->model);
+        $this->assertSame(self::PUBLIC_MODEL, $choice->model);
         $this->assertSame('', $choice->refusal);
         $this->assertSame('', $choice->fallback, 'an override is what the project asked for: no fallback');
     }
@@ -94,7 +94,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
         $choice = TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y');
-        $this->assertSame(self::MUSE, $choice->model);
+        $this->assertSame(self::PUBLIC_MODEL, $choice->model);
         $this->assertSame('google/gemini-3.8-flash', $choice->fallback);
 
         $this->assertSame('', TriageLlms::make($this->logger(), 'private')->choose('g/p', 'x/y')->fallback, 'not open source: no fallback');
@@ -105,14 +105,29 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
-     * An open-source project gets the public triage model, Muse Spark unless KELPIE_TRIAGE_MODEL_PUBLIC says otherwise
+     * The choice says whether the project is open source, so the family guard knows which models may have written the
+     * review; null when the project could not be read, so the guard fails closed
+     *
+     * @return void
+     */
+    public function testChoiceCarriesOpenSource(): void
+    {
+        $this->assertTrue(TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y')->openSource);
+        $this->assertFalse(TriageLlms::make($this->logger(), 'private')->choose('g/p', 'x/y')->openSource);
+        $this->assertTrue(TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choosePropose('g/p', 'x/y')->openSource);
+        $this->assertNull(TriageLlms::make($this->logger(), null)->choose('g/p', 'x/y')->openSource, 'project unreadable');
+        $this->assertNull(TriageLlms::make($this->logger(), null)->choosePropose('g/p', 'x/y')->openSource, 'project unreadable');
+    }
+
+    /**
+     * An open-source project gets the public triage model, Solar Pro 4 unless KELPIE_TRIAGE_MODEL_PUBLIC says otherwise
      *
      * @return void
      */
     public function testOpenSourceGetsThePublicModel(): void
     {
         putenv('KELPIE_TRIAGE_MODEL=google/gemini-3.8-flash');
-        $this->assertSame(self::MUSE, TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y')->model);
+        $this->assertSame(self::PUBLIC_MODEL, TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->choose('g/p', 'x/y')->model);
         $this->assertSame('google/gemini-3.8-flash', TriageLlms::make($this->logger(), 'public')->choose('g/p', 'x/y')->model);
 
         putenv('KELPIE_TRIAGE_MODEL_PUBLIC=acme/cheap');
@@ -128,7 +143,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
      */
     public function testTrainingTierNeedsAnOpenSourceLicense(): void
     {
-        putenv('KELPIE_TRIAGE_MODEL=' . self::MUSE);
+        putenv('KELPIE_TRIAGE_MODEL=' . self::PUBLIC_MODEL);
         foreach ([['bsd-3-clause', true], ['apache-2.0', true], ['', false], ['other', false]] as [$license, $allowed]) {
             $choice = TriageLlms::make($this->logger(), 'public', null, 'g/p', $license)->choose('g/p', 'x/y');
             $this->assertSame($allowed, $choice->refusal === '', 'license ' . ($license === '' ? 'none' : $license));
@@ -148,8 +163,8 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $this->assertSame('openai/gpt-5.5', TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choosePropose('g/p', 'openai/gpt-5.5')->model);
 
-        putenv('KELPIE_PROPOSE_MODEL_PUBLIC=' . self::MUSE);
-        $this->assertSame(self::MUSE, TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choosePropose('g/p', 'openai/gpt-5.5')->model);
+        putenv('KELPIE_PROPOSE_MODEL_PUBLIC=' . self::PUBLIC_MODEL);
+        $this->assertSame(self::PUBLIC_MODEL, TriageLlms::make($this->logger(), 'private', null, 'g/p', 'mit')->choosePropose('g/p', 'openai/gpt-5.5')->model);
         $this->assertSame('openai/gpt-5.5', TriageLlms::make($this->logger(), 'private')->choosePropose('g/p', 'openai/gpt-5.5')->model);
         putenv('KELPIE_PROPOSE_MODEL_PUBLIC');
     }
@@ -162,9 +177,9 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     public function testRefusalFor(): void
     {
         $this->assertSame('', TriageLlms::make($this->logger(), 'private')->refusalFor('openai/gpt-5.5', 'g/p'));
-        $this->assertSame('', TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->refusalFor(self::MUSE, 'g/p'));
-        $this->assertStringContainsString('not known to be open source', TriageLlms::make($this->logger(), 'public')->refusalFor(self::MUSE, 'g/p'));
-        $this->assertStringContainsString('not known to be open source', TriageLlms::make($this->logger(), 'public', null, 'g/p', 'mit')->refusalFor(self::MUSE, null));
+        $this->assertSame('', TriageLlms::make($this->logger(), 'private', null, 'g/p', 'bsd-3-clause')->refusalFor(self::PUBLIC_MODEL, 'g/p'));
+        $this->assertStringContainsString('not known to be open source', TriageLlms::make($this->logger(), 'public')->refusalFor(self::PUBLIC_MODEL, 'g/p'));
+        $this->assertStringContainsString('not known to be open source', TriageLlms::make($this->logger(), 'public', null, 'g/p', 'mit')->refusalFor(self::PUBLIC_MODEL, null));
     }
 
     /**
@@ -176,7 +191,7 @@ final class TriageLlmServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $models = TriageLlms::make($this->logger());
 
-        $this->assertTrue($models->trainsOnPrompts(self::MUSE));
+        $this->assertTrue($models->trainsOnPrompts(self::PUBLIC_MODEL));
         $this->assertTrue($models->trainsOnPrompts(' Meta/Muse-Spark-1.3-CONTRIBUTOR '));
         $this->assertFalse($models->trainsOnPrompts('google/gemini-3.8-flash'));
         $this->assertFalse($models->trainsOnPrompts('acme/contributor-model'));

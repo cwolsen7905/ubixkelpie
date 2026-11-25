@@ -19,7 +19,8 @@ use Psr\Log\LoggerInterface as Logger;
  * GitLab visibility is not used: the canonical repos are private on GitLab and published by mirroring.
  *
  * Triage model: the project's `triage_model` (its `projects` row); else, for an open-source project,
- * `KELPIE_TRIAGE_MODEL_PUBLIC` (default `meta/muse-spark-1.3-contributor`, cheap); else `KELPIE_TRIAGE_MODEL`, else
+ * `KELPIE_TRIAGE_MODEL_PUBLIC` (default `upstage/solar-pro-4-contributor`, cheap, and not the open-source review's
+ * family); else `KELPIE_TRIAGE_MODEL`, else
  * the caller's default. When the model is the open-source one (not a project override), the choice carries the regular
  * model as its fallback: a training tier the OpenRouter account's data policy excludes answers 404 on every call, and
  * the thread should still be triaged rather than all of them going to a person. Propose model: for an open-source project `KELPIE_PROPOSE_MODEL_PUBLIC` when set, else the
@@ -34,16 +35,7 @@ final class TriageLlmService
 {
     private const string TRAINING_TIER_SUFFIX = '-contributor';
 
-    private const string DEFAULT_PUBLIC_TRIAGE_MODEL = 'meta/muse-spark-1.3-contributor';
-
-    /**
-     * License keys (as GitLab detects them) that make a repository open source
-     */
-    private const array OPEN_SOURCE_LICENSES = [
-        '0bsd', 'agpl-3.0', 'apache-2.0', 'artistic-2.0', 'bsd-2-clause', 'bsd-3-clause', 'bsd-3-clause-clear', 'bsl-1.0',
-        'cc0-1.0', 'epl-1.0', 'epl-2.0', 'eupl-1.2', 'gpl-2.0', 'gpl-3.0', 'isc', 'lgpl-2.1', 'lgpl-3.0', 'mit', 'mpl-2.0',
-        'unlicense', 'zlib',
-    ];
+    private const string DEFAULT_PUBLIC_TRIAGE_MODEL = 'upstage/solar-pro-4-contributor';
 
     /**
      * Constructor
@@ -83,7 +75,7 @@ final class TriageLlmService
             $model = $regular;
         }
 
-        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), $fallback);
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), $fallback, $this->openSource($info));
     }
 
     /**
@@ -103,7 +95,7 @@ final class TriageLlmService
             $model = $public;
         }
 
-        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info));
+        return new TriageLlmChoice($model, $this->refusalFor($model, $project, $info), openSource: $this->openSource($info));
     }
 
     /**
@@ -115,7 +107,7 @@ final class TriageLlmService
      */
     public function isOpenSource(?ProjectInfo $info): bool
     {
-        return $info !== null && in_array(strtolower($info->license), self::OPEN_SOURCE_LICENSES, true);
+        return $info !== null && in_array(strtolower($info->license), ProjectInfo::OPEN_SOURCE_LICENSES, true);
     }
 
     /**
@@ -167,5 +159,18 @@ final class TriageLlmService
     private function info(?string $project): ?ProjectInfo
     {
         return $project === null || $project === '' ? null : $this->gitlab->projectInfo()->get($project);
+    }
+
+    /**
+     * Whether a project is open source, for the family guard: null when its license could not be read, so the guard
+     * fails closed instead of treating an unread project as closed source
+     *
+     * @param ?ProjectInfo $info What GitLab says about the project; null when it could not be read
+     *
+     * @return ?bool
+     */
+    private function openSource(?ProjectInfo $info): ?bool
+    {
+        return $info === null ? null : $this->isOpenSource($info);
     }
 }

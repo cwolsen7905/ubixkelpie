@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Review;
 
+use Kelpie\DataTransferObject\Review\ReviewSettings;
 use Kelpie\Service\Review\ReviewSettingsService;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
@@ -17,6 +18,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - The AI_REVIEW_* and CI merge request variables map to the settings; a shadow run has its own summary marker
  * - The `openrouter/` prefix of a model id is dropped for the API and kept for the stamp
  * - A mode other than advisory or blocking is invalid
+ * - An open-source license (GitLab's key) swaps in AI_REVIEW_MODEL_PUBLIC; anything else keeps the regular model
  *
  * @coversDefaultClass \Kelpie\Service\Review\ReviewSettingsService
  */
@@ -109,6 +111,29 @@ final class ReviewSettingsServiceTest extends UbixConcreteClassOrEnumTestCase im
         $this->assertTrue($service->modeIsValid([]));
         $this->assertTrue($service->modeIsValid(['AI_REVIEW_MODE' => 'blocking']));
         $this->assertFalse($service->modeIsValid(['AI_REVIEW_MODE' => 'strict']));
+    }
+
+    /**
+     * An open-source license swaps in AI_REVIEW_MODEL_PUBLIC; no license, an unread one or no public model keeps the regular model
+     *
+     * @return void
+     */
+    public function testOpenSourceLicenseGetsThePublicModel(): void
+    {
+        $service  = $this->service();
+        $env      = ['AI_REVIEW_MODEL_PUBLIC' => 'openrouter/meta/muse-spark-1.3-contributor', 'CI_MERGE_REQUEST_IID' => '7'];
+        $settings = $service->fromEnvironment($env, repo: '/r');
+
+        $public = $service->forLicense($settings, $env, 'BSD-3-Clause');
+        $this->assertSame(['openrouter/meta/muse-spark-1.3-contributor', 'meta/muse-spark-1.3-contributor'], [$public->model, $public->apiModel]);
+        $this->assertSame([7, '/r'], [$public->mrIid, $public->repo]);
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $public->fallbackModel, 'the regular model stays behind the public one');
+        $this->assertSame('', $settings->fallbackModel, 'none by default');
+
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, $env, '')->model, 'no license');
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, $env, null)->model, 'license not read');
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, $env, 'proprietary')->model, 'not open source');
+        $this->assertSame(ReviewSettings::DEFAULT_MODEL, $service->forLicense($settings, ['CI_MERGE_REQUEST_IID' => '7'], 'mit')->model, 'no public model set');
     }
 
     /**

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **An open-source repo is now reviewed with a cheaper model.** With `AI_REVIEW_MODEL_PUBLIC` set, `kelpie-review`
+  reads the license GitLab detected in the repo and, for an open-source one (BSD, MIT, Apache, GPL, ...), reviews
+  with that model instead of `AI_REVIEW_MODEL`: `meta/muse-spark-1.3-contributor` costs $0.10/$0.20 per million
+  tokens against Haiku's $0.10/$0.50. A repo with no license, or one the job cannot read, stays on
+  `AI_REVIEW_MODEL`. When the open-source model gives no valid review (a training tier the OpenRouter account's
+  data policy excludes answers 404), the review runs again on `AI_REVIEW_MODEL` instead of going unreviewed, and
+  the summary names the model that wrote it. Since either model may have written an open-source project's review,
+  triage and edit proposals refuse both families there, and also on a project whose license the worker could not
+  read (fail closed); a closed-source project refuses only the regular family. Triage defaults change to match: `deepseek/deepseek-v4.1-flash` (was
+  `google/gemini-3.8-flash`, eight times the price) and, for open-source projects, `upstage/solar-pro-4-contributor`
+  (was Muse Spark, which the guard would now refuse there).
+
 - **The AI review now labels the merge request with where it is and the worst finding still open.**
   `kelpie-review::` is one of `reviewing`, `reviewed`, `clean`, `last-round`, `hard-cap`, `skipped` or `unreviewed`;
   `kelpie-findings::` is one of `blocker`, `major`, `minor-only` or `none`. On ubixvault !74 the review used its third

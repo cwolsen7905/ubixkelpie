@@ -19,7 +19,7 @@ use Ubix\Service\JsonService;
  * Classifies one review thread: prompt, model, parse, safety policy
  *
  * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
- * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `google/gemini-3.8-flash`
+ * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `deepseek/deepseek-v4.1-flash`
  * (`TriageLlmService`), never from the family that wrote the review (`LlmFamilyService`) and never a tier that
  * trains on its prompts on a project not known to be public: either way the verdict is `needs_human`, not a guess.
  *
@@ -29,7 +29,7 @@ final class TriageService
 {
     // An OpenRouter id that must exist there: an unknown id fails every call, which reads as "the model gave no
     // answer". google/gemini-3-flash never existed; checked against openrouter.ai/api/v1/models on 2026-11-20.
-    private const string DEFAULT_MODEL = 'google/gemini-3.8-flash';
+    private const string DEFAULT_MODEL = 'deepseek/deepseek-v4.1-flash';
 
     // Room for a reasoning model's thinking: Gemini 3.x Flash spends reasoning tokens inside max_tokens, so the
     // client's default of 400 can end with empty content, which also reads as "the model gave no answer".
@@ -79,7 +79,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, $choice->refusal);
         }
 
-        if ($this->families->sameAsReview($model)) {
+        if ($this->families->sameAsReview($model, $choice->openSource)) {
             $this->logger->warning('Triage: model is from the review\'s family', ['model' => $model]);
 
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage refused: its model is from the same family as the review\'s, so it would not be a second opinion.');
@@ -90,7 +90,7 @@ final class TriageService
         $completion = $this->openRouterClient->chat($model, $system, $user, self::MAX_TOKENS);
 
         // The open-source model failed outright (a 404 when the account's data policy excludes its tier): ask the regular one once
-        if ($completion === null && $choice->fallback !== '' && !$this->families->sameAsReview($choice->fallback)) {
+        if ($completion === null && $choice->fallback !== '' && !$this->families->sameAsReview($choice->fallback, $choice->openSource)) {
             $this->logger->warning('Triage: model gave no answer, asking the fallback', ['fallback' => $choice->fallback, 'model' => $model]);
             $completion = $this->openRouterClient->chat($choice->fallback, $system, $user, self::MAX_TOKENS);
         }

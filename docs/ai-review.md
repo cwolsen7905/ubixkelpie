@@ -123,6 +123,7 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
 |---|---|---|
 | `AI_REVIEW_MODE` | `advisory` | `advisory`: threads are posted, the job never fails. `blocking`: exit 1 on a standing blocker/major finding with high confidence |
 | `AI_REVIEW_MODEL` | `openrouter/anthropic/claude-haiku-5.5` | any OpenRouter model as `openrouter/<id>` |
+| `AI_REVIEW_MODEL_PUBLIC` | unset | `kelpie-review` only: the model for a repo GitLab detects an open-source license in (BSD, MIT, Apache, GPL, ...). It may be a `-contributor` tier that trains on the code. Unset, or a license that cannot be read, keeps `AI_REVIEW_MODEL`. If it gives no valid review (a training tier the account's data policy excludes answers 404), the review runs again on `AI_REVIEW_MODEL`. Set the same value in the worker's Vault: triage then refuses both review families on open-source projects, and on projects whose license it cannot read |
 | `AI_REVIEW_BASE_BRANCH` | `dev` | only MRs targeting this branch are reviewed |
 | `AI_REVIEW_REF` | `dev` | ref of `ubixsys/ubixkelpie` the scripts are fetched at; keep equal to the include `ref` |
 | `AI_REVIEW_IMAGE` | `node:24-alpine` | container the review runs in; pin by digest for reproducibility |

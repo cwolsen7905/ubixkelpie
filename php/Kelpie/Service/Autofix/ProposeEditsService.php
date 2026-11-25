@@ -115,7 +115,7 @@ final class ProposeEditsService
         if ($refusal !== '') {
             return new ProposedEdits([], '', $refusal);
         }
-        if ($this->families->sameAsReview($model)) {
+        if ($this->families->sameAsReview($model, $choice->openSource)) {
             $this->logger->warning('Propose: model is from the review\'s family', ['model' => $model]);
 
             return new ProposedEdits([], '', 'The propose model is from the same family as the review\'s, so it would not be a second opinion.');

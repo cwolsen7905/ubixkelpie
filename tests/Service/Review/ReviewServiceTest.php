@@ -23,6 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Advisory mode exits 0 on a blocker; blocking mode exits 1; a review that could not run exits 75 and says UNREVIEWED
  * - A clean review is a plain note naming model, commit and files
  * - The model's reply is retried once, with what was wrong; the usage of both attempts is stamped
+ * - When the model gives no valid review and a fallback is set, the fallback reviews and the stamp names it
  * - A shadow run opens no thread, writes only its own labelled note and never fails the pipeline
  * - A diff adding a class in a directory that is not a family reaches the model with the placement instructions
  *
@@ -464,6 +465,34 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $this->assertSame(0, $outcome->exitCode);
         $this->assertStringContainsString('contained no JSON object', $this->messageText($harness, 1, 1));
         $this->assertStringContainsString('3.0k in / 3.0k out, $0.0030', $harness->gitlab()->noteBodies()[0]);
+    }
+
+    /**
+     * When the open-source model gives no answer (a training tier the account's policy excludes), the regular
+     * model reviews instead, and the summary's stamp names the model that wrote it
+     *
+     * @return void
+     */
+    public function testFallbackModelReviewsWhenTheModelGivesNoReview(): void
+    {
+        $harness = $this->harness();
+        $harness->model()->fail()->fail()->text((string) file_get_contents($this->fixture('canned-ok.json')));
+        putenv('OPENROUTER_API_KEY=test-key-not-real');
+
+        try {
+            $outcome = $harness->service()->review($this->settings([
+                'apiModel'      => 'meta/muse-spark-1.3-contributor',
+                'fallbackModel' => 'openrouter/anthropic/claude-haiku-5.5',
+                'model'         => 'openrouter/meta/muse-spark-1.3-contributor',
+            ]));
+        } finally {
+            putenv('OPENROUTER_API_KEY');
+        }
+
+        $this->assertSame(0, $outcome->exitCode);
+        $models = array_column($harness->model()->sent(), 'model');
+        $this->assertSame(['meta/muse-spark-1.3-contributor', 'meta/muse-spark-1.3-contributor', 'anthropic/claude-haiku-5.5'], $models);
+        $this->assertStringContainsString('openrouter/anthropic/claude-haiku-5.5', $harness->gitlab()->noteBodies()[0]);
     }
 
     /**

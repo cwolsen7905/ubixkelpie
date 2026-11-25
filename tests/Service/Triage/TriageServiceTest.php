@@ -142,7 +142,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
 
         $this->assertSame(TriageClass::Defer, $verdict->class);
         $this->assertNotNull($verdict->completion);
-        $this->assertSame('google/gemini-3.8-flash', $verdict->completion->model);
+        $this->assertSame('deepseek/deepseek-v4.1-flash', $verdict->completion->model);
         $this->assertSame(0.0001, $verdict->completion->costUsd);
     }
 
@@ -211,6 +211,25 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     }
 
     /**
+     * On an open-source project the review is AI_REVIEW_MODEL_PUBLIC's: a triage model of that family is refused there
+     *
+     * @return void
+     */
+    public function testOpenSourceReviewFamilyIsRefused(): void
+    {
+        putenv('AI_REVIEW_MODEL_PUBLIC=openrouter/meta/muse-spark-1.3-contributor');
+        putenv('KELPIE_TRIAGE_MODEL_PUBLIC=meta/muse-spark-1.3-contributor');
+        $models  = TriageLlms::make($this->createStub(Logger::class), 'private', null, 'g/p', 'bsd-3-clause');
+        $verdict = $this->service(new Psr7Response(500), $models)->triage($this->thread(), null, '', 'g/p');
+        putenv('KELPIE_TRIAGE_MODEL_PUBLIC');
+        putenv('AI_REVIEW_MODEL_PUBLIC');
+
+        $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+        $this->assertStringContainsString('same family as the review', $verdict->reason);
+        $this->assertSame([], $this->sentModels);
+    }
+
+    /**
      * When the open-source model fails (OpenRouter's 404 for a data policy that excludes its tier) the regular model is asked
      *
      * @return void
@@ -223,7 +242,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $verdict   = $this->service(null, $models, $responses)->triage($this->thread(), null, '', 'g/p');
 
         $this->assertSame(TriageClass::NotAnIssue, $verdict->class);
-        $this->assertSame(['meta/muse-spark-1.3-contributor', 'google/gemini-3.8-flash'], $this->sentModels);
+        $this->assertSame(['upstage/solar-pro-4-contributor', 'google/gemini-3.8-flash'], $this->sentModels);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Console\Command;
 
+use Kelpie\GitLab\Review\ReviewGitlab;
 use Kelpie\Service\Review\ReviewService;
 use Kelpie\Service\Review\ReviewSettingsService;
 use Psr\Log\LoggerInterface as Logger;
@@ -17,7 +18,8 @@ use Symfony\Component\Console\Output\OutputInterface as Output;
  *
  * Run from the Kelpie image in the MR pipeline of any repo (`ci/kelpie.yml`); it needs a model key and a review
  * token, not a Kelpie server or database. Settings are the `AI_REVIEW_*` variables and the CI merge request
- * variables. Exit: 0 reviewed or skipped, 1 blocking findings in blocking mode, 75 could not run, 2 bad mode.
+ * variables; an open-source project (its license, as GitLab detects it) is reviewed with `AI_REVIEW_MODEL_PUBLIC` when
+ * that is set. Exit: 0 reviewed or skipped, 1 blocking findings in blocking mode, 75 could not run, 2 bad mode.
  *
  * Does not extend the uBixCore command base: that base requires a `Ubix\Console\Command\` class name,
  * so a host command cannot use it. Discovery only needs a Symfony command.
@@ -32,11 +34,13 @@ final class ReviewCommand extends SymfonyCommand
      * @param Logger                $logger                Logger
      * @param ReviewSettingsService $reviewSettingsService Reads the settings
      * @param ReviewService         $reviewService         Reviews the merge request
+     * @param ReviewGitlab          $reviewGitlab          Reads the project's license
      */
     public function __construct(
         private readonly Logger $logger,
         private readonly ReviewSettingsService $reviewSettingsService,
         private readonly ReviewService $reviewService,
+        private readonly ReviewGitlab $reviewGitlab,
     ) {
         parent::__construct('kelpie:review');
     }
@@ -78,6 +82,10 @@ final class ReviewCommand extends SymfonyCommand
             $this->option($input, 'canned'),
             $this->option($input, 'existing'),
         );
+
+        if (!$settings->dryRun && ($env['AI_REVIEW_MODEL_PUBLIC'] ?? '') !== '' && $settings->token !== '' && $settings->project !== '') {
+            $settings = $this->reviewSettingsService->forLicense($settings, $env, $this->reviewGitlab->license($settings));
+        }
 
         $outcome = $this->reviewService->review($settings);
         $this->logger->info('Command finished', ['command' => $this->getName(), 'exit' => $outcome->exitCode]);

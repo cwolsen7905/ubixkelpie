@@ -60,6 +60,7 @@ final class SettingsBuilder
             diffFile:      self::text($overrides, 'diffFile', self::fixtures() . '/sample.diff'),
             cannedFile:    self::text($overrides, 'cannedFile', ''),
             existing:      self::text($overrides, 'existing', ''),
+            fallbackModel: self::text($overrides, 'fallbackModel', ''),
         );
     }
 

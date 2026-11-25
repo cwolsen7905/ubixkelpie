@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Review;
 
+use Kelpie\DataTransferObject\ProjectInfo;
 use Kelpie\DataTransferObject\Review\ReviewSettings;
 use Psr\Log\LoggerInterface as Logger;
 
@@ -11,6 +12,12 @@ use Psr\Log\LoggerInterface as Logger;
  * Reads the review settings from the environment: the AI_REVIEW_* variables and GitLab CI's merge request variables
  *
  * The names and defaults are those of the shell review, so a repo changes nothing when it moves over.
+ *
+ * `AI_REVIEW_MODEL_PUBLIC`, when set, replaces `AI_REVIEW_MODEL` for a project whose repository GitLab detects an
+ * open-source license in (`ProjectInfo::OPEN_SOURCE_LICENSES`): such a model may be a tier that trains on the code
+ * it reads. A license that could not be read keeps the regular model. The regular model stays behind the
+ * open-source one as `fallbackModel`, used when the open-source one gives no valid review. The worker applies the same rule
+ * (`LlmFamilyService`), so it knows which family wrote a project's review.
  *
  * @see \Kelpie\Tests\Service\Review\ReviewSettingsServiceTest PHPUnit test case
  */
@@ -29,16 +36,17 @@ final class ReviewSettingsService
     /**
      * The settings of an environment
      *
-     * @param array<string, string> $env        The environment
-     * @param bool                  $dryRun     Whether to never call GitLab
-     * @param string                $repo       The checkout, empty for AI_REVIEW_REPO, CI_PROJECT_DIR or the working directory
-     * @param string                $diffFile   Review this diff file instead of git's
-     * @param string                $cannedFile Use this file as the model's reply
-     * @param string                $existing   A JSON file of discussions to dedupe against
+     * @param array<string, string> $env           The environment
+     * @param bool                  $dryRun        Whether to never call GitLab
+     * @param string                $repo          The checkout, empty for AI_REVIEW_REPO, CI_PROJECT_DIR or the working directory
+     * @param string                $diffFile      Review this diff file instead of git's
+     * @param string                $cannedFile    Use this file as the model's reply
+     * @param string                $existing      A JSON file of discussions to dedupe against
+     * @param string                $fallbackModel The model to fall back to when the model gives no valid review
      *
      * @return ReviewSettings
      */
-    public function fromEnvironment(array $env, bool $dryRun = false, string $repo = '', string $diffFile = '', string $cannedFile = '', string $existing = ''): ReviewSettings
+    public function fromEnvironment(array $env, bool $dryRun = false, string $repo = '', string $diffFile = '', string $cannedFile = '', string $existing = '', string $fallbackModel = ''): ReviewSettings
     {
         $this->logger->debug('Reading the review settings from the environment');
 
@@ -72,7 +80,45 @@ final class ReviewSettingsService
             diffFile:      $diffFile,
             cannedFile:    $cannedFile,
             existing:      $existing,
+            fallbackModel: $fallbackModel,
         );
+    }
+
+    /**
+     * The settings for the project's license: the open-source model when one is set and the license is open source
+     *
+     * @param ReviewSettings        $settings The settings from `fromEnvironment()`
+     * @param array<string, string> $env      The same environment
+     * @param ?string               $license  The license key GitLab detected, empty for none, null when not read
+     *
+     * @return ReviewSettings
+     */
+    public function forLicense(ReviewSettings $settings, array $env, ?string $license): ReviewSettings
+    {
+        $public = $env['AI_REVIEW_MODEL_PUBLIC'] ?? '';
+        if ($public === '' || !$this->isOpenSource($license)) {
+            return $settings;
+        }
+
+        $this->logger->info('Open-source project: reviewing with the open-source model', ['license' => $license, 'model' => $public]);
+
+        // A training tier the OpenRouter account's data policy excludes answers 404 on every call: keep the regular
+        // model behind it, so the merge request is still reviewed rather than left unreviewed.
+        $fallback = $public === $settings->model ? '' : $settings->model;
+
+        return $this->fromEnvironment(['AI_REVIEW_MODEL' => $public] + $env, $settings->dryRun, $settings->repo, $settings->diffFile, $settings->cannedFile, $settings->existing, $fallback);
+    }
+
+    /**
+     * Whether a license key is an open-source license
+     *
+     * @param ?string $license The license key GitLab detected, empty for none, null when not read
+     *
+     * @return bool
+     */
+    public function isOpenSource(?string $license): bool
+    {
+        return $license !== null && in_array(strtolower($license), ProjectInfo::OPEN_SOURCE_LICENSES, true);
     }
 
     /**

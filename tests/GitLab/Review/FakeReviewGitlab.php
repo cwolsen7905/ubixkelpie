@@ -70,6 +70,11 @@ final class FakeReviewGitlab implements HttpClient
     private int $nextId = 100;
 
     /**
+     * The license key the project read answers with; null answers 404
+     */
+    private ?string $license = '';
+
+    /**
      * {@inheritDoc}
      */
     public function sendRequest(Request $request): Response
@@ -91,6 +96,20 @@ final class FakeReviewGitlab implements HttpClient
         }
 
         return $this->write($request->getMethod(), $path, $json);
+    }
+
+    /**
+     * Set the license GitLab detected in the project
+     *
+     * @param ?string $key The license key, empty for none, null to make the project read fail
+     *
+     * @return self
+     */
+    public function withLicense(?string $key): self
+    {
+        $this->license = $key;
+
+        return $this;
     }
 
     /**
@@ -314,6 +333,9 @@ final class FakeReviewGitlab implements HttpClient
         }
         if (str_ends_with($path, '/labels')) {
             return $this->json(array_values($this->projectLabels));
+        }
+        if (preg_match('~/projects/[^/]+$~', $path) === 1) {
+            return $this->license === null ? new Psr7Response(404) : $this->json(['license' => $this->license === '' ? null : ['key' => $this->license]]);
         }
         if (str_ends_with($path, '/versions')) {
             return $this->json([['base_commit_sha' => 'b1', 'head_commit_sha' => 'h1', 'start_commit_sha' => 's1']]);

@@ -106,6 +106,8 @@ final class ReviewCommandTest extends UbixConcreteClassOrEnumTestCase implements
     {
         $logger = $this->createStub(Logger::class);
 
-        return new ReviewCommand($logger, new ReviewSettingsService($logger), (new ReviewHarness($logger))->service());
+        $harness = new ReviewHarness($logger);
+
+        return new ReviewCommand($logger, new ReviewSettingsService($logger), $harness->service(), $harness->reviewGitlab());
     }
 }

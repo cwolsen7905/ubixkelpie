@@ -67,6 +67,26 @@ final class LlmFamilyServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * For an open-source project the review model is AI_REVIEW_MODEL_PUBLIC when set, as the review job picks it
+     *
+     * @return void
+     */
+    public function testOpenSourceReviewModel(): void
+    {
+        putenv('AI_REVIEW_MODEL');
+        putenv('AI_REVIEW_MODEL_PUBLIC=openrouter/meta/muse-spark-1.3-contributor');
+        $service = new LlmFamilyService($this->createStub(Logger::class));
+
+        $this->assertSame('meta', $service->reviewFamily(true));
+        $this->assertSame('anthropic', $service->reviewFamily(), 'not open source: the regular model');
+        $this->assertTrue($service->sameAsReview('meta/muse-spark-1.3-contributor', true));
+        $this->assertFalse($service->sameAsReview('anthropic/claude-haiku-5.5', true));
+
+        putenv('AI_REVIEW_MODEL_PUBLIC');
+        $this->assertSame('anthropic', $service->reviewFamily(true), 'no public model: the regular one');
+    }
+
+    /**
      * Same family, or any family that is unknown, is refused; a different family is not
      *
      * @return void

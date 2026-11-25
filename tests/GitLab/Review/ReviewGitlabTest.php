@@ -21,6 +21,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Every request carries the review's token, and the paths are the merge request's
  * - Discussions are read page by page until a short page
  * - An inline thread carries the position; when GitLab refuses it a plain thread is posted
+ * - The project's license is read as GitLab's detected key
  * - A failure is null/false, never an exception
  *
  * @coversDefaultClass \Kelpie\GitLab\Review\ReviewGitlab
@@ -79,6 +80,18 @@ final class ReviewGitlabTest extends UbixConcreteClassOrEnumTestCase implements 
     {
         $this->assertSame(9, $this->gitlab(new FakeReviewGitlab())->botId(SettingsBuilder::make()));
         $this->assertSame(0, $this->gitlab(new FakeReviewGitlab())->botId(SettingsBuilder::make(['token' => ''])));
+    }
+
+    /**
+     * The project's detected license is its key, empty when GitLab detected none, null when the read fails
+     *
+     * @return void
+     */
+    public function testLicense(): void
+    {
+        $this->assertSame('bsd-3-clause', $this->gitlab((new FakeReviewGitlab())->withLicense('bsd-3-clause'))->license(SettingsBuilder::make()));
+        $this->assertSame('', $this->gitlab(new FakeReviewGitlab())->license(SettingsBuilder::make()));
+        $this->assertNull($this->gitlab((new FakeReviewGitlab())->withLicense(null))->license(SettingsBuilder::make()));
     }
 
     /**

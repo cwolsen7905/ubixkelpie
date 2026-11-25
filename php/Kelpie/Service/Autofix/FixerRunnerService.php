@@ -341,7 +341,7 @@ final class FixerRunnerService
         }
 
         $choice = $this->propose->choice($projectPath);
-        if ($choice->refusal !== '' || $this->families->sameAsReview($choice->model)) {
+        if ($choice->refusal !== '' || $this->families->sameAsReview($choice->model, $choice->openSource)) {
             return null;
         }
 
@@ -487,7 +487,7 @@ final class FixerRunnerService
             $reason,
             $verdict->completion->model ?? '',
             $propose->model ?? '',
-            $this->families->reviewFamily(),
+            $this->families->reviewFamily($this->propose->choice($projectPath)->openSource),
             $prompt,
             $answer,
             $cost,

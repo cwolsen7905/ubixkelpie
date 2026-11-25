@@ -16,7 +16,8 @@ use Psr\Log\LoggerInterface as Logger;
  * part cannot be placed, so it is never trusted to be different.
  *
  * The review's model is `AI_REVIEW_MODEL` from the worker's environment, which must match the review job's;
- * unset, it is the review's own default.
+ * unset, it is the review's own default. For an open-source project it is `AI_REVIEW_MODEL_PUBLIC` when set, as the
+ * review job picks it (`ReviewSettingsService::forLicense`); the caller says whether the project is open source.
  *
  * @see \Kelpie\Tests\Service\Triage\LlmFamilyServiceTest PHPUnit test case
  */
@@ -54,34 +55,41 @@ final class LlmFamilyService
     /**
      * The model that wrote the review
      *
+     * @param bool $openSource Whether the project is known to be open source
+     *
      * @return string
      */
-    public function reviewModel(): string
+    public function reviewModel(bool $openSource = false): string
     {
-        return (string) getenv('AI_REVIEW_MODEL') ?: ReviewSettings::DEFAULT_MODEL;
+        $public = $openSource ? (string) getenv('AI_REVIEW_MODEL_PUBLIC') : '';
+
+        return $public ?: ((string) getenv('AI_REVIEW_MODEL') ?: ReviewSettings::DEFAULT_MODEL);
     }
 
     /**
      * The family of the model that wrote the review
      *
+     * @param bool $openSource Whether the project is known to be open source
+     *
      * @return string
      */
-    public function reviewFamily(): string
+    public function reviewFamily(bool $openSource = false): string
     {
-        return $this->family($this->reviewModel());
+        return $this->family($this->reviewModel($openSource));
     }
 
     /**
      * Whether a model may not judge the review: same family, or either family unknown
      *
-     * @param string $model The model that would triage or fix
+     * @param string $model      The model that would triage or fix
+     * @param bool   $openSource Whether the project is known to be open source
      *
      * @return bool
      */
-    public function sameAsReview(string $model): bool
+    public function sameAsReview(string $model, bool $openSource = false): bool
     {
         $family = $this->family($model);
-        $review = $this->reviewFamily();
+        $review = $this->reviewFamily($openSource);
 
         $same = $family === '' || $review === '' || $family === $review;
         if ($same) {

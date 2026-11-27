@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Kelpie fixes only what it is sure of, and asks when it cannot tell.** Triage now gives a confidence (`high`,
+  `medium`, `low`; missing reads as `low`), and a `fix` below `medium` becomes `needs_human` with the model's reason
+  and the confidence named, so nothing is proposed or pushed on a guess. A discussion or question is `needs_human`,
+  never `fix`. A new `needs_context` verdict replies asking for what is missing (on an issue, a comment and the
+  `kelpie::needs-context` label) and triages again once someone answers. See `docs/triage-confidence.md`.
+
 - **An open-source repo is now reviewed with a cheaper model.** With `AI_REVIEW_MODEL_PUBLIC` set, `kelpie-review`
   reads the license GitLab detected in the repo and, for an open-source one (BSD, MIT, Apache, GPL, ...), reviews
   with that model instead of `AI_REVIEW_MODEL`: `meta/muse-spark-1.3-contributor` costs $0.10/$0.20 per million

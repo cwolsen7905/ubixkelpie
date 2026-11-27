@@ -847,7 +847,7 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $second    = is_array($messages[1] ?? null) ? $messages[1] : [];
             $users[]   = is_string($second['content'] ?? null) ? $second['content'] : '';
             $isPropose = str_contains(is_string($first['content'] ?? null) ? $first['content'] : '', 'You propose a small code change');
-            $content   = $isPropose ? $json->encode($proposal) : $json->encode(['class' => $class, 'reason' => 'It is a typo.']);
+            $content   = $isPropose ? $json->encode($proposal) : $json->encode(['class' => $class, 'confidence' => 'high', 'reason' => 'It is a typo.']);
             $usage     = ['completion_tokens' => 20, 'cost' => 0.001, 'prompt_tokens' => 100];
 
             return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]], 'usage' => $usage]));

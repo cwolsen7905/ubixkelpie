@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The fix gate's `composer install` no longer runs composer plugins.** A plugin is dependency code a merge request
+  controls through `composer.lock`, and it ran in the worker next to Kelpie's secrets. `GateRunner` now passes
+  `--no-plugins` with `--no-scripts`, and the command list refuses `composer install` without both. phpcs finds its
+  standards through `installed_paths`, so the gate is unchanged for PHP projects.
 - **Triage reads the replies in a thread, not only the finding.** A person's reply re-opens a thread for triage, but
   the model was given only the thread's first note, so a reply saying the finding was out of date never reached it:
   on an MR whose base moved past a rename, Kelpie twice proposed reverting to the old names after the author had

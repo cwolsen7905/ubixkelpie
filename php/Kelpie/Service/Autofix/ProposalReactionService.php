@@ -73,10 +73,12 @@ final class ProposalReactionService
             return null;
         }
 
-        // The one path that pushes: only a project in push mode, whatever the job says. Checked here, next to the push.
-        if (!$this->modes->allows($projectPath, ProjectMode::Push)) {
-            $this->logger->info('Proposal reaction: project is not in push mode, nothing pushed', ['project' => $projectPath, 'mr_iid' => $mrIid]);
-            $this->replies->notice($project, $mrIid, $discussionId, 'This project is not set to let me push, so I did not apply the proposal. The diff above is still there to apply by hand.', 'not-pushed');
+        // A person's thumbs-up on this one proposal is their go-ahead for it, so propose mode pushes it too (push mode
+        // also pushes rounds without asking). Only a project that is off, or has no row, refuses. Checked here, next
+        // to the push, whatever the job says; the webhook has already checked the reactor is the author or a maintainer.
+        if (!$this->modes->allows($projectPath, ProjectMode::Propose)) {
+            $this->logger->info('Proposal reaction: project is off, nothing pushed', ['project' => $projectPath, 'mr_iid' => $mrIid]);
+            $this->replies->notice($project, $mrIid, $discussionId, 'Kelpie is off for this project, so I did not apply the proposal. The diff above is still there to apply by hand.', 'not-pushed');
 
             return null;
         }

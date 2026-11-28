@@ -138,19 +138,35 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
     }
 
     /**
-     * Below push mode a thumbs-up pushes nothing: the project in propose, off, or with no row
+     * In propose mode a thumbs-up is the go-ahead for that one proposal: it is pushed, gated, as in push mode
      *
      * @return void
      */
-    public function testThumbsUpPushesNothingUnlessThePushModeIsOn(): void
+    public function testThumbsUpPushesTheProposalInProposeMode(): void
     {
-        foreach ([ProjectMode::Propose, ProjectMode::Off, null] as $mode) {
+        $this->assertNull($this->service(mode: ProjectMode::Propose)->run('1', 'g/p', 3, 'd1', true, 1));
+
+        $pushed = trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x']));
+        $this->assertNotSame($this->sha, $pushed);
+        $this->assertSame(ThreadOutcome::Applied, $this->row()->outcome);
+        $this->assertCount(4, $this->gateRunner->calls());
+        $this->assertStringContainsString('Fixed: ', $this->lastNote());
+    }
+
+    /**
+     * A project that is off, or has no row, pushes nothing on a thumbs-up
+     *
+     * @return void
+     */
+    public function testThumbsUpPushesNothingWhenKelpieIsOff(): void
+    {
+        foreach ([ProjectMode::Off, null] as $mode) {
             $this->assertNull($this->service(mode: $mode)->run('1', 'g/p', 3, 'd1', true, 1));
 
             $this->assertSame($this->sha, trim($this->git($this->remote, ['rev-parse', 'refs/heads/feat/x'])));
             $this->assertSame(ThreadOutcome::Proposed, $this->row()->outcome);
             $this->assertNull($this->jobs->commitSha());
-            $this->assertStringContainsString('not set to let me push', $this->lastNote());
+            $this->assertStringContainsString('Kelpie is off for this project', $this->lastNote());
             $this->assertSame([], $this->gateRunner->calls());
         }
     }

@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Service\Gitlab;
 
 use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\Enum\ThreadOutcome;
+use Kelpie\Service\Gitlab\IssueAwardEmojiService;
 use Kelpie\Service\Gitlab\MemberAccessReaderService;
 use Kelpie\Service\Gitlab\ProposalReactionWebhookService;
 use Kelpie\Service\Gitlab\ThreadActorService;
@@ -204,15 +205,38 @@ final class ProposalReactionWebhookServiceTest extends UbixConcreteClassOrEnumTe
     }
 
     /**
-     * @param ThreadOutcome $outcome   The stored outcome of the thread
-     * @param string        $editsJson The stored edits
-     * @param ?int          $level     The access level GitLab reports for the reactor
-     * @param bool          $enabled   Whether autofix is on
-     * @param string        $mode      What the job table does
+     * A queued reaction gets the 👀 on the comment at once, as does one on a thread already queued; a refused one
+     * (not a proposal, not allowed) gets none
+     *
+     * @return void
+     */
+    public function testAQueuedReactionIsAcknowledgedAtOnce(): void
+    {
+        $awards = StubHttpClient::awards('[]');
+        $this->assertStringStartsWith('queued:', $this->service(awards: $awards)->handle($this->payload()));
+        $this->assertContains('POST /api/v4/projects/7/merge_requests/3/notes/105/award_emoji', $awards->requests());
+
+        $busy = StubHttpClient::awards('[]');
+        $this->service(mode: FakeJobSql::BUSY, awards: $busy)->handle($this->payload());
+        $this->assertContains('POST /api/v4/projects/7/merge_requests/3/notes/105/award_emoji', $busy->requests());
+
+        $refused = StubHttpClient::awards('[]');
+        $this->service(level: 20, awards: $refused)->handle($this->payload(userId: 9, username: 'mallory'));
+        $this->service(awards: $refused)->handle($this->payload(noteId: 999));
+        $this->assertSame([], $refused->requests());
+    }
+
+    /**
+     * @param ThreadOutcome   $outcome   The stored outcome of the thread
+     * @param string          $editsJson The stored edits
+     * @param ?int            $level     The access level GitLab reports for the reactor
+     * @param bool            $enabled   Whether autofix is on
+     * @param string          $mode      What the job table does
+     * @param ?StubHttpClient $awards    GitLab for the 👀; null builds the service with no acknowledgement
      *
      * @return ProposalReactionWebhookService
      */
-    private function service(ThreadOutcome $outcome = ThreadOutcome::Proposed, string $editsJson = '[{"file":"a.txt","new":"b","old":"a"}]', ?int $level = 10, bool $enabled = true, string $mode = FakeJobSql::FREE): ProposalReactionWebhookService
+    private function service(ThreadOutcome $outcome = ThreadOutcome::Proposed, string $editsJson = '[{"file":"a.txt","new":"b","old":"a"}]', ?int $level = 10, bool $enabled = true, string $mode = FakeJobSql::FREE, ?StubHttpClient $awards = null): ProposalReactionWebhookService
     {
         $logger        = new NullLogger();
         $this->inserts = new InsertedJobs();
@@ -222,7 +246,9 @@ final class ProposalReactionWebhookServiceTest extends UbixConcreteClassOrEnumTe
         $members = new MemberAccessReaderService($logger, StubHttpClient::member($level), new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger));
         $jobs    = FakeJobSql::service($logger, $this->createStub(SqlService::class), $this->inserts, $mode, self::SHA);
 
-        return new ProposalReactionWebhookService($logger, new ThreadActorService($logger, $members), $store, $jobs, $enabled, 'kelpie-bot');
+        $ack = $awards === null ? null : new IssueAwardEmojiService($logger, $awards, new Psr17Factory(), 'https://gitlab.test/api/v4', new JsonService($logger), 'kelpie-bot');
+
+        return new ProposalReactionWebhookService($logger, new ThreadActorService($logger, $members), $store, $jobs, $enabled, 'kelpie-bot', $ack);
     }
 
     /**

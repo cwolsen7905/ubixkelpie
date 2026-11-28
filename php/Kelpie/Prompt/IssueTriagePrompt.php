@@ -106,11 +106,12 @@ PROMPT;
             return '';
         }
 
-        return "\n<reply>\n" . str_ireplace(['<reply', '</reply'], ['&lt;reply', '&lt;/reply'], mb_substr($reply, 0, self::MAX_DESCRIPTION)) . "\n</reply>";
+        return "\n<reply>\n" . $this->fenceSafe($this->scanner->quote(mb_substr($reply, 0, self::MAX_DESCRIPTION), 'issue reply')) . "\n</reply>";
     }
 
     /**
-     * Defuse any opening or closing fence tag inside untrusted text
+     * Defuse any opening or closing tag of either block inside untrusted text, so the issue cannot forge a reply and a
+     * reply cannot forge the issue
      *
      * @param string $text The raw text
      *
@@ -120,6 +121,6 @@ PROMPT;
     {
         $fence = self::FENCE;
 
-        return str_ireplace(['<' . $fence, '</' . $fence], ['&lt;' . $fence, '&lt;/' . $fence], $text);
+        return str_ireplace(['<' . $fence, '</' . $fence, '<reply', '</reply'], ['&lt;' . $fence, '&lt;/' . $fence, '&lt;reply', '&lt;/reply'], $text);
     }
 }

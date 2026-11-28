@@ -96,8 +96,9 @@ final class IssueTriageService
         }
 
         $class = $this->earlierClass($notes, $iid);
-        if ($class === IssueTriageClass::NeedsContext && trim($reply) !== '' && in_array(IssueTriageClass::NeedsContext->label(), $issue->labels, true)) {
-            // Asked for context and labelled, and a person answered, so triage again (no label means a crash before the label, repaired below)
+        if ($class === IssueTriageClass::NeedsContext && trim($reply) !== '') {
+            // Asked for context and a person answered, so triage again, even when a crash left the label off: the new
+            // verdict's comment is the newest marker from then on, and its label is added below
             $class = null;
         }
         if ($class === null) {

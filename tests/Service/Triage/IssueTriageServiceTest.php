@@ -210,6 +210,23 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A person's reply is triaged even when a crash left the needs-context label off, and the new class is labelled
+     *
+     * @return void
+     */
+    public function testAReplyIsTriagedWhenTheLabelIsMissing(): void
+    {
+        $gitlab = (new FakeIssueGitlab())->withNote('kelpie-bot', "Which page?\n\n<!-- kelpie:triage issue=7 class=needs_context -->");
+
+        $result = $this->service($gitlab, $this->answer('{"class": "not_a_defect", "confidence": "high", "reason": "as designed"}'))->triage('org/proj', 7, 'The login page, but it works as designed.');
+
+        $this->assertSame(IssueTriageClass::NotADefect, $result->class);
+        $this->assertSame(1, $this->modelCalls());
+        $this->assertCount(2, $gitlab->notesBy('kelpie-bot'));
+        $this->assertSame(['kelpie::not-a-defect'], $gitlab->labels());
+    }
+
+    /**
      * A run with no reply does not ask the model again or post a second needs-context comment
      *
      * @return void

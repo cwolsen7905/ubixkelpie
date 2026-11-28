@@ -37,7 +37,7 @@ final class ReplyUsageStampTest extends TestCase
         $outcome = $this->service($gitlab)->respond('1', 3, 'd1', $verdict);
 
         $this->assertSame(ResponseOutcome::Replied, $outcome);
-        $this->assertStringContainsString("\n\n_Kelpie · agent `triage-model` · model `m/x`, effort default, 2.5k in / 40 out, \$0.0020 (OpenRouter)._\n\n<!-- kelpie:reply thread=d1 class=defer -->", $gitlab->notes()['d1'][1]['body']);
+        $this->assertStringContainsString("\n\n_" . Attribution::signature() . " · agent `triage-model` · model `m/x`, effort default, 2.5k in / 40 out, \$0.0020 (OpenRouter)._\n\n<!-- kelpie:reply thread=d1 class=defer -->", $gitlab->notes()['d1'][1]['body']);
     }
 
     /**
@@ -53,7 +53,7 @@ final class ReplyUsageStampTest extends TestCase
         $this->service($gitlab)->respond('1', 3, 'd1', new TriageVerdict(TriageClass::Defer, 'later', new Completion('{}', 'm/x', 7, 3)));
 
         $body = $gitlab->notes()['d1'][1]['body'];
-        $this->assertStringContainsString('_Kelpie · agent `triage-model` · model `m/x`, effort default, 7 in / 3 out._', $body);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `triage-model` · model `m/x`, effort default, 7 in / 3 out._', $body);
         $this->assertStringNotContainsString('$', $body);
     }
 
@@ -85,7 +85,7 @@ final class ReplyUsageStampTest extends TestCase
 
         $this->service($gitlab)->propose('1', 3, 'd1', TriageClass::Fix, $sha, 'Closes it.', "--- a/a\n+++ b/a\n", new Completion('{}', 'p/y', 900, 100, 0.01));
 
-        $this->assertStringContainsString("\n\n_Kelpie · agent `propose-model` · model `p/y`, effort default, 900 in / 100 out, \$0.0100 (OpenRouter)._\n\n<!-- kelpie:reply thread=d1 class=fix head=" . $sha . ' -->', $gitlab->notes()['d1'][1]['body']);
+        $this->assertStringContainsString("\n\n_" . Attribution::signature() . " · agent `propose-model` · model `p/y`, effort default, 900 in / 100 out, \$0.0100 (OpenRouter)._\n\n<!-- kelpie:reply thread=d1 class=fix head=" . $sha . ' -->', $gitlab->notes()['d1'][1]['body']);
     }
 
     /**
@@ -100,7 +100,7 @@ final class ReplyUsageStampTest extends TestCase
 
         $this->service($gitlab)->propose('1', 3, 'd1', TriageClass::Fix, str_repeat('a', 40), 'Closes it.', "--- a/a\n+++ b/a\n", new Completion('{}', 'p/y', 900, 100, 0.01), null, Attribution::Fixer);
 
-        $this->assertStringContainsString('_Kelpie · agent `fixer-agent` · model `p/y`,', $gitlab->notes()['d1'][1]['body']);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `fixer-agent` · model `p/y`,', $gitlab->notes()['d1'][1]['body']);
     }
 
     /**
@@ -115,7 +115,7 @@ final class ReplyUsageStampTest extends TestCase
 
         $this->service($gitlab)->propose('1', 3, 'd1', TriageClass::Fix, str_repeat('a', 40), 'Closes it.', "--- a/a\n+++ b/a\n", new Completion('{}', 'p/y', 900, 100, 0.01), new Completion('{}', 't/z', 100, 20, 0.0005));
 
-        $this->assertStringContainsString('_Kelpie · agent `propose-model` · model `p/y`, effort default, 1.0k in / 120 out, $0.0105 (OpenRouter)._', $gitlab->notes()['d1'][1]['body']);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `propose-model` · model `p/y`, effort default, 1.0k in / 120 out, $0.0105 (OpenRouter)._', $gitlab->notes()['d1'][1]['body']);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Triage;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\Enum\IssueTriageClass;
 use Kelpie\Enum\IssueTriageOutcome;
 use Kelpie\GitLab\IssueClient;
@@ -113,8 +114,8 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $noCost = new FakeIssueGitlab();
         $this->service($noCost, $free)->triage('org/proj', 7);
 
-        $this->assertStringContainsString("\n\n_Model `anthropic/claude-haiku-5.5`, effort default, 1.2k in / 56 out, \$0.0012 (OpenRouter)._\n\n<!-- kelpie:triage", $withCost->notesBy('kelpie-bot')[0]);
-        $this->assertStringContainsString('_Model `anthropic/claude-haiku-5.5`, effort default, 10 in / 5 out._', $noCost->notesBy('kelpie-bot')[0]);
+        $this->assertStringContainsString("\n\n_" . Attribution::signature() . " · agent `triage-model` · model `anthropic/claude-haiku-5.5`, effort default, 1.2k in / 56 out, \$0.0012 (OpenRouter)._\n\n<!-- kelpie:triage", $withCost->notesBy('kelpie-bot')[0]);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `triage-model` · model `anthropic/claude-haiku-5.5`, effort default, 10 in / 5 out._', $noCost->notesBy('kelpie-bot')[0]);
         $this->assertStringNotContainsString('OpenRouter', $noCost->notesBy('kelpie-bot')[0]);
     }
 

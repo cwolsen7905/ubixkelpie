@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Review;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Review\ReviewOutcome;
 use Kelpie\DataTransferObject\Review\ReviewSettings;
 use Kelpie\Service\Review\ReviewService;
@@ -107,7 +108,7 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $this->assertStringStartsWith('<!-- ai-review:summary round=1 sha=abcdef1234567890abcdef1234567890abcdef12 rounds=abcdef12 -->', $notes[0]);
         $this->assertStringContainsString('**AI review: block**, round 1 of 3 (`advisory` mode)', $notes[0]);
         $this->assertStringContainsString('New threads: 3.', $notes[0]);
-        $this->assertStringContainsString('_Kelpie · agent `review-agent` · model `openrouter/anthropic/claude-haiku-5.5`', $notes[0]);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `review-agent` · model `openrouter/anthropic/claude-haiku-5.5`', $notes[0]);
     }
 
     /**
@@ -159,7 +160,7 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $this->assertSame([], $harness->gitlab()->threads());
         $note = $harness->gitlab()->noteBodies()[0];
         $this->assertStringContainsString('**AI review: skipped.** No model call was made: only docs changed.', $note);
-        $this->assertStringContainsString('_Kelpie · agent `review-agent` · no model call on `abcdef12`', $note);
+        $this->assertStringContainsString('_' . Attribution::signature() . ' · agent `review-agent` · no model call on `abcdef12`', $note);
     }
 
     /**

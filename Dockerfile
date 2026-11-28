@@ -8,9 +8,6 @@ ARG BASE_IMAGE=ghcr.io/ubixsys/ubixcore-php:8.5
 FROM ${BASE_IMAGE}
 ARG APP_NAME=HelloApi
 ENV APP_NAME=${APP_NAME}
-# The commit SHA, passed by CI; served by KelpieApi's /version.
-ARG APP_VERSION=unknown
-ENV APP_VERSION=${APP_VERSION}
 # The claude CLI the issue fixer shells out to; top-level version pinned, bump deliberately
 # (its transitive dependencies are not locked: see docs/image.md).
 ARG CLAUDE_CODE_VERSION=2.1.327
@@ -40,6 +37,12 @@ COPY --chown=www sql/       /web/sql/
 RUN --mount=type=secret,id=composer_auth,target=/web/auth.json,uid=1000 \
     composer install --working-dir=/web/ --no-dev --no-interaction --prefer-dist --no-progress \
  && mkdir -p /web/var/cache/latte /web/log && chmod -R 777 /web/var /web/log
+
+# The commit SHA, passed by CI (uBixCore's pipeline: --build-arg APP_VERSION=$CI_COMMIT_SHORT_SHA);
+# served by KelpieApi's /version and named in every note's usage footer. Declared last because
+# it changes every commit, and every layer after an ARG rebuilds when its value changes.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=${APP_VERSION}
 
 EXPOSE 8080
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

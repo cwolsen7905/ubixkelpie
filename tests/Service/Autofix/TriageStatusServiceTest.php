@@ -222,6 +222,10 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertSame(TriageStatus::Proposed, $service->resultFor(new TriageVerdict(TriageClass::Fix, 'Typo.'), ResponseOutcome::Silent)->status);
         $this->assertSame('proposed deferring it: Later.', $service->resultFor(new TriageVerdict(TriageClass::Defer, 'Later.'), ResponseOutcome::Replied)->text);
 
+        $context = $service->resultFor(new TriageVerdict(TriageClass::NeedsContext, 'Which file?'), ResponseOutcome::Replied);
+        $this->assertSame(TriageStatus::NeedsYou, $context->status);
+        $this->assertSame('asked for more context — Which file?', $context->text);
+
         $failed = $service->resultFor(new TriageVerdict(TriageClass::AlreadyFixed, 'Done.'), ResponseOutcome::Failed);
         $this->assertSame(TriageStatus::NeedsYou, $failed->status);
         $this->assertStringContainsString('reply failed', $failed->text);

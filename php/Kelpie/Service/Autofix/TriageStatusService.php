@@ -170,6 +170,7 @@ final class TriageStatusService
             TriageClass::NotAnIssue   => new ThreadResult(TriageStatus::Proposed, 'proposed leaving it: ' . $reason),
             TriageClass::AlreadyFixed => new ThreadResult(TriageStatus::Pushed, 'already fixed, resolved — ' . $reason),
             TriageClass::Defer        => new ThreadResult(TriageStatus::Proposed, 'proposed deferring it: ' . $reason),
+            TriageClass::NeedsContext => new ThreadResult(TriageStatus::NeedsYou, 'asked for more context — ' . $reason),
             TriageClass::Fix          => new ThreadResult(TriageStatus::Proposed, 'a fix is warranted, not applied here — ' . $reason),
         };
     }

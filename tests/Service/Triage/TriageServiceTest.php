@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\TriageClass;
+use Kelpie\Enum\TriageConfidence;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
@@ -66,7 +67,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     public function testEachClassIsParsed(): void
     {
         foreach (TriageClass::cases() as $class) {
-            $verdict = $this->service($this->answer('{"class": "' . $class->value . '", "reason": "because"}'))->triage($this->thread());
+            $verdict = $this->service($this->answer('{"class": "' . $class->value . '", "confidence": "high", "reason": "because"}'))->triage($this->thread());
 
             $this->assertSame($class, $verdict->class);
             $this->assertSame('because', $verdict->reason);
@@ -112,9 +113,39 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     public function testUnsafeFixIsDowngraded(): void
     {
         $proposal = new FixProposal(500, ['php/A.php'], false, false, 0, 0, 'dev', false);
-        $verdict  = $this->service($this->answer('{"class": "fix", "reason": "ok"}'))->triage($this->thread(), $proposal);
+        $verdict  = $this->service($this->answer('{"class": "fix", "confidence": "high", "reason": "ok"}'))->triage($this->thread(), $proposal);
 
         $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+    }
+
+    /**
+     * A fix the model is not sure of is needs_human, and so is a fix with no confidence at all
+     *
+     * @return void
+     */
+    public function testAFixBelowTheThresholdIsNeedsHuman(): void
+    {
+        foreach (['{"class": "fix", "confidence": "low", "reason": "maybe"}', '{"class": "fix", "reason": "maybe"}', '{"class": "fix", "confidence": "certain", "reason": "maybe"}'] as $answer) {
+            $verdict = $this->service($this->answer($answer))->triage($this->thread());
+
+            $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
+            $this->assertStringContainsString('maybe', $verdict->reason);
+        }
+
+        $this->assertSame(TriageClass::Fix, $this->service($this->answer('{"class": "fix", "confidence": "medium", "reason": "ok"}'))->triage($this->thread())->class);
+    }
+
+    /**
+     * Low confidence only holds back a fix: other classes keep their class and carry the confidence
+     *
+     * @return void
+     */
+    public function testOtherClassesAreNotHeldBack(): void
+    {
+        $verdict = $this->service($this->answer('{"class": "needs_context", "confidence": "low", "reason": "which file?"}'))->triage($this->thread());
+
+        $this->assertSame(TriageClass::NeedsContext, $verdict->class);
+        $this->assertSame(TriageConfidence::Low, $verdict->confidence);
     }
 
     /**
@@ -124,7 +155,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
      */
     public function testReasonIsCapped(): void
     {
-        $json    = (new JsonService($this->createStub(Logger::class)))->encode(['class' => 'fix', 'reason' => str_repeat('x', 5000)]);
+        $json    = (new JsonService($this->createStub(Logger::class)))->encode(['class' => 'fix', 'confidence' => 'high', 'reason' => str_repeat('x', 5000)]);
         $verdict = $this->service($this->answer($json))->triage($this->thread());
 
         $this->assertSame(500, strlen($verdict->reason));
@@ -187,7 +218,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
         putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
         $models = TriageLlms::make($this->createStub(Logger::class), 'private');
 
-        $verdict = $this->service($this->answer('{"class":"fix","reason":"would be asked"}'), $models)->triage($this->thread(), null, '', 'g/p');
+        $verdict = $this->service($this->answer('{"class":"fix","confidence":"high","reason":"would be asked"}'), $models)->triage($this->thread(), null, '', 'g/p');
         putenv('KELPIE_TRIAGE_MODEL');
 
         $this->assertSame(TriageClass::NeedsHuman, $verdict->class);
@@ -255,7 +286,7 @@ final class TriageServiceTest extends UbixConcreteClassOrEnumTestCase implements
     {
         putenv('KELPIE_TRIAGE_MODEL=meta/muse-spark-1.3-contributor');
 
-        $verdict = $this->service($this->answer('{"class":"fix","reason":"would be asked"}'))->triage($this->thread());
+        $verdict = $this->service($this->answer('{"class":"fix","confidence":"high","reason":"would be asked"}'))->triage($this->thread());
         putenv('KELPIE_TRIAGE_MODEL');
 
         $this->assertSame(TriageClass::NeedsHuman, $verdict->class);

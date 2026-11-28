@@ -94,7 +94,11 @@ final class CodeContextService
     private function location(Thread $thread): array
     {
         if ($thread->filePath !== null && $this->safePath($thread->filePath)) {
-            return [$thread->filePath, $thread->line ?? 1];
+            if ($thread->line === null) {
+                return ['', 0];
+            }
+
+            return [$thread->filePath, $thread->line];
         }
         if (preg_match('#(?<![\w./-])([\w.-]+(?:/[\w.-]+)*\.\w+):(\d+)#', $thread->body, $m) === 1 && $this->safePath($m[1])) {
             return [$m[1], (int) $m[2]];

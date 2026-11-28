@@ -8,6 +8,7 @@ use Psr\Http\Client\ClientExceptionInterface as ClientException;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Log\LoggerInterface as Logger;
+use RuntimeException;
 
 /**
  * Reads one file of a repository at a commit, raw, with the bot token
@@ -62,9 +63,30 @@ final class FileReader
 
             return null;
         }
-        $body = (string) $response->getBody();
-        if (strlen($body) > self::MAX_BYTES) {
-            $this->logger->info('GitLab file: too large for triage', ['bytes' => strlen($body), 'path' => $path]);
+        $contentLength = $response->getHeaderLine('Content-Length');
+        if (ctype_digit($contentLength) && (int) $contentLength > self::MAX_BYTES) {
+            $this->logger->info('GitLab file: too large for triage', ['bytes' => (int) $contentLength, 'path' => $path]);
+
+            return null;
+        }
+
+        $body   = '';
+        $stream = $response->getBody();
+        try {
+            while (!$stream->eof()) {
+                $chunk = $stream->read(min(8192, self::MAX_BYTES + 1 - strlen($body)));
+                if ($chunk === '') {
+                    break;
+                }
+                $body .= $chunk;
+                if (strlen($body) > self::MAX_BYTES) {
+                    $this->logger->info('GitLab file: too large for triage', ['bytes' => strlen($body), 'path' => $path]);
+
+                    return null;
+                }
+            }
+        } catch (RuntimeException $e) {
+            $this->logger->warning('GitLab file: read failed', ['error' => $e->getMessage(), 'path' => $path]);
 
             return null;
         }

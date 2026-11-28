@@ -111,7 +111,7 @@ PROMPT;
             $code->from,
             $code->to,
             $this->attribute(substr($code->sha, 0, 12)),
-            $this->blockSafe($code->text),
+            $this->blockSafe($this->scanner->quote($code->text, 'code at ' . $code->path)),
         );
     }
 

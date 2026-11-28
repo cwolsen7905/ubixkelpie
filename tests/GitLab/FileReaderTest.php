@@ -61,7 +61,13 @@ final class FileReaderTest extends UbixConcreteClassOrEnumTestCase implements IU
      */
     public function testFailuresAreNull(): void
     {
-        foreach ([new Psr7Response(404, [], '{}'), new Psr7Response(200, [], str_repeat('x', FileReader::MAX_BYTES + 1))] as $response) {
+        foreach (
+            [
+                new Psr7Response(404, [], '{}'),
+                new Psr7Response(200, ['Content-Length' => (string) (FileReader::MAX_BYTES + 1)], 'small body'),
+                new Psr7Response(200, [], str_repeat('x', FileReader::MAX_BYTES + 1)),
+            ] as $response
+        ) {
             $http = $this->createStub(HttpClient::class);
             $http->method('sendRequest')->willReturn($response);
             $this->assertNull($this->reader($http)->read('42', 'a.go', 'abc'));

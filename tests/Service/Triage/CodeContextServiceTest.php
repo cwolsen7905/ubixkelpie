@@ -76,7 +76,8 @@ final class CodeContextServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * No file named, a path out of the repository, a binary file or a failed read: no excerpt, no error
+     * No file named, a path out of the repository, a binary file, a failed read or a file-level thread (no line): no
+     * excerpt, no error
      *
      * @return void
      */
@@ -88,6 +89,7 @@ final class CodeContextServiceTest extends UbixConcreteClassOrEnumTestCase imple
         $this->assertSame('', $this->service(new Psr7Response(200, [], "a\0b"))->excerpt('7', 'h', $this->thread('x', 'bin/a.png', 1))->text);
         $this->assertSame('', $this->service(new Psr7Response(404, [], ''))->excerpt('7', 'h', $this->thread('x', 'gone.go', 1))->text);
         $this->assertSame('', $this->service($this->file(5))->excerpt('7', '', $this->thread('x', 'a.go', 1))->text);
+        $this->assertSame('', $this->service($this->file(5))->excerpt('7', 'h', $this->thread('This whole file needs a header.', 'src/a.go', null))->text, 'a file-level thread gets no misleading line-1 excerpt');
     }
 
     /**

@@ -202,7 +202,7 @@ final class ReplyService
     }
 
     /**
-     * Say a pushed fix is in the thread, with a link to the commit; resolve the thread when told to
+     * Say a pushed fix is in the thread, with the commit's full sha linked to it; resolve the thread when told to
      *
      * The caller passes `$resolve` only for a thread Kelpie opened, after the push and the green gate. The reply comes
      * first, and a failed resolve leaves the reply in place.
@@ -220,8 +220,9 @@ final class ReplyService
      */
     public function fixed(string $project, int $mrIid, string $discussionId, string $commit, string $commitUrl, string $summary, bool $resolve = false, string $gate = 'phpcs, phpstan and phpunit passed.'): ResponseOutcome
     {
-        $short   = '`' . mb_substr($commit, 0, 12) . '`';
-        $where   = $commitUrl === '' ? $short : '[' . $short . '](' . $this->clean($commitUrl) . ')';
+        // The whole sha, so the reply can be matched to the MR's commit list, git log or a pipeline by any part of it
+        $sha     = '`' . (preg_replace('/[^0-9a-f]/i', '', $commit) ?? '') . '`';
+        $where   = $commitUrl === '' ? $sha : '[' . $sha . '](' . $this->clean($commitUrl) . ')';
         $summary = $this->oneLine($summary);
 
         $body = sprintf(

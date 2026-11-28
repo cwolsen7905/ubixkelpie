@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A `Fixed:` reply names the whole commit.** After a 👍 or a push round, Kelpie's reply on the thread showed the first
+  12 characters of the commit. It now shows the full sha (still linked to the commit), so the reply can be matched to
+  the merge request's commit list, `git log` or a pipeline by any part of the hash. The commit itself still carries a
+  `Thread:` line per thread, so the link works both ways. Threads still settle on the reply.
+
 - **Every Kelpie note says which build wrote it** (#6). The usage footer under a triage reply, a proposal, a fix,
   an issue triage note and the AI review summary now opens with the image's commit: `_Kelpie 1a2b3c4 · agent ...`,
   from `APP_VERSION` (a hex SHA is cut to 7 characters; any other value is shown as it is). When `APP_VERSION` is

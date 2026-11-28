@@ -92,7 +92,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
         $this->assertSame(ThreadOutcome::Applied, $this->row()->outcome);
         $this->assertSame($pushed, $this->jobs->commitSha());
         $this->assertSame('done', $this->jobs->status());
-        $this->assertStringContainsString('Fixed: [`' . substr($pushed, 0, 12) . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote());
+        $this->assertStringContainsString('Fixed: [`' . $pushed . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote());
         $this->assertCount(4, $this->gateRunner->calls());
         $this->assertSame([], $this->gitlab->awards());
     }

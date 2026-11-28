@@ -93,6 +93,35 @@ final class CodeContextServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A finding naming a common file with no extension gets it; a bare host:port is not a file and does not shadow the
+     * real path:line after it
+     *
+     * @return void
+     */
+    public function testPathsInTheFindingsText(): void
+    {
+        $this->assertSame('deploy/docker/Dockerfile', $this->service($this->file(30))->excerpt('7', 'h', $this->thread('`deploy/docker/Dockerfile:12` runs as root', null, null))->path);
+        $this->assertSame('Makefile', $this->service($this->file(30))->excerpt('7', 'h', $this->thread('`Makefile:3` has no check target', null, null))->path);
+        $this->assertSame('', $this->service($this->file(30))->excerpt('7', 'h', $this->thread('It listens on localhost:8420.', null, null))->text);
+        $this->assertSame('src/a.go', $this->service($this->file(30))->excerpt('7', 'h', $this->thread('After localhost:8420 starts, `src/a.go:7` panics', null, null))->path);
+    }
+
+    /**
+     * Several threads on one file at one head read it once
+     *
+     * @return void
+     */
+    public function testOneReadPerFileAndHead(): void
+    {
+        $service = $this->service($this->file(30));
+        $service->excerpt('7', 'h', $this->thread('x', 'src/a.go', 3));
+        $service->excerpt('7', 'h', $this->thread('y', 'src/a.go', 20));
+        $service->excerpt('7', 'h2', $this->thread('z', 'src/a.go', 3));
+
+        $this->assertCount(2, $this->requested, 'one read for head h, one for head h2');
+    }
+
+    /**
      * Long lines shrink the window around the line named, which is always shown, to the size cap
      *
      * @return void
@@ -110,6 +139,7 @@ final class CodeContextServiceTest extends UbixConcreteClassOrEnumTestCase imple
 
         $one = $this->service(new Psr7Response(200, [], str_repeat('z', 50000)))->excerpt('7', 'h', $this->thread('x', 'a.go', 1));
         $this->assertSame(CodeContextService::MAX_CHARS, strlen($one->text), 'one line over the cap is cut');
+        $this->assertStringEndsWith("[code excerpt truncated at 12000 characters]\n", $one->text, 'and says so');
     }
 
     /**

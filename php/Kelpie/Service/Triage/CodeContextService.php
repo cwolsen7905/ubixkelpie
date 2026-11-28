@@ -32,6 +32,18 @@ final class CodeContextService
     public const int MAX_CHARS = 12000;
 
     /**
+     * Files commonly named without an extension, taken as a path in a finding's `path:line`
+     */
+    private const string BARE_FILES = 'Dockerfile|Containerfile|Makefile|Jenkinsfile|Procfile|Gemfile|Vagrantfile|CHANGELOG|LICENSE|README';
+
+    /**
+     * Raw file text read during this service's run, by project, sha and path; null is cached too
+     *
+     * @var array<string, array<string, array<string, ?string>>>
+     */
+    private array $fileText = [];
+
+    /**
      * Constructor
      *
      * @param Logger     $logger Logger
@@ -58,7 +70,7 @@ final class CodeContextService
         if ($path === '' || $sha === '') {
             return new CodeExcerpt();
         }
-        $text = $this->files->read($project, $path, $sha);
+        $text = $this->readFile($project, $path, $sha);
         if ($text === null || str_contains($text, "\0")) {
             return new CodeExcerpt();
         }
@@ -78,10 +90,37 @@ final class CodeContextService
             }
             $around = intdiv($around, 2);
         }
-        $out = substr($out, 0, self::MAX_CHARS); // One line longer than the cap is cut
+        if (strlen($out) > self::MAX_CHARS) {
+            $marker = "\n[code excerpt truncated at " . self::MAX_CHARS . " characters]\n";
+            $out    = substr($out, 0, self::MAX_CHARS - strlen($marker)) . $marker;
+        }
         $this->logger->debug('Triage code context', ['path' => $path, 'from' => $from, 'to' => $to]);
 
         return new CodeExcerpt($path, $from, $to, $sha, $out);
+    }
+
+    /**
+     * The raw file text, fetched at most once per project, sha and path for this service instance
+     *
+     * @param string $project The project ID or path
+     * @param string $path    The file's path in the repository
+     * @param string $sha     The commit
+     *
+     * @return ?string
+     */
+    private function readFile(string $project, string $path, string $sha): ?string
+    {
+        if (!array_key_exists($project, $this->fileText)) {
+            $this->fileText[$project] = [];
+        }
+        if (!array_key_exists($sha, $this->fileText[$project])) {
+            $this->fileText[$project][$sha] = [];
+        }
+        if (!array_key_exists($path, $this->fileText[$project][$sha])) {
+            $this->fileText[$project][$sha][$path] = $this->files->read($project, $path, $sha);
+        }
+
+        return $this->fileText[$project][$sha][$path];
     }
 
     /**
@@ -100,7 +139,10 @@ final class CodeContextService
 
             return [$thread->filePath, $thread->line];
         }
-        if (preg_match('#(?<![\w./-])([\w.-]+(?:/[\w.-]+)*\.\w+):(\d+)#', $thread->body, $m) === 1 && $this->safePath($m[1])) {
+        // A path names a directory or an extension, or is a common file with none (Dockerfile): a bare word:number such as
+        // localhost:8420 is not taken for a file, and cannot shadow the real path:line after it
+        $pattern = '#(?<![\w./-])((?:[\w.-]+/)*(?:[\w.-]+\.\w+|' . self::BARE_FILES . ')|(?:[\w.-]+/)+[\w.-]+):(\d+)#';
+        if (preg_match($pattern, $thread->body, $m) === 1 && $this->safePath($m[1])) {
             return [$m[1], (int) $m[2]];
         }
 

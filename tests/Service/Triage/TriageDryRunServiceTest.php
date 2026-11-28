@@ -41,6 +41,11 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
     private array $requests = [];
 
     /**
+     * @var list<string> The bodies sent to the model
+     */
+    private array $prompts = [];
+
+    /**
      * Test that the class is following uBix standards
      *
      * @return void
@@ -105,6 +110,20 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
+     * Each thread on a line is triaged with the code it is about, read at the MR's head with the read token
+     *
+     * @return void
+     */
+    public function testThreadsAreTriagedWithTheirCode(): void
+    {
+        $this->service()->triage('3', '1');
+
+        $this->assertNotSame([], $this->prompts);
+        $this->assertStringContainsString('at=\\"head9abc\\"', implode('', $this->prompts));
+        $this->assertStringContainsString('renamed = 1', implode('', $this->prompts));
+    }
+
+    /**
      * Dummy settings
      *
      * @return void
@@ -112,6 +131,7 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
     protected function setUp(): void
     {
         $this->requests = [];
+        $this->prompts  = [];
         putenv('OPENROUTER_API_KEY=test-key-not-real');
         putenv('OPENROUTER_API_URL=https://openrouter.test/api/v1');
     }
@@ -143,12 +163,20 @@ final class TriageDryRunServiceTest extends UbixConcreteClassOrEnumTestCase impl
             $this->requests[] = $request->getMethod() . ' ' . $request->getUri();
 
             if (str_contains((string) $request->getUri(), 'openrouter.test')) {
-                $json    = new JsonService($this->createStub(Logger::class));
-                $content = $json->encode(['class' => 'fix', 'confidence' => 'high', 'reason' => 'Rename it.']);
+                $this->prompts[] = (string) $request->getBody();
+                $json            = new JsonService($this->createStub(Logger::class));
+                $content         = $json->encode(['class' => 'fix', 'confidence' => 'high', 'reason' => 'Rename it.']);
 
                 return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
             }
 
+            $uri = (string) $request->getUri();
+            if (str_contains($uri, '/repository/files/')) {
+                return new Psr7Response(200, [], "<?php\n\$renamed = 1;\n");
+            }
+            if (str_ends_with((string) $request->getUri()->getPath(), '/merge_requests/3')) {
+                return new Psr7Response(200, [], '{"sha":"head9abc"}');
+            }
             $page = (string) file_get_contents(__DIR__ . '/../../GitLab/fixtures/mr_discussions_page2.json');
 
             return new Psr7Response(200, [], $page);

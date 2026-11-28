@@ -23,6 +23,7 @@ use Ubix\Service\JsonService;
  * PATH only, and through a wrapper that closes every inherited file descriptor above 2, so the repository's code
  * cannot use the listening socket or the client's connection.
  *
+ * It refuses to start while the container has a writable mount the reset would not wipe (`WritableMountCheck`).
  * After every run (passed, failed, timed out, or refused after it was accepted) the container is reset before the
  * next is taken: every other process is killed and confirmed gone (`ProcessReaperInterface`), the directories are
  * emptied, and only then is the ready file written again. A reset that fails ends the server with 1. After `maxRuns`
@@ -64,12 +65,13 @@ final class GateServer
     /**
      * Constructor
      *
-     * @param Logger        $logger      Logger
-     * @param ActionGuard   $guard       Says what is a gate step
-     * @param ProcessRunner $runner      Runs the steps (unguarded: the steps are checked here, then wrapped)
-     * @param TarArchive    $archive     Unpacks the checkout
-     * @param JsonService   $jsonService JSON service
-     * @param ProcessReaper $reaper      Clears the container between runs
+     * @param Logger             $logger      Logger
+     * @param ActionGuard        $guard       Says what is a gate step
+     * @param ProcessRunner      $runner      Runs the steps (unguarded: the steps are checked here, then wrapped)
+     * @param TarArchive         $archive     Unpacks the checkout
+     * @param JsonService        $jsonService JSON service
+     * @param ProcessReaper      $reaper      Clears the container between runs
+     * @param WritableMountCheck $mounts      Says whether the wiped directories cover every writable mount
      */
     public function __construct(
         private readonly Logger $logger,
@@ -78,6 +80,7 @@ final class GateServer
         private readonly TarArchive $archive,
         private readonly JsonService $jsonService,
         private readonly ProcessReaper $reaper,
+        private readonly WritableMountCheck $mounts,
     ) {
     }
 
@@ -95,7 +98,7 @@ final class GateServer
      */
     public function serve(string $address, string $workDir, string $readyFile, int $maxBodyBytes, array $cleanDirs = [], int $maxRuns = 100): int
     {
-        $error = $this->wipe($workDir, $cleanDirs);
+        $error = $this->mounts->uncovered($workDir, $cleanDirs) ?: $this->wipe($workDir, $cleanDirs);
         if ($error !== '') {
             $this->logger->error('Gate server could not start clean', ['reason' => $error]);
 

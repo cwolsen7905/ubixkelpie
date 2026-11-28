@@ -14,6 +14,7 @@ use Kelpie\Sandbox\GateServer;
 use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Sandbox\RemoteGateExecutor;
+use Kelpie\Sandbox\WritableMountCheck;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use ReflectionProperty;
@@ -138,6 +139,7 @@ final class CliDependenciesTest extends TestCase
         self::assertInstanceOf(GateServer::class, $server);
         self::assertInstanceOf(ProcOpenProcessRunner::class, (new ReflectionProperty($server, 'runner'))->getValue($server));
         self::assertInstanceOf(ContainerProcessReaper::class, (new ReflectionProperty($server, 'reaper'))->getValue($server));
+        self::assertInstanceOf(WritableMountCheck::class, (new ReflectionProperty($server, 'mounts'))->getValue($server));
     }
 
     /**

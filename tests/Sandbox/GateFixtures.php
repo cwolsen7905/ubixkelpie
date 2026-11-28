@@ -8,6 +8,7 @@ use Kelpie\Sandbox\GateServer;
 use Kelpie\Sandbox\ProcessReaperInterface as ProcessReaper;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Sandbox\TarArchive;
+use Kelpie\Sandbox\WritableMountCheck;
 use Kelpie\Security\ActionGuard;
 use Psr\Log\NullLogger;
 use Ubix\Service\JsonService;
@@ -60,7 +61,7 @@ final class GateFixtures
     {
         $logger = new NullLogger();
 
-        return new GateServer($logger, new ActionGuard($logger), new ProcOpenProcessRunner($logger), new TarArchive($logger), new JsonService($logger), $reaper ?? new ScriptedReaper());
+        return new GateServer($logger, new ActionGuard($logger), new ProcOpenProcessRunner($logger), new TarArchive($logger), new JsonService($logger), $reaper ?? new ScriptedReaper(), new WritableMountCheck($logger, '/nonexistent', 4242));
     }
 
     /**

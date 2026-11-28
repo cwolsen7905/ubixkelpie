@@ -18,7 +18,7 @@ worker (has secrets)                                    gate pod (has nothing)
   POST /run  ── steps + tar.gz ─────────────────────▶  check every step, unpack into an empty /work
                                                         run the steps in order, stop at the first red one
   read the result (data only)  ◀── JSON ────────────  answer, then reset: kill every other
-                                                        process, empty /work and /tmp, ready again
+                                                        process, empty every writable dir, ready again
 ```
 
 - `GateRunner` runs `composer install` itself and hands phpcs, phpstan and phpunit to a `GateExecutorInterface`;
@@ -78,8 +78,19 @@ The server serves runs one at a time and, after every run, resets the container 
    server and zombies (dead processes waiting to be reaped, which run nothing) is listed, for up to about two
    seconds. A process the kubelet starts for the readiness probe may be killed on the way; that only fails one probe,
    at a moment the pod is not ready anyway.
-2. **Empty the work directory and `KELPIE_GATE_CLEAN_DIRS`** (`/tmp` in the manifests), modes included.
+2. **Empty the work directory and `KELPIE_GATE_CLEAN_DIRS`**, modes included. In the manifests that is every other
+   directory a run can write to: the emptyDirs `/tmp`, `/logs`, `/web/var` and `/web/log`, and the runtime's
+   world-writable `/dev/shm` and `/dev/mqueue`. Each directory stays and only its contents go, so nothing that uses
+   them breaks. The server's own log in `/logs` goes too: Monolog sees its file was replaced and opens a new one, so
+   `/logs` holds the log since the last reset only.
 3. **Write the ready file again.** Only now does the readiness probe pass and the Service route to the pod.
+
+So that no writable place can be forgotten, the server refuses to start (exit 1) unless `/proc/self/mountinfo`
+agrees (`WritableMountCheck`). The root filesystem must be read-only, and every other read-write directory mount it
+can write to must be the work directory, a clean directory, or inside one. The check leaves out `/proc` and `/sys`,
+and file mounts (`/etc/hosts`, `/dev/termination-log`), which cannot hold a file a run leaves. A new emptyDir in the
+manifest without a matching `KELPIE_GATE_CLEAN_DIRS` entry stops the pod with a log line that names it. Like the
+reset, the check applies only when the server is PID 1.
 
 If any step fails (a process still running after the attempts, `/proc` unreadable, a directory that cannot be
 emptied) the server exits 1 without taking another run, and Kubernetes replaces the container. Off PID 1 (a
@@ -101,10 +112,10 @@ leaves; they hold a process table entry and nothing else, and the run limit boun
 | Secrets | None: no `envFrom`, no Vault variables, only the gate settings below |
 | ServiceAccount | Its own, `kelpie-gate`, with `automountServiceAccountToken: false` and no RBAC |
 | User | uid/gid 1000 (`www`), `runAsNonRoot`, `allowPrivilegeEscalation: false`, all capabilities dropped, `RuntimeDefault` seccomp |
-| Filesystem | `readOnlyRootFilesystem`; size-limited emptyDirs for `/work` (4 GiB), `/tmp`, `/logs`, `/web/var`, `/web/log` |
+| Filesystem | `readOnlyRootFilesystem`; size-limited emptyDirs for `/work` (4 GiB), `/tmp`, `/logs`, `/web/var`, `/web/log`; every writable directory is wiped between runs, and the server will not start if one is not |
 | Network | NetworkPolicy: in, only pods labelled `app.kubernetes.io/name: kelpie-worker`, TCP 8090; out, nothing (not even DNS) |
 | Resources | 1 CPU, 2 GiB, as the worker had for the gate |
-| Lifetime | One run at a time, with a reset between runs (above); at most `KELPIE_GATE_MAX_RUNS` runs per container, then exit 0. At start the server also empties `/work` and `/tmp`, because an emptyDir survives a container restart |
+| Lifetime | One run at a time, with a reset between runs (above); at most `KELPIE_GATE_MAX_RUNS` runs per container, then exit 0. At start the server also empties all of them, because an emptyDir survives a container restart |
 
 What the server itself does on top:
 

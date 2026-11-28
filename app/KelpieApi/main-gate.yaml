@@ -1,9 +1,9 @@
 # Gate pod (prod): `kelpie:gate-serve` runs the fix gate's steps (phpcs, phpstan, phpunit, `make check`) that the
 # worker sends it, so the repository's code, including what the fixer wrote, never runs next to the worker's secrets.
 # It serves runs one at a time. After every run it kills every other process in the container (it is PID 1), empties
-# /work and /tmp, and only then is ready again; if that reset fails it exits 1 and Kubernetes replaces the container.
-# After KELPIE_GATE_MAX_RUNS runs it exits 0. It also empties /work and /tmp at start (an emptyDir outlives a
-# container restart). See docs/security/gate-pod.md.
+# /work and every other writable directory (KELPIE_GATE_CLEAN_DIRS), and only then is ready again; if that reset
+# fails it exits 1 and Kubernetes replaces the container. After KELPIE_GATE_MAX_RUNS runs it exits 0. It also empties
+# them at start (an emptyDir outlives a container restart). See docs/security/gate-pod.md.
 #
 # The pod holds nothing: its own ServiceAccount with no token mounted and no RBAC, no envFrom, no Vault, no secrets.
 # Same image as the worker. The NetworkPolicy lets in only the worker, on the gate port, and lets nothing out.
@@ -78,8 +78,11 @@ spec:
           value: "/work"
         - name: KELPIE_GATE_READY_FILE
           value: "/tmp/gate-ready"
+        # Every directory a run can write to, wiped at start and after every run: the emptyDirs below, and the runtime's
+        # /dev/shm and /dev/mqueue (world-writable). The server refuses to start while /proc/self/mountinfo shows a
+        # writable directory mount that is not the work dir or listed here, so a new emptyDir must be added here too.
         - name: KELPIE_GATE_CLEAN_DIRS
-          value: "/tmp"
+          value: "/tmp:/logs:/web/var:/web/log:/dev/shm:/dev/mqueue"
         # 512 MiB: the largest checkout archive (gzip, vendor/ included) the pod accepts.
         - name: KELPIE_GATE_MAX_BODY_BYTES
           value: "536870912"

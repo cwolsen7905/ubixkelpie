@@ -5,9 +5,14 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Sandbox;
 
 use Kelpie\Sandbox\GateServer;
+use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Sandbox\TarArchive;
+use Kelpie\Sandbox\WritableMountCheck;
+use Kelpie\Security\ActionGuard;
 use Psr\Log\LoggerInterface as Logger;
+use Psr\Log\NullLogger;
 use RuntimeException;
+use Ubix\Service\JsonService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
 
@@ -25,6 +30,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *   the ready file comes back, so a process or file a run left is gone before the next run; after the run limit it
  *   exits 0
  * - A reset that fails (a process survived, a directory that cannot be emptied) ends it with 1 and no ready file
+ * - It does not start while a writable mount is not wiped between runs
  *
  * The real command on a real port, and a head too large, are in GateServeCommandTest (a real TCP socket:
  * a socket pair's buffer is too small to hold a request larger than it before the server reads).
@@ -249,6 +255,30 @@ final class GateServerTest extends UbixConcreteClassOrEnumTestCase implements IU
         $this->assertSame(1, $exit);
         $this->assertStringContainsString('HTTP/1.1 200 OK', $answers[0]);
         $this->assertFileDoesNotExist($this->workDir . '-ready');
+    }
+
+    /**
+     * With a writable mount the reset would not wipe, it does not start: nothing is emptied or listened on
+     *
+     * @return void
+     */
+    public function testRefusesToStartWithAnUnwipedWritableMount(): void
+    {
+        $logs = $this->workDir . '-logs';
+        mkdir($logs);
+        file_put_contents($logs . '/keep', 'x');
+        file_put_contents($this->workDir . '-mountinfo', '1 0 0:1 / / ro - overlay overlay ro' . "\n" . '2 1 0:2 / ' . $logs . ' rw - tmpfs tmpfs rw' . "\n");
+        $logger = new NullLogger();
+        $server = new GateServer($logger, new ActionGuard($logger), new ProcOpenProcessRunner($logger), new TarArchive($logger), new JsonService($logger), new ScriptedReaper(), new WritableMountCheck($logger, $this->workDir . '-mountinfo', 1));
+
+        $exit = $server->serve('tcp://127.0.0.1:0', $this->workDir, $this->workDir . '-ready', 1048576, []);
+
+        $this->assertSame(1, $exit);
+        $this->assertFileExists($logs . '/keep');
+        $this->assertFileExists($this->workDir . '/ready');
+        $this->assertFileDoesNotExist($this->workDir . '-ready');
+        GateFixtures::remove($logs);
+        unlink($this->workDir . '-mountinfo');
     }
 
     /**

@@ -11,7 +11,10 @@
   restarts of a container that keeps exiting, even with exit 0, so with one replica gate runs in quick succession
   stalled and then failed closed as "gate unavailable". `kelpie:gate-serve` now stays up: after every run it kills
   every other process in the container (it is PID 1: `kill -9 -1` as a child process, since the image has no posix
-  extension, or `posix_kill(-1, SIGKILL)` where it has; then `/proc` is checked until nothing but the server is left), empties `/work` and `/tmp`, and only then writes the ready file again. If a process
+  extension, or `posix_kill(-1, SIGKILL)` where it has; then `/proc` is checked until nothing but the server is left),
+  empties `/work` and every other directory a run can write to (`KELPIE_GATE_CLEAN_DIRS`: the emptyDirs and the
+  runtime's `/dev/shm` and `/dev/mqueue`), and only then writes the ready file again. It will not start while
+  `/proc/self/mountinfo` shows a writable directory mount that is not wiped, or a read-write root. If a process
   survives or a directory cannot be emptied, it exits 1 rather than take another run, and Kubernetes replaces the
   container. `KELPIE_GATE_MAX_RUNS` (default 100) makes it exit 0 after that many runs. Off PID 1 the reset refuses
   without killing anything. See "Between runs" in `docs/security/gate-pod.md`.

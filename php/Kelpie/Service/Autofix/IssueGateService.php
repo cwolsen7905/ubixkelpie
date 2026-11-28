@@ -6,7 +6,6 @@ namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\GateResult;
 use Kelpie\Sandbox\GateRunner;
-use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -15,6 +14,7 @@ use Psr\Log\LoggerInterface as Logger;
  * A project with its own gate command (the `gate_command` of its `projects` row, split on spaces, no shell) is gated by
  * that. Otherwise a `Makefile` with a `check` target is gated by `make check`, and any other checkout as Kelpie's own
  * (composer install, phpcs, phpstan, phpunit). The environment is exact and holds no GitLab token and no model key.
+ * Every step after `composer install` goes through the gate executor, so it runs in the gate pod when one is configured.
  *
  * The gate command `ci` runs nothing here: it is for a project whose toolchain Kelpie's image does not carry (Go, say),
  * whose merge request pipeline is the gate instead. The result passes and says so, so every reply can tell the person.
@@ -27,18 +27,14 @@ final class IssueGateService
 
     private const int TIMEOUT = 1800;
 
-    private const int MAX_OUTPUT = 6000;
-
     /**
      * Constructor
      *
-     * @param Logger        $logger  Logger
-     * @param ProcessRunner $runner  The process runner
-     * @param GateRunner    $phpGate The gate of a PHP project
+     * @param Logger     $logger  Logger
+     * @param GateRunner $phpGate The gate of a PHP project, and what runs any other gate's steps
      */
     public function __construct(
         private readonly Logger $logger,
-        private readonly ProcessRunner $runner,
         private readonly GateRunner $phpGate,
     ) {
     }
@@ -66,15 +62,9 @@ final class IssueGateService
             $argv = ['make', 'check'];
         }
 
-        $step   = implode(' ', $argv);
-        $env    = ['HOME' => dirname($directory), 'PATH' => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin')];
-        $result = $this->runner->run($argv, $directory, $env, self::TIMEOUT);
-        if ($result->exitCode === 0) {
-            return new GateResult(true, ran: '`' . $step . '` passed.');
-        }
+        $step = implode(' ', $argv);
+        $this->logger->debug('Issue fix gate', ['step' => $step]);
 
-        $this->logger->info('Issue fix gate failed', ['step' => $step]);
-
-        return new GateResult(false, $step, substr($result->timedOut ? 'Timed out.' : trim($result->stdout . "\n" . $result->stderr), -self::MAX_OUTPUT));
+        return $this->phpGate->runSteps($directory, [$step => $argv], self::TIMEOUT, '`' . $step . '` passed.');
     }
 }

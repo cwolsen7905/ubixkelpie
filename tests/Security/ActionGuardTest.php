@@ -236,4 +236,74 @@ final class ActionGuardTest extends UbixConcreteClassOrEnumTestCase implements I
             $this->assertNotNull($guard->refusal($argv), implode(' ', $argv));
         }
     }
+
+    /**
+     * As a gate step (what the gate pod runs): the gate's own commands pass
+     *
+     * @return void
+     */
+    public function testGateStepsAreAllowed(): void
+    {
+        $guard = new ActionGuard($this->createStub(Logger::class));
+        foreach (
+            [
+                ['vendor/bin/phpcs'],
+                ['vendor/bin/phpstan', 'analyse', '--no-progress', '--no-interaction'],
+                ['vendor/bin/phpunit'],
+                ['make', 'check'],
+                ['composer', 'install', '--no-interaction', '--no-scripts', '--no-plugins'],
+            ] as $argv
+        ) {
+            $this->assertNull($guard->gateRefusal($argv), implode(' ', $argv));
+        }
+    }
+
+    /**
+     * As a gate step, any other action is refused, even one the list allows elsewhere (git, the agent, clean-up)
+     *
+     * @return void
+     */
+    public function testNonGateActionsAreRefusedAsGateSteps(): void
+    {
+        $guard = new ActionGuard($this->createStub(Logger::class));
+        $tmp   = rtrim(sys_get_temp_dir(), '/');
+        foreach (
+            [
+                ['git', 'status'],
+                ['git', 'push', 'origin', 'HEAD:refs/heads/x'],
+                ['claude', '-p', 'x', '--allowedTools', 'Read'],
+                ['rm', '-rf', '--', $tmp . '/kelpie-1'],
+                ['sh', '-c', 'vendor/bin/phpunit'],
+                ['curl', 'https://evil.example'],
+                [],
+            ] as $argv
+        ) {
+            $this->assertStringStartsWith('not a gate step', (string) $guard->gateRefusal($argv), implode(' ', $argv));
+        }
+    }
+
+    /**
+     * Bending a gate step's shape is refused: other paths to the same tools, extra make targets, composer with scripts
+     *
+     * @return void
+     */
+    public function testGateStepsCannotBeBent(): void
+    {
+        $guard = new ActionGuard($this->createStub(Logger::class));
+        foreach (
+            [
+                ['./vendor/bin/phpunit'],
+                ['/work/run/repo/vendor/bin/phpunit'],
+                ['vendor/bin/../../evil/phpunit'],
+                ['vendor/bin/phpunit-evil'],
+                ['make', 'check', 'deploy'],
+                ['make', 'check', 'SHELL=/bin/sh'],
+                ['composer', 'install', '--no-scripts'],
+                ['composer', 'run-script', 'test', '--no-scripts', '--no-plugins'],
+            ] as $argv
+        ) {
+            $this->assertNotNull($guard->gateRefusal($argv), implode(' ', $argv));
+        }
+        $this->assertSame('action not on the list: run_gate', (new ActionGuard($this->createStub(Logger::class), [UnattendedAction::GitRead]))->gateRefusal(['vendor/bin/phpunit']));
+    }
 }

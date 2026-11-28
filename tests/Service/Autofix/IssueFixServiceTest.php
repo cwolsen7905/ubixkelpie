@@ -20,6 +20,7 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcom
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Security\ContextScanner;
@@ -504,7 +505,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
             new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger, new ContextScanner($logger)), $propose, $json),
             new EditApplyService($logger),
             new SafetyPolicy($logger),
-            new IssueGateService($logger, $runner, new GateRunner($logger, $runner)),
+            new IssueGateService($logger, new GateRunner($logger, $runner, new LocalGateExecutor($logger, $runner))),
             new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
             new SpendCapService($logger, $projects, $reader),
             $projects,

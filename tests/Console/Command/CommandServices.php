@@ -13,6 +13,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
@@ -94,7 +95,7 @@ final class CommandServices
         $propose         = new ProposeEditsService($this->logger, $open, new ProposePrompt($this->logger, new ContextScanner($this->logger)), new LlmFamilyService($this->logger), $this->json, TriageLlms::make($this->logger));
         $this->runners   = new FixerRunnerBuilderService($this->logger, $this->gitlab, $this->triage, $this->jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($this->logger, $sql), new SpendCapService($this->logger, new InMemoryProjects($modes, $hardCaps ?? []), new ThreadOutcomeSqlRepository($this->logger, $sql)), $settings);
         $outcomes        = new ThreadOutcomeSqlRepository($this->logger, $sql);
-        $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), $outcomes, $outcomes, $this->json, $settings, $this->modes);
+        $this->reactions = new ProposalReactionBuilderService($this->logger, $this->gitlab, $this->jobs, new ScriptedProcessRunner(), new LocalGateExecutor($this->logger, new ScriptedProcessRunner()), $outcomes, $outcomes, $this->json, $settings, $this->modes);
     }
 
     /**

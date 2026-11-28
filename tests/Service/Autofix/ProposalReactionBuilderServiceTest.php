@@ -8,6 +8,7 @@ use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
+use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\ProposalReactionBuilderService;
 use Kelpie\Tests\Repository\Project\InMemoryProjects;
@@ -59,6 +60,7 @@ final class ProposalReactionBuilderServiceTest extends UbixConcreteClassOrEnumTe
             new GitlabClientFactory($logger, $http, $factory, $factory, $json, $settings),
             new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql)),
             new ScriptedProcessRunner(),
+            $this->createStub(GateExecutor::class),
             $outcomes,
             $outcomes,
             $json,

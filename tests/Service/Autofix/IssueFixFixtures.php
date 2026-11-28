@@ -13,6 +13,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
+use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\IssueFixBuilderService;
@@ -60,6 +61,7 @@ final class IssueFixFixtures extends TestCase
             new GitlabClientFactory($logger, $http, $factory, $factory, $json, $settings),
             new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger, new ContextScanner($logger)), $propose, $json),
             $self->createStub(ProcessRunner::class),
+            $self->createStub(GateExecutor::class),
             $projects,
             new SpendCapService($logger, $projects, $self->createStub(ThreadOutcomeReader::class)),
             $self->createStub(ThreadOutcomeWriter::class),

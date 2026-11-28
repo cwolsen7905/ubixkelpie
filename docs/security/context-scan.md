@@ -86,8 +86,9 @@ does once one has. This is a design limit, not something the list can fix. What 
   and phpunit get just `HOME` and `PATH`.
 - The fixer has no GitLab or Vault value in its environment, and the bot token reaches git only through the
   askpass helper, never to the gate.
-- The real boundary is isolation: running the gate in a container with no secrets and a network policy
-  (a known design item, FIX-013). Until then, treat the gate as running untrusted code on the worker.
+- The real boundary is isolation: every step after `composer install` can run in the gate pod, a container with
+  no secrets and no network (docs/security/gate-pod.md). Until a worker's `KELPIE_GATE_URL` is set, its gate still
+  runs locally: treat it as running untrusted code on the worker.
 
 ## 3. Where it is wired
 

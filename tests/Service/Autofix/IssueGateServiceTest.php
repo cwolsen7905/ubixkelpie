@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Autofix;
 
+use Kelpie\DataTransferObject\GateRun;
 use Kelpie\DataTransferObject\ProcessResult;
+use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Service\Autofix\IssueGateService;
 use Psr\Log\LoggerInterface as Logger;
@@ -19,6 +22,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A Makefile with a check target is gated by `make check`, with no token or key in the environment
  * - Any other checkout is gated as a PHP project
  * - A red `make check` reports its step and the output's tail
+ * - `make check` and a project's gate command go to the gate executor, which nothing bypasses; an unavailable gate is red
  *
  * @coversDefaultClass \Kelpie\Service\Autofix\IssueGateService
  */
@@ -141,6 +145,26 @@ final class IssueGateServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * `make check` goes to the gate executor (the gate pod when configured), and an unavailable gate is red
+     *
+     * @return void
+     */
+    public function testMakeCheckGoesToTheExecutor(): void
+    {
+        file_put_contents($this->dir . '/Makefile', "check:\n\ttrue\n");
+        $logger = $this->createStub(Logger::class);
+        $runner = $this->createMock(ProcessRunner::class);
+        $runner->expects($this->never())->method('run');
+        $executor = $this->createMock(GateExecutor::class);
+        $executor->expects($this->once())->method('run')->with($this->dir, [['make', 'check']], $this->greaterThan(0))->willReturn(new GateRun([], 'gate unavailable: no answer from the gate pod'));
+
+        $result = (new IssueGateService($logger, new GateRunner($logger, $runner, $executor)))->run($this->dir);
+
+        $this->assertFalse($result->passed);
+        $this->assertSame('gate unavailable: no answer from the gate pod', $result->output);
+    }
+
+    /**
      * @return void
      */
     protected function setUp(): void
@@ -168,6 +192,6 @@ final class IssueGateServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     {
         $logger = $this->createStub(Logger::class);
 
-        return new IssueGateService($logger, $runner, new GateRunner($logger, $runner));
+        return new IssueGateService($logger, new GateRunner($logger, $runner, new LocalGateExecutor($logger, $runner)));
     }
 }

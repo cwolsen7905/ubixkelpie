@@ -105,6 +105,25 @@ final class ActionGuard
     }
 
     /**
+     * Why a command is refused as a gate step, or null when it is one: only `run_gate` commands, and only when listed
+     *
+     * The gate pod runs nothing else, and the worker checks the same before it sends a step there.
+     *
+     * @param string[] $argv The program and its arguments
+     *
+     * @return ?string
+     */
+    public function gateRefusal(array $argv): ?string
+    {
+        $argv = array_values($argv);
+        if ($this->classify($argv) !== UnattendedAction::RunGate) {
+            return 'not a gate step: ' . basename($argv[0] ?? '');
+        }
+
+        return $this->refusal($argv);
+    }
+
+    /**
      * The action a command is, by its exact shape
      *
      * @param string[] $argv The program and its arguments

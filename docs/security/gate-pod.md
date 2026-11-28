@@ -17,7 +17,8 @@ worker (has secrets)                                    gate pod (has nothing)
   pack the checkout, vendor/ included, .git left out
   POST /run  ── steps + tar.gz ─────────────────────▶  check every step, unpack into an empty /work
                                                         run the steps in order, stop at the first red one
-  read the result (data only)  ◀── JSON ────────────  answer, then exit 0: the pod restarts clean
+  read the result (data only)  ◀── JSON ────────────  answer, then reset: kill every other
+                                                        process, empty /work and /tmp, ready again
 ```
 
 - `GateRunner` runs `composer install` itself and hands phpcs, phpstan and phpunit to a `GateExecutorInterface`;
@@ -57,8 +58,35 @@ Answers:
 | 404 / 405 / 411 / 413 | `{"error":"..."}` | Not `/run`, not `POST`, no `Content-Length`, a body over the limit |
 
 A request refused on its head (method, path, length, steps) is not the run: the server answers, closes, and keeps
-listening, and nothing is unpacked. Once the head passes, that connection is the run: whatever happens next, the
-server answers it and exits.
+listening, and nothing is unpacked. Once the head passes, that connection is the run: whatever happens next (it
+passes, fails, times out, or its body or archive is refused), the server answers it and then resets the container
+before it takes another.
+
+## Between runs: the reset
+
+The server serves runs one at a time and, after every run, resets the container before it is ready again:
+
+1. **Kill every other process.** The server is the container's PID 1: the manifest's `command` starts `php` with no
+   shell in front, and `command` replaces the image's entrypoint. From PID 1, `kill(-1, SIGKILL)` reaches every
+   process in the container's PID namespace except PID 1 itself, so whatever a run left running (a background
+   process, a daemon that detached itself, a `kubectl exec` session) is gone. `ContainerProcessReaper` sends it
+   with `posix_kill()` (posix is built into the PHP image), then reads `/proc` and repeats until nothing but the
+   server and zombies (dead processes waiting to be reaped, which run nothing) is listed, for up to about two
+   seconds. A process the kubelet starts for the readiness probe may be killed on the way; that only fails one probe,
+   at a moment the pod is not ready anyway.
+2. **Empty the work directory and `KELPIE_GATE_CLEAN_DIRS`** (`/tmp` in the manifests), modes included.
+3. **Write the ready file again.** Only now does the readiness probe pass and the Service route to the pod.
+
+If any step fails (a process still running after the attempts, `/proc` unreadable, a directory that cannot be
+emptied) the server exits 1 without taking another run, and Kubernetes replaces the container. Off PID 1 (a
+developer's machine, a test) the reaper refuses without killing anything, because `kill(-1)` from anywhere else
+would reach every process of the user; the first reset then fails and the server exits 1. After
+`KELPIE_GATE_MAX_RUNS` runs (100 by default) the server exits 0 anyway and a fresh container starts: belt and braces.
+
+Why `posix_kill()` from PID 1 rather than a helper running `kill -9 -1`: it is one call in the server, it needs no
+extra program on the gate step list or in the image, and the check that follows proves the result either way. The
+image has no `pcntl`, so the server cannot reap the zombies a kill leaves; they hold a process table entry and nothing
+else, and the run limit bounds how many can pile up.
 
 ## The pod's controls
 
@@ -70,14 +98,15 @@ server answers it and exits.
 | Filesystem | `readOnlyRootFilesystem`; size-limited emptyDirs for `/work` (4 GiB), `/tmp`, `/logs`, `/web/var`, `/web/log` |
 | Network | NetworkPolicy: in, only pods labelled `app.kubernetes.io/name: kelpie-worker`, TCP 8090; out, nothing (not even DNS) |
 | Resources | 1 CPU, 2 GiB, as the worker had for the gate |
-| Lifetime | One run, then exit 0; `restartPolicy: Always` starts the next. At start the server empties `/work` and `/tmp`, because an emptyDir survives a container restart |
+| Lifetime | One run at a time, with a reset between runs (above); at most `KELPIE_GATE_MAX_RUNS` runs per container, then exit 0. At start the server also empties `/work` and `/tmp`, because an emptyDir survives a container restart |
 
 What the server itself does on top:
 
 - Steps run with `HOME` (the run directory) and `PATH` only, through `sh -c` with every inherited file descriptor
   above 2 closed, so a step cannot use the server's listening socket or the worker's connection.
 - The listener stays open, unaccepted, during the run, so nothing in the run can take the port; the ready file is
-  removed when the run starts, so the readiness probe takes the pod out of the Service.
+  removed when the run starts and written again only after the reset, so the readiness probe keeps a busy or
+  resetting pod out of the Service.
 - The archive is unpacked into an empty directory. An absolute path, a `..` component, a link pointing out
   (absolute, by `..`, or through another link), a hard link, a device or FIFO, a damaged header, more than 4 GiB of
   content or 500 000 entries: refused, 400, nothing run. Links are created after every file, so no file is written
@@ -91,8 +120,8 @@ On the worker side, a run that did not produce a trustworthy answer is never a p
 "gate unavailable: ..." (and `GateRunner` reports the gate red at step `gate`, so nothing is pushed or proposed) when:
 
 - the checkout cannot be packed;
-- the pod cannot be reached (connection refused or timed out) for longer than the wait: while the pod restarts
-  after a run it is retried every 5 seconds for up to 300 seconds;
+- the pod cannot be reached (connection refused or timed out) for longer than the wait: while it is busy, resetting
+  or being replaced it is retried every 5 seconds for up to 300 seconds;
 - the request times out (`KELPIE_GATE_HTTP_TIMEOUT`, 3600 seconds by default) or fails mid-way;
 - the answer is not a 200 (a 400's reason is passed on, cut to 200 printable characters);
 - the answer is larger than 1 MiB, not JSON, or not exactly what a run gives: entries of the wrong type, more entries
@@ -110,22 +139,20 @@ Kelpie runs the gate locally until a worker is given a gate URL, so nothing chan
    becomes ready, and that from it nothing is reachable (for example `kubectl exec` a `php -r` that opens a socket to
    GitLab: it must fail).
 2. Add `KELPIE_GATE_URL=http://kelpie-gate:8090` to `dev-worker.yaml` and roll the worker. Push a round (or an issue
-   fix) on a test project and see the gate run in the gate pod's log and the pod restart afterwards.
+   fix) on a test project and see the gate run and the reset in the gate pod's log.
 3. Do the same in prod with `main-gate.yaml` and `main-worker.yaml`.
 4. Then make the worker refuse to gate locally when `KELPIE_GATE_URL` is unset, and remove the local path. Until that
    step, a worker without the URL still runs the gate next to its secrets.
 
 ## Known limits
 
-- One replica serves one run at a time, and the pod restarts after each. Kubernetes backs off restarts of a container
-  that keeps exiting (10 s, doubling, up to 5 minutes, reset after 10 minutes of running), even on exit 0, so runs in
-  quick succession wait; past the 300-second wait the gate is "unavailable" and the fix is not pushed. More replicas,
-  or a longer `waitSeconds`, are the levers.
+- One replica serves one run at a time. A run that waits behind another longer than the 300-second wait is "gate
+  unavailable" and the fix is not pushed; more replicas are the lever.
 - The checkout's `.git` is not sent (the work tree's `.git` is only a pointer to a repository outside it). A project
   gate that calls git fails in the pod.
 - The pod has no network, so a gate step that needs one (`composer install` with a cold cache, a test that calls an
   API) fails there.
-- The image is the worker's, so the pod has the same toolchain: a `make check` project needs `make` in the image, in
-  the pod as in the worker.
+- The image is the worker's, so the pod has the same toolchain (PHP, composer, git, `make`, node). A gate that needs
+  anything else fails, in the pod as in the worker.
 - A run can make its own gate pass (it is the repository's own tests): the gate is a quality check, not a security
   boundary. What the pod protects is the worker's secrets and the network.

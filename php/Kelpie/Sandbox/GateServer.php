@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Sandbox;
 
 use Kelpie\DataTransferObject\GateStepResult;
+use Kelpie\Sandbox\ProcessReaperInterface as ProcessReaper;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Security\ActionGuard;
 use Psr\Log\LoggerInterface as Logger;
@@ -12,15 +13,20 @@ use Ubix\Exception\DtoException;
 use Ubix\Service\JsonService;
 
 /**
- * The gate pod's server: takes one gate run over HTTP, runs it, answers, and is done
+ * The gate pod's server: takes gate runs over HTTP, one at a time, and resets the container between them
  *
  * It empties its work directory (and any other directory it is told to) before it listens, because an emptyDir
  * outlives a container restart. A connection that is not a well-formed `POST /run` is answered with an error and
  * closed, and the server keeps listening. Once a run's headers pass (method, path, size, steps), that connection is
- * the run: the ready file is removed, the body is unpacked into an empty directory, and after the answer `serve()`
- * returns 0 so the process exits and the pod starts clean. Every step must be a gate step (`ActionGuard::gateRefusal`)
- * or nothing is unpacked or run. Steps run with HOME and PATH only, and through a wrapper that closes every inherited
- * file descriptor above 2, so the repository's code cannot use the listening socket or the client's connection.
+ * the run: the ready file is removed, the body is unpacked into an empty directory, the steps run and are answered.
+ * Every step must be a gate step (`ActionGuard::gateRefusal`) or nothing is unpacked or run. Steps run with HOME and
+ * PATH only, and through a wrapper that closes every inherited file descriptor above 2, so the repository's code
+ * cannot use the listening socket or the client's connection.
+ *
+ * After every run (passed, failed, timed out, or refused after it was accepted) the container is reset before the
+ * next is taken: every other process is killed and confirmed gone (`ProcessReaperInterface`), the directories are
+ * emptied, and only then is the ready file written again. A reset that fails ends the server with 1. After `maxRuns`
+ * runs it exits 0, so a pod never lives forever.
  *
  * It holds no token: the NetworkPolicy is the door, and the pod has nothing worth taking. See docs/security/gate-pod.md.
  *
@@ -63,6 +69,7 @@ final class GateServer
      * @param ProcessRunner $runner      Runs the steps (unguarded: the steps are checked here, then wrapped)
      * @param TarArchive    $archive     Unpacks the checkout
      * @param JsonService   $jsonService JSON service
+     * @param ProcessReaper $reaper      Clears the container between runs
      */
     public function __construct(
         private readonly Logger $logger,
@@ -70,28 +77,29 @@ final class GateServer
         private readonly ProcessRunner $runner,
         private readonly TarArchive $archive,
         private readonly JsonService $jsonService,
+        private readonly ProcessReaper $reaper,
     ) {
     }
 
     /**
-     * Listen, serve one run, return
+     * Empty the directories, listen, and serve runs until the run limit or a reset that fails
      *
      * @param string   $address      Where to listen, e.g. tcp://0.0.0.0:8090 (port 0 picks a free one)
-     * @param string   $workDir      Where runs are unpacked; emptied first
-     * @param string   $readyFile    Written with the address once listening, removed when a run starts
+     * @param string   $workDir      Where runs are unpacked; emptied first and after every run
+     * @param string   $readyFile    Written with the address while it waits for a run, removed when a run starts
      * @param int      $maxBodyBytes The largest archive accepted
-     * @param string[] $cleanDirs    Other directories to empty before listening (the pod's /tmp)
+     * @param string[] $cleanDirs    Other directories emptied first and after every run (the pod's /tmp)
+     * @param int      $maxRuns      Runs to serve before exiting cleanly
      *
-     * @return int 0 after a run, 1 when it could not start
+     * @return int 0 after the run limit, 1 when it could not start or a reset failed
      */
-    public function serve(string $address, string $workDir, string $readyFile, int $maxBodyBytes, array $cleanDirs = []): int
+    public function serve(string $address, string $workDir, string $readyFile, int $maxBodyBytes, array $cleanDirs = [], int $maxRuns = 100): int
     {
-        foreach ([$workDir, ...$cleanDirs] as $directory) {
-            if (!$this->emptyDirectory($directory)) {
-                $this->logger->error('Gate server could not empty a directory', ['directory' => $directory]);
+        $error = $this->wipe($workDir, $cleanDirs);
+        if ($error !== '') {
+            $this->logger->error('Gate server could not start clean', ['reason' => $error]);
 
-                return 1;
-            }
+            return 1;
         }
 
         $server = stream_socket_server($address, $errorCode, $errorMessage);
@@ -101,32 +109,64 @@ final class GateServer
             return 1;
         }
 
-        $name = (string) stream_socket_get_name($server, false);
-        if (file_put_contents($readyFile, $name) === false) {
-            $this->logger->error('Gate server could not write its ready file', ['file' => $readyFile]);
-            fclose($server);
+        return $this->serveListener($server, $workDir, $readyFile, $maxBodyBytes, $cleanDirs, $maxRuns);
+    }
 
+    /**
+     * Serve runs on a listening socket; after each, reset the container before taking another
+     *
+     * The reset, after every run whatever its outcome: kill every other process (and confirm none is left), empty the
+     * work and clean directories, then write the ready file again. If any part fails the server stops with 1 rather
+     * than take another run in a container it cannot vouch for, and Kubernetes replaces the pod.
+     *
+     * @param mixed    $server       The listening socket (a stream resource); closed on return
+     * @param string   $workDir      Where runs are unpacked
+     * @param string   $readyFile    Written while it waits for a run
+     * @param int      $maxBodyBytes The largest archive accepted
+     * @param string[] $cleanDirs    Other directories emptied after every run
+     * @param int      $maxRuns      Runs to serve before exiting cleanly
+     *
+     * @return int 0 after the run limit, 1 when a reset failed
+     */
+    public function serveListener(mixed $server, string $workDir, string $readyFile, int $maxBodyBytes, array $cleanDirs, int $maxRuns): int
+    {
+        if (!is_resource($server)) {
             return 1;
         }
-        $this->logger->info('Gate server listening', ['address' => $name]);
 
-        while (true) {
-            $connection = stream_socket_accept($server, self::IO_TIMEOUT_SECONDS);
-            if ($connection === false) {
-                continue;
-            }
-
-            $ran = $this->handle($connection, $workDir, $readyFile, $maxBodyBytes);
-            if (!$ran) {
-                $this->drain($connection);
-            }
-            fclose($connection);
-            if ($ran) {
+        $name = (string) stream_socket_get_name($server, false);
+        $runs = 0;
+        while ($runs < $maxRuns) {
+            if (file_put_contents($readyFile, $name) === false) {
+                $this->logger->error('Gate server could not write its ready file', ['file' => $readyFile]);
                 fclose($server);
 
-                return 0;
+                return 1;
+            }
+            $this->logger->info('Gate server ready', ['address' => $name, 'runs' => $runs]);
+
+            $this->serveOneRun($server, $workDir, $readyFile, $maxBodyBytes);
+            $runs++;
+
+            $error = $this->reset($workDir, $cleanDirs);
+            if ($error !== '') {
+                $this->logger->error('Gate server reset failed; exiting so the pod is replaced', ['reason' => $error]);
+                if (is_file($readyFile)) {
+                    unlink($readyFile);
+                }
+                fclose($server);
+
+                return 1;
             }
         }
+
+        $this->logger->info('Gate server served its run limit', ['runs' => $runs]);
+        if (is_file($readyFile)) {
+            unlink($readyFile);
+        }
+        fclose($server);
+
+        return 0;
     }
 
     /**
@@ -137,7 +177,7 @@ final class GateServer
      * @param string $readyFile    Removed when the run starts
      * @param int    $maxBodyBytes The largest archive accepted
      *
-     * @return bool Whether this connection was the run (the server is then done)
+     * @return bool Whether this connection was the run (the container is then reset)
      */
     public function handle(mixed $connection, string $workDir, string $readyFile, int $maxBodyBytes): bool
     {
@@ -195,6 +235,69 @@ final class GateServer
         $this->logger->info('Gate run answered', ['steps' => count($result->results)]);
 
         return true;
+    }
+
+    /**
+     * Accept connections until one is a run, and serve it
+     *
+     * @param mixed  $server       The listening socket (a stream resource)
+     * @param string $workDir      Where the run is unpacked
+     * @param string $readyFile    Removed when the run starts
+     * @param int    $maxBodyBytes The largest archive accepted
+     *
+     * @return void
+     */
+    private function serveOneRun(mixed $server, string $workDir, string $readyFile, int $maxBodyBytes): void
+    {
+        while (is_resource($server)) {
+            $connection = stream_socket_accept($server, self::IO_TIMEOUT_SECONDS);
+            if ($connection === false) {
+                continue;
+            }
+
+            $ran = $this->handle($connection, $workDir, $readyFile, $maxBodyBytes);
+            if (!$ran) {
+                $this->drain($connection);
+            }
+            fclose($connection);
+            if ($ran) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * After a run: every other process gone, the directories empty
+     *
+     * @param string   $workDir   The work directory
+     * @param string[] $cleanDirs The other directories
+     *
+     * @return string Why the container could not be reset, empty when it was
+     */
+    private function reset(string $workDir, array $cleanDirs): string
+    {
+        $error = $this->reaper->reap();
+
+        return $error === '' ? $this->wipe($workDir, $cleanDirs) : $error;
+    }
+
+    /**
+     * Empty the work directory and the clean directories
+     *
+     * @param string   $workDir   The work directory
+     * @param string[] $cleanDirs The other directories
+     *
+     * @return string Which could not be emptied, empty when all were
+     */
+    private function wipe(string $workDir, array $cleanDirs): string
+    {
+        foreach ([$workDir, ...$cleanDirs] as $directory) {
+            if (!$this->emptyDirectory($directory)) {
+                return 'could not empty ' . $directory;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -428,6 +531,9 @@ final class GateServer
      */
     private function remove(string $path): bool
     {
+        if (!is_writable(dirname($path))) {
+            return false;
+        }
         if (is_link($path) || !is_dir($path)) {
             return unlink($path);
         }

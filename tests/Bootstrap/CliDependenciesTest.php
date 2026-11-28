@@ -8,6 +8,7 @@ use DI\Container;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\OpenRouter\Review\ReviewChatClient;
+use Kelpie\Sandbox\ContainerProcessReaper;
 use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\GateServer;
 use Kelpie\Sandbox\LocalGateExecutor;
@@ -27,7 +28,8 @@ use Ubix\HttpClient\CurlHttpClient;
  * - The shared client, which GitLab uses, keeps the framework's own timeout
  * - The gate's steps run here without KELPIE_GATE_URL, and in the gate pod with it, through a client whose timeout
  *   covers a whole gate (KELPIE_GATE_HTTP_TIMEOUT, default 3600 s)
- * - The gate server runs its (already checked) steps with the plain process runner
+ * - The gate server runs its (already checked) steps with the plain process runner, and clears the container between
+ *   runs with the container reaper
  */
 final class CliDependenciesTest extends TestCase
 {
@@ -135,6 +137,7 @@ final class CliDependenciesTest extends TestCase
         $server = $this->container()->get(GateServer::class);
         self::assertInstanceOf(GateServer::class, $server);
         self::assertInstanceOf(ProcOpenProcessRunner::class, (new ReflectionProperty($server, 'runner'))->getValue($server));
+        self::assertInstanceOf(ContainerProcessReaper::class, (new ReflectionProperty($server, 'reaper'))->getValue($server));
     }
 
     /**

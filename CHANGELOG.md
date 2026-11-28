@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **The gate pod serves many runs and resets between them, instead of exiting after one.** Kubernetes backs off the
+  restarts of a container that keeps exiting, even with exit 0, so with one replica gate runs in quick succession
+  stalled and then failed closed as "gate unavailable". `kelpie:gate-serve` now stays up: after every run it kills
+  every other process in the container (it is PID 1; `posix_kill(-1, SIGKILL)`, then `/proc` is checked until nothing
+  but the server is left), empties `/work` and `/tmp`, and only then writes the ready file again. If a process
+  survives or a directory cannot be emptied, it exits 1 rather than take another run, and Kubernetes replaces the
+  container. `KELPIE_GATE_MAX_RUNS` (default 100) makes it exit 0 after that many runs. Off PID 1 the reset refuses
+  without killing anything. See "Between runs" in `docs/security/gate-pod.md`.
+- **The image has `make`,** so a project whose gate is `make check` can be gated (in the worker and the gate pod).
+
 - **The fix gate can run in a pod that holds no secrets.** phpcs, phpstan, phpunit and `make check` run the
   repository's own code, including what the fixer wrote, and they ran in the worker next to its Vault login, bot token
   and model key. They now go through a gate executor: with `KELPIE_GATE_URL` set, the worker packs the checkout

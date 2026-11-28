@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Review;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Review\Finding;
 use Kelpie\DataTransferObject\Review\ReviewDiff;
 use Kelpie\DataTransferObject\Review\ReviewResult;
@@ -61,7 +62,7 @@ final class SummaryRenderServiceTest extends UbixConcreteClassOrEnumTestCase imp
     {
         $stamp = $this->render()->stamp(SettingsBuilder::make(['effort' => 'high']), new ReviewUsage(12345, 999, 12345), true);
 
-        $this->assertSame('_Kelpie · agent `review-agent` · model `openrouter/anthropic/claude-haiku-5.5`, effort high, 12.3k in / 999 out, $0.0123 (OpenRouter), on `abcdef12`._', $stamp);
+        $this->assertSame('_' . Attribution::signature() . ' · agent `review-agent` · model `openrouter/anthropic/claude-haiku-5.5`, effort high, 12.3k in / 999 out, $0.0123 (OpenRouter), on `abcdef12`._', $stamp);
         $this->assertStringContainsString('effort default', $this->render()->stamp(SettingsBuilder::make(), new ReviewUsage(), true));
     }
 
@@ -72,7 +73,7 @@ final class SummaryRenderServiceTest extends UbixConcreteClassOrEnumTestCase imp
      */
     public function testStampWithoutAModelCall(): void
     {
-        $this->assertSame('_Kelpie · agent `review-agent` · no model call on `abcdef12`: no model, effort, tokens or cost to report._', $this->render()->stamp(SettingsBuilder::make(), new ReviewUsage(), false));
+        $this->assertSame('_' . Attribution::signature() . ' · agent `review-agent` · no model call on `abcdef12`: no model, effort, tokens or cost to report._', $this->render()->stamp(SettingsBuilder::make(), new ReviewUsage(), false));
     }
 
     /**

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Every Kelpie note says which build wrote it** (#6). The usage footer under a triage reply, a proposal, a fix,
+  an issue triage note and the AI review summary now opens with the image's commit: `_Kelpie 1a2b3c4 · agent ...`,
+  from `APP_VERSION` (a hex SHA is cut to 7 characters; any other value is shown as it is). When `APP_VERSION` is
+  unset, empty or `unknown` it reads `_Kelpie (unknown build) · agent ...`, so nothing breaks in the meantime. Until
+  uBixCore's pipeline passes `--build-arg APP_VERSION` and Kelpie's pinned uBixCore ref (`composer.lock` and the
+  `.gitlab-ci.yml` include) is bumped to that release, every image says `(unknown build)`. The issue triage footer,
+  which began `_Model ...`, now carries the same `Kelpie <build> · agent triage-model` prefix as the others. The
+  Dockerfile declares `APP_VERSION` after the dependency layers, so a per-commit value will not rebuild them.
 - **The AI review's summary says which commit each round was, and says when the review is done.** The summary note
   is posted once and edited on every push, so GitLab shows the time of round 1 on text written by round 3: a "round 3
   of 3" note looked older than the threads round 3 opened, and the round limit looked ignored. The rounds were

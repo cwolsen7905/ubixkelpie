@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Triage;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Completion;
 use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
@@ -99,14 +100,14 @@ final class UsageStampServiceTest extends UbixConcreteClassOrEnumTestCase implem
     }
 
     /**
-     * Append adds the footer after a blank line, or nothing without a call
+     * Append adds the footer, signed by the build and the agent, after a blank line, or nothing without a call
      *
      * @return void
      */
     public function testAppend(): void
     {
-        $this->assertSame('hi', $this->service()->append('hi', null));
-        $this->assertStringStartsWith("hi\n\n_Model `m`", $this->service()->append('hi', new Completion('x', 'm')));
+        $this->assertSame('hi', $this->service()->append('hi', null, Attribution::Triage));
+        $this->assertStringStartsWith("hi\n\n_" . Attribution::signature() . ' · agent `triage-model` · model `m`', $this->service()->append('hi', new Completion('x', 'm'), Attribution::Triage));
     }
 
     /**

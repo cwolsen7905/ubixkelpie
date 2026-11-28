@@ -8,8 +8,9 @@ namespace Kelpie\Autofix;
  * The part of Kelpie that wrote a commit or a note, and how it says so
  *
  * A commit gets an `Assisted-by: Kelpie <agent> (<model>)` trailer, next to the `Kelpie-Autofix` marker the loop
- * guard reads. A note's usage footer opens with `Kelpie · agent <agent> · model <model>`. The model is the one the run
- * used, taken from the call itself.
+ * guard reads. A note's usage footer opens with `Kelpie <build> · agent <agent> · model <model>`, the build being the
+ * image's commit (`signature()`), so a note says which Kelpie wrote it. The model is the one the run used, taken from the
+ * call itself.
  *
  * @see \Kelpie\Tests\Autofix\AttributionTest PHPUnit test case
  */
@@ -63,7 +64,28 @@ enum Attribution: string
      */
     public function footer(string $line): string
     {
-        return str_starts_with($line, '_Model ') ? '_Kelpie · agent `' . $this->value . '` · model ' . substr($line, 7) : $line;
+        return str_starts_with($line, '_Model ') ? '_' . self::signature() . ' · agent `' . $this->value . '` · model ' . substr($line, 7) : $line;
+    }
+
+    /**
+     * How a note names the Kelpie that wrote it: `Kelpie <short sha>`, or `Kelpie (unknown build)`
+     *
+     * The build is `APP_VERSION`, which CI passes to the image build as the commit SHA. A hex SHA is cut to its first 7
+     * characters; any other value is shown as it is, made safe for a footer. Unset, empty or `unknown` (the image's
+     * default when CI passed nothing) reads `(unknown build)`.
+     *
+     * @param ?string $version The build; null reads `APP_VERSION`
+     *
+     * @return string
+     */
+    public static function signature(?string $version = null): string
+    {
+        $version = self::word($version ?? (string) getenv('APP_VERSION'));
+        if ($version === '' || strtolower($version) === 'unknown') {
+            return 'Kelpie (unknown build)';
+        }
+
+        return 'Kelpie ' . (preg_match('/^([0-9a-f]{7})[0-9a-f]{0,57}$/i', $version, $sha) === 1 ? $sha[1] : $version);
     }
 
     /**

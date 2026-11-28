@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Triage;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\Completion;
 use Psr\Log\LoggerInterface as Logger;
 
@@ -66,16 +67,17 @@ final class UsageStampService
     }
 
     /**
-     * A text with the footer under it, or the text as it was when no model call is known
+     * A text with the footer under it, signed by the build and the agent, or the text as it was when no model call is known
      *
      * @param string      $text       The text
      * @param ?Completion $completion The call behind it
+     * @param Attribution $agent      The part of Kelpie that made the call
      *
      * @return string
      */
-    public function append(string $text, ?Completion $completion): string
+    public function append(string $text, ?Completion $completion, Attribution $agent): string
     {
-        return $completion === null ? $text : $text . "\n\n" . $this->line($completion);
+        return $completion === null ? $text : $text . "\n\n" . $agent->footer($this->line($completion));
     }
 
     /**

@@ -58,12 +58,13 @@ final class SummaryRenderService
     {
         $sha = substr($settings->headSha, 0, 8);
         if (!$modelCalled) {
-            return sprintf('_Kelpie · agent `%s` · no model call on `%s`: no model, effort, tokens or cost to report._', Attribution::Review->value, $sha);
+            return sprintf('_%s · agent `%s` · no model call on `%s`: no model, effort, tokens or cost to report._', Attribution::signature(), Attribution::Review->value, $sha);
         }
 
         // The review reports no model of its own: it asks for `$settings->model`, so that is what the stamp names
         return sprintf(
-            '_Kelpie · agent `%s` · model `%s`, effort %s, %s in / %s out, $%d.%04d (OpenRouter), on `%s`._',
+            '_%s · agent `%s` · model `%s`, effort %s, %s in / %s out, $%d.%04d (OpenRouter), on `%s`._',
+            Attribution::signature(),
             Attribution::Review->value,
             $settings->model,
             $settings->effort !== '' ? $settings->effort : 'default',

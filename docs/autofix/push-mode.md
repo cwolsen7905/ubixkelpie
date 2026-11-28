@@ -59,7 +59,7 @@ The usage footer of every reply Kelpie writes from a model call opens with the s
 (there is no second one):
 
 ```
-_Kelpie · agent `fixer-agent` · model `openai/gpt-5.5`, effort default, 12.3k in / 1.0k out, $0.0105 (OpenRouter)._
+_Kelpie 1a2b3c4 · agent `fixer-agent` · model `openai/gpt-5.5`, effort default, 12.3k in / 1.0k out, $0.0105 (OpenRouter)._
 ```
 
 The agent is `triage-model` (a triage reply), `propose-model` (a proposal from the one-shot model) or

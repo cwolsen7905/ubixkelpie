@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Triage;
 
+use Kelpie\Autofix\Attribution;
 use Kelpie\DataTransferObject\IssueDetails;
 use Kelpie\DataTransferObject\IssueTriageResult;
 use Kelpie\DataTransferObject\IssueTriageVerdict;
@@ -249,7 +250,7 @@ final class IssueTriageService
             "**Kelpie triage: %s**\n\n%s\n\n%s\n\n<!-- kelpie:triage issue=%d class=%s -->",
             $verdict->class->heading(),
             $verdict->reason,
-            $this->usageStampService->append($note, $verdict->completion),
+            $this->usageStampService->append($note, $verdict->completion, Attribution::Triage),
             $iid,
             $verdict->class->value,
         );

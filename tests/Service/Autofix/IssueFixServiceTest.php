@@ -22,6 +22,7 @@ use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\EditApplyService;
 use Kelpie\Service\Autofix\IssueFixPromptService;
 use Kelpie\Service\Autofix\IssueFixService;
@@ -482,7 +483,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         $factory  = new Psr17Factory();
         $settings = new AutofixSettings('https://gitlab.test/api/v4', 'bot-token', enabled: $enabled, gitBaseUrl: $gitBase ?? $this->base . '/git');
         $client   = new OpenRouterClient($logger, $model, $factory, $factory, $json);
-        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
+        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
         $row      = $project === false ? null : ($project ?? new Project('org/proj', ProjectMode::Propose, maxCostUsdDay: '5.00'));
         $projects = $this->createStub(ProjectReader::class);
@@ -500,7 +501,7 @@ final class IssueFixServiceTest extends UbixConcreteClassOrEnumTestCase implemen
         return new IssueFixService(
             $logger,
             new GitlabClientFactory($logger, $gitlab, $factory, $factory, $json, $settings),
-            new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger), $propose, $json),
+            new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger, new ContextScanner($logger)), $propose, $json),
             new EditApplyService($logger),
             new SafetyPolicy($logger),
             new IssueGateService($logger, $runner, new GateRunner($logger, $runner)),

@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Agent;
 use DateTimeImmutable;
 use Kelpie\Agent\ClaudeCliFixerAgent;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Tests\Sandbox\ScriptedProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
@@ -142,7 +143,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
         $this->assertSame(1.0, $run->completion?->costUsd);
 
         $none = new ScriptedProcessRunner();
-        $run  = (new ClaudeCliFixerAgent($this->createStub(Logger::class), $none, new JsonService($this->createStub(Logger::class)), ''))->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
+        $run  = (new ClaudeCliFixerAgent($this->createStub(Logger::class), new ContextScanner($this->createStub(Logger::class)), $none, new JsonService($this->createStub(Logger::class)), ''))->fix('/tmp/c/repo', $this->thread('x'), 'openai/gpt-5.5');
         $this->assertFalse($run->finished);
         $this->assertNull($run->completion);
         $this->assertSame([], $none->calls());
@@ -192,7 +193,7 @@ final class ClaudeCliFixerAgentTest extends UbixConcreteClassOrEnumTestCase impl
      */
     private function agent(ScriptedProcessRunner $runner): ClaudeCliFixerAgent
     {
-        return new ClaudeCliFixerAgent($this->createStub(Logger::class), $runner, new JsonService($this->createStub(Logger::class)), 'or-key-not-real');
+        return new ClaudeCliFixerAgent($this->createStub(Logger::class), new ContextScanner($this->createStub(Logger::class)), $runner, new JsonService($this->createStub(Logger::class)), 'or-key-not-real');
     }
 
     /**

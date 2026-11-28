@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Prompt;
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Prompt\ProposePrompt;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
@@ -127,7 +128,7 @@ final class ProposePromptTest extends UbixConcreteClassOrEnumTestCase implements
      */
     private function prompt(): ProposePrompt
     {
-        return new ProposePrompt($this->createStub(Logger::class));
+        return new ProposePrompt($this->createStub(Logger::class), new ContextScanner($this->createStub(Logger::class)));
     }
 
     /**

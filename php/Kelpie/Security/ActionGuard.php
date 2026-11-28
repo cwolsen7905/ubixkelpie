@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface as Logger;
  * guard was built with. Programs, git subcommands and flags that are not known are refused, so a new capability
  * has to be added here on purpose.
  *
- * `composer install` is allowed only with `--no-scripts`. The gate still runs the repository's own code (plugins, tests,
+ * `composer install` is allowed only with `--no-scripts`, and `make` only as exactly `make check` (a project's own gate). The gate still runs the repository's own code (plugins, tests,
  * analysers): see docs/security/context-scan.md.
  *
  * @see \Kelpie\Tests\Security\ActionGuardTest PHPUnit test case
@@ -25,6 +25,11 @@ final class ActionGuard
     private const array GIT_CHECKOUT = ['clone', 'fetch', 'checkout', 'add'];
 
     private const array GIT_CONFIG_KEYS = ['user.name', 'user.email', 'commit.gpgsign', 'safe.directory'];
+
+    /**
+     * Settings that only take a capability away, allowed with exactly these values: no fsmonitor program, no hooks
+     */
+    private const array GIT_SAFE_SETTINGS = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'];
 
     private const array PUSH_FORBIDDEN = ['-f', '-d', '--delete', '--mirror', '--all', '--prune', '--tags'];
 
@@ -114,6 +119,7 @@ final class ActionGuard
             basename($program) === 'git'                        => $this->classifyGit(array_slice($argv, 1)),
             in_array($program, self::GATE_PROGRAMS, true)       => UnattendedAction::RunGate,
             $program === 'composer'                             => ($argv[1] ?? '') === 'install' && in_array('--no-scripts', $argv, true) ? UnattendedAction::RunGate : null,
+            $program === 'make'                                 => $argv === ['make', 'check'] ? UnattendedAction::RunGate : null,
             basename($program) === 'claude'                     => $this->classifyAgent($argv),
             $program === 'rm'                                   => $this->classifyRemove($argv),
             default                                             => null,
@@ -127,9 +133,9 @@ final class ActionGuard
      */
     private function classifyGit(array $args): ?UnattendedAction
     {
-        // Leading global options: -c key=value (a few keys only), -C path.
+        // Leading global options: -c key=value (a few keys, or a setting that only removes a capability), -C path.
         while ($args !== [] && str_starts_with($args[0], '-')) {
-            if ($args[0] === '-c' && isset($args[1]) && in_array(explode('=', $args[1], 2)[0], self::GIT_CONFIG_KEYS, true)) {
+            if ($args[0] === '-c' && isset($args[1]) && (in_array(explode('=', $args[1], 2)[0], self::GIT_CONFIG_KEYS, true) || in_array($args[1], self::GIT_SAFE_SETTINGS, true))) {
                 $args = array_slice($args, 2);
             } elseif ($args[0] === '-C' && isset($args[1])) {
                 $args = array_slice($args, 2);
@@ -155,7 +161,8 @@ final class ActionGuard
      *
      * Refuses the options that name a program or copy hooks (git also takes an unambiguous abbreviation of a long
      * option, so `--templ` counts), `clone`/`fetch` `-c` and `-u`, any `::` or `file:` transport, and any URL that is
-     * not https.
+     * not https. One exception: `clone --separate-git-dir <path>` with the path under the temp directory, which is how
+     * Kelpie's checkout keeps the repository outside the work tree.
      *
      * @param string   $sub  The subcommand
      * @param string[] $args The arguments after it
@@ -165,9 +172,17 @@ final class ActionGuard
     private function checkoutIsPlain(string $sub, array $args): bool
     {
         $options = true;
-        foreach ($args as $arg) {
+        $args    = array_values($args);
+        $count   = count($args);
+        for ($i = 0; $i < $count; $i++) {
+            $arg = $args[$i];
             if ($arg === '--') {
                 $options = false;
+
+                continue;
+            }
+            if ($options && $sub === 'clone' && $arg === '--separate-git-dir' && $this->isUnderTemp($args[$i + 1] ?? '')) {
+                $i++;
 
                 continue;
             }
@@ -187,6 +202,20 @@ final class ActionGuard
         }
 
         return true;
+    }
+
+    /**
+     * Whether a path is strictly inside the temp directory, with no way back out of it
+     *
+     * @param string $path The path
+     *
+     * @return bool
+     */
+    private function isUnderTemp(string $path): bool
+    {
+        $tmp = rtrim(sys_get_temp_dir(), '/') . '/';
+
+        return str_starts_with($path, $tmp) && strlen($path) > strlen($tmp) && !str_contains($path, '..') && !str_contains($path, "\0");
     }
 
     /**
@@ -238,9 +267,6 @@ final class ActionGuard
      */
     private function classifyRemove(array $argv): ?UnattendedAction
     {
-        $path = $argv[3] ?? '';
-        $tmp  = rtrim(sys_get_temp_dir(), '/') . '/';
-
-        return array_slice($argv, 0, 3) === ['rm', '-rf', '--'] && count($argv) === 4 && str_starts_with($path, $tmp) && strlen($path) > strlen($tmp) && !str_contains($path, '..') ? UnattendedAction::CleanCheckout : null;
+        return array_slice($argv, 0, 3) === ['rm', '-rf', '--'] && count($argv) === 4 && $this->isUnderTemp($argv[3] ?? '') ? UnattendedAction::CleanCheckout : null;
     }
 }

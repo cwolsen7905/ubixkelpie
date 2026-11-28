@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Prompt;
 
 use Kelpie\DataTransferObject\IssueDetails;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -27,10 +28,12 @@ final class IssueTriagePrompt
     /**
      * Constructor
      *
-     * @param Logger $logger Logger
+     * @param Logger         $logger  Logger
+     * @param ContextScanner $scanner Scans untrusted text before it reaches a model
      */
     public function __construct(
         private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; the prompt has nothing to log)
+        private readonly ContextScanner $scanner,
     ) {
     }
 
@@ -71,8 +74,8 @@ PROMPT;
     {
         $fence = self::FENCE;
 
-        $title       = $this->fenceSafe(mb_substr($issue->title, 0, self::MAX_TITLE));
-        $description = $this->fenceSafe(mb_substr($issue->description, 0, self::MAX_DESCRIPTION));
+        $title       = $this->fenceSafe($this->scanner->quote(mb_substr($issue->title, 0, self::MAX_TITLE), 'issue title'));
+        $description = $this->fenceSafe($this->scanner->quote(mb_substr($issue->description, 0, self::MAX_DESCRIPTION), 'issue description'));
 
         return <<<PROMPT
 Classify this issue.

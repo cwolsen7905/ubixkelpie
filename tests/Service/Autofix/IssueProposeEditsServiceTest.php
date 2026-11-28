@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Service\Autofix;
 use Kelpie\DataTransferObject\IssueDetails;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\IssueFixPromptService;
 use Kelpie\Service\Autofix\IssueProposeEditsService;
 use Kelpie\Service\Autofix\ProposeEditsService;
@@ -186,8 +187,8 @@ final class IssueProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase
         $json    = new JsonService($logger);
         $factory = new Psr17Factory();
         $client  = new OpenRouterClient($logger, $http, $factory, $factory, $json);
-        $propose = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
+        $propose = new ProposeEditsService($logger, $client, new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
-        return new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger), $propose, $json);
+        return new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger, new ContextScanner($logger)), $propose, $json);
     }
 }

@@ -11,6 +11,7 @@ use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Spend\SpendCapService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
@@ -103,6 +104,6 @@ final class FixerRunnerBuilderService
 
         $json = new JsonService($this->logger);
 
-        return new AgentEditsService($this->logger, new ClaudeCliFixerAgent($this->logger, $this->processRunner, $json, $this->settings->openRouterKey, self::AGENT_TIMEOUT), $json);
+        return new AgentEditsService($this->logger, new ClaudeCliFixerAgent($this->logger, new ContextScanner($this->logger), $this->processRunner, $json, $this->settings->openRouterKey, self::AGENT_TIMEOUT), $json);
     }
 }

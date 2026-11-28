@@ -9,6 +9,7 @@ use Kelpie\Autofix\EditScope;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\ProposePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\ProposeEditsService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Tests\Service\Triage\TriageLlms;
@@ -292,7 +293,7 @@ final class ProposeEditsServiceTest extends UbixConcreteClassOrEnumTestCase impl
             return $response;
         });
 
-        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger, 'private', null, 'g/p', $license));
+        return new ProposeEditsService($logger, new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json), new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger, 'private', null, 'g/p', $license));
     }
 
     /**

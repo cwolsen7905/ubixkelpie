@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Review;
 
 use Kelpie\DataTransferObject\Review\ReviewSettings;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -25,10 +26,12 @@ final class StandardsService
      * Constructor
      *
      * @param Logger         $logger  Logger
+     * @param ContextScanner $scanner Scans untrusted text before it reaches a model
      * @param RepoGitService $repoGit Reads files at a commit
      */
     public function __construct(
         private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; reading has nothing to log)
+        private readonly ContextScanner $scanner,
         private readonly RepoGitService $repoGit,
     ) {
     }
@@ -58,6 +61,7 @@ final class StandardsService
         foreach ($paths as $path) {
             $body = $fromGit ? $this->repoGit->show($settings, $settings->baseSha, $path) : file_get_contents($settings->repo . '/' . $path);
             $body = substr((string) $body, 0, self::FILE_BYTES);
+            $body = $body === '' ? '' : ($this->scanner->guide($path, $body) ?? '');
             if ($body === '') {
                 continue;
             }

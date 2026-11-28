@@ -16,6 +16,7 @@ use Kelpie\Repository\Project\ProjectSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
+use Kelpie\Sandbox\GuardedProcessRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\AutofixSettingsService;
@@ -23,6 +24,7 @@ use Ubix\HttpClient\CurlHttpClient;
 
 use function DI\autowire;
 use function DI\factory;
+use function DI\get;
 
 /**
  * Build the CLI container: the framework's own (logger, HTTP client, SQL, migrations) plus Kelpie's bindings
@@ -43,7 +45,8 @@ return static function (): Container {
     $container->set(ThreadOutcomeReader::class, autowire(ThreadOutcomeSqlRepository::class));
     $container->set(ThreadOutcomeWriter::class, autowire(ThreadOutcomeSqlRepository::class));
     $container->set(ProjectReader::class, autowire(ProjectSqlRepository::class));
-    $container->set(ProcessRunner::class, autowire(ProcOpenProcessRunner::class));
+    // Every command an unattended run starts goes through the action list; a refused one never starts (docs/security/context-scan.md)
+    $container->set(ProcessRunner::class, autowire(GuardedProcessRunner::class)->constructorParameter('inner', get(ProcOpenProcessRunner::class)));
     $container->set(
         FixerAgent::class,
         autowire(ClaudeCliFixerAgent::class)

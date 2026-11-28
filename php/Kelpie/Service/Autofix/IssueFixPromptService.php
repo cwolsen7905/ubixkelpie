@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Service\Autofix;
 
 use Kelpie\DataTransferObject\IssueDetails;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -24,10 +25,12 @@ final class IssueFixPromptService
     /**
      * Constructor
      *
-     * @param Logger $logger Logger
+     * @param Logger         $logger  Logger
+     * @param ContextScanner $scanner Scans untrusted text before it reaches a model
      */
     public function __construct(
         private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; the prompt has nothing to log)
+        private readonly ContextScanner $scanner,
     ) {
     }
 
@@ -62,7 +65,7 @@ PROMPT;
     public function selectUser(IssueDetails $issue, array $paths): string
     {
         $fence = self::ISSUE_FENCE;
-        $text  = $this->defuse($issue->title . "\n\n" . $issue->description, $fence);
+        $text  = $this->defuse($this->scanner->quote($issue->title . "\n\n" . $issue->description, 'issue'), $fence);
         $list  = $this->defuse(implode("\n", $paths), $fence);
 
         return <<<PROMPT
@@ -111,7 +114,7 @@ PROMPT;
     {
         $issueFence = self::ISSUE_FENCE;
         $fileFence  = self::FILE_FENCE;
-        $text       = $this->defuse($issue->title . "\n\n" . $issue->description, $issueFence);
+        $text       = $this->defuse($this->scanner->quote($issue->title . "\n\n" . $issue->description, 'issue'), $issueFence);
 
         $blocks = '';
         foreach ($files as $path => $content) {

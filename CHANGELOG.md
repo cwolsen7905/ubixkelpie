@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The unattended command list is now enforced.** Every command Kelpie's worker, sweep and review start goes through
+  `GuardedProcessRunner`: a command that is not one of the listed shapes (git read/checkout/commit/plain push, the
+  PHP gate, exactly `make check`, the `claude` CLI with file tools only, clean-up under the temp directory) is not
+  started and comes back as a failure with the reason. The list was written and tested before but never bound, and it
+  would have refused Kelpie's own checkout: it now allows `core.fsmonitor=false`, `core.hooksPath=/dev/null`, the
+  checkout's `--separate-git-dir` under the temp directory, and `make check`, with tests that bending any of them is
+  refused. A project `gate_command` of another shape is now refused instead of run. See `docs/security/context-scan.md`.
+- **Forge text is scanned before it reaches a model.** Thread notes, `Triage:` steering, the fixer's context, and issue
+  titles and descriptions go through `ContextScanner::quote()`: hidden HTML comments are defused, invisible and
+  bidirectional characters removed, and text that tries to steer the model is flagged in the prompt as data. Repo
+  guides the review reads go through `guide()`: one that tries to steer the model is skipped; one with only a stray
+  comment is kept, defused.
+- **The review never reads credential files.** Its `read`, `grep` and `glob` tools skip `.env` (not `.env.example`),
+  key and certificate files, `.npmrc`, `.netrc`, `auth.json` and credential directories, so their content is never
+  sent to a model.
+
 - **An open-source repo is now reviewed with a cheaper model.** With `AI_REVIEW_MODEL_PUBLIC` set, `kelpie-review`
   reads the license GitLab detected in the repo and, for an open-source one (BSD, MIT, Apache, GPL, ...), reviews
   with that model instead of `AI_REVIEW_MODEL`: `meta/muse-spark-1.3-contributor` costs $0.10/$0.20 per million

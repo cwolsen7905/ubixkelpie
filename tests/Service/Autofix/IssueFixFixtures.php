@@ -14,6 +14,7 @@ use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\IssueFixBuilderService;
 use Kelpie\Service\Autofix\IssueFixPromptService;
 use Kelpie\Service\Autofix\IssueProposeEditsService;
@@ -48,7 +49,7 @@ final class IssueFixFixtures extends TestCase
         $json     = new JsonService($logger);
         $factory  = new Psr17Factory();
         $client   = new OpenRouterClient($logger, $http, $factory, $factory, $json);
-        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
+        $propose  = new ProposeEditsService($logger, $client, new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
         $projects = $self->createStub(ProjectReader::class);
         if ($enrolled) {
             $projects->method('getByPath')->willReturn(new Project('org/proj', ProjectMode::Propose));
@@ -57,7 +58,7 @@ final class IssueFixFixtures extends TestCase
         return new IssueFixBuilderService(
             $logger,
             new GitlabClientFactory($logger, $http, $factory, $factory, $json, $settings),
-            new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger), $propose, $json),
+            new IssueProposeEditsService($logger, $client, new IssueFixPromptService($logger, new ContextScanner($logger)), $propose, $json),
             $self->createStub(ProcessRunner::class),
             $projects,
             new SpendCapService($logger, $projects, $self->createStub(ThreadOutcomeReader::class)),

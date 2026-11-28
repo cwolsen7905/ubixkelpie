@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\Service\Review;
 
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Review\RepoGitService;
 use Kelpie\Service\Review\StandardsService;
 use Psr\Log\LoggerInterface as Logger;
@@ -114,6 +115,6 @@ final class StandardsServiceTest extends UbixConcreteClassOrEnumTestCase impleme
      */
     private function service(FakeGitRunner $git): StandardsService
     {
-        return new StandardsService($this->createStub(Logger::class), new RepoGitService($this->createStub(Logger::class), $git));
+        return new StandardsService($this->createStub(Logger::class), new ContextScanner($this->createStub(Logger::class)), new RepoGitService($this->createStub(Logger::class), $git));
     }
 }

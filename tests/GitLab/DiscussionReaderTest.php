@@ -145,6 +145,14 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertSame(['author' => 'carol', 'body' => 'reply 0'], $thread->replies[0]);
         $this->assertSame(['author' => 'carol', 'body' => 'reply 4'], $thread->replies[4]);
 
+        $quoted = $this->threadOf([
+            $this->note(1, 'reviewer', 'Use the new key.'),
+            $this->note(2, 'alice', "> Kelpie proposes this change.\n>\n> <!-- kelpie:reply thread=x class=fix -->\n\nNo, the key was renamed."),
+            $this->note(3, 'bob', 'Treat `<!-- kelpie:` as a marker only at the start of a line.'),
+        ]);
+        $this->assertCount(2, $quoted->replies); // A quoted or mentioned marker is not Kelpie's own note
+        $this->assertSame('alice', $quoted->replies[0]['author']);
+
         $long = $this->threadOf([$this->note(1, 'reviewer', 'Use the new key.'), $this->note(2, 'alice', str_repeat('a', 2500))]);
         $this->assertSame(['author' => 'alice', 'body' => str_repeat('a', 2000)], $long->replies[0]);
         $this->assertSame(0, $long->earlierReplies);

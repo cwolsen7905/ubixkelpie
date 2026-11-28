@@ -77,8 +77,7 @@ PROMPT;
         $fence    = self::FENCE;
         $location = $thread->filePath === null ? 'general (not on a line of code)' : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
 
-        // A body containing the closing tag could break out of the fence
-        $body = str_ireplace(['<' . $fence, '</' . $fence], ['&lt;' . $fence, '&lt;/' . $fence], $this->scanner->quote($thread->body, 'thread note by ' . $thread->author));
+        $body = $this->blockSafe($this->scanner->quote($thread->body, 'thread note by ' . $thread->author));
 
         return <<<PROMPT
 Classify this thread.
@@ -102,12 +101,7 @@ PROMPT;
     {
         $out = $thread->earlierReplies > 0 ? sprintf("\n(%d earlier %s not shown)", $thread->earlierReplies, $thread->earlierReplies === 1 ? 'reply' : 'replies') : '';
         foreach ($thread->replies as $reply) {
-            // A reply containing a closing tag could break out of its block or the thread's
-            $body = str_ireplace(
-                ['<reply', '</reply', '<' . self::FENCE, '</' . self::FENCE],
-                ['&lt;reply', '&lt;/reply', '&lt;' . self::FENCE, '&lt;/' . self::FENCE],
-                $this->scanner->quote($reply['body'], 'thread reply by ' . $reply['author']),
-            );
+            $body = $this->blockSafe($this->scanner->quote($reply['body'], 'thread reply by ' . $reply['author']));
             $out .= sprintf("\n<reply author=\"%s\">\n%s\n</reply>", $this->attribute($reply['author']), $body);
         }
 
@@ -128,7 +122,28 @@ PROMPT;
             return '';
         }
 
-        return "\n<steering>\n" . str_ireplace(['<steering', '</steering'], ['&lt;steering', '&lt;/steering'], $this->scanner->quote($steering, 'triage steering')) . "\n</steering>";
+        return "\n<steering>\n" . $this->blockSafe($this->scanner->quote($steering, 'triage steering')) . "\n</steering>";
+    }
+
+    /**
+     * Defuse every opening or closing tag of the prompt's blocks inside untrusted text, so no block can close its own
+     * or forge another: a reply cannot pose as steering, nor the finding as a reply
+     *
+     * @param string $text The scanned text
+     *
+     * @return string
+     */
+    private function blockSafe(string $text): string
+    {
+        $tags = [self::FENCE, 'reply', 'steering'];
+        $from = [];
+        $to   = [];
+        foreach ($tags as $tag) {
+            array_push($from, '<' . $tag, '</' . $tag);
+            array_push($to, '&lt;' . $tag, '&lt;/' . $tag);
+        }
+
+        return str_ireplace($from, $to, $text);
     }
 
     /**

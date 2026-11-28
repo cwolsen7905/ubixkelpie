@@ -39,9 +39,10 @@ final class DiscussionReader
     private const int LABEL_EVENT_PAGES = 5;
 
     /**
-     * Every note Kelpie writes carries this marker; a person's reply does not
+     * Every note Kelpie writes carries its marker on a line of its own; a person quoting one has it after `> `, so their
+     * reply is kept
      */
-    private const string OWN_MARKER = '<!-- kelpie:';
+    private const string OWN_NOTE = '/^<!-- kelpie:/m';
 
     /**
      * Replies kept per thread, the newest
@@ -323,7 +324,7 @@ final class DiscussionReader
         foreach ($notes as $note) {
             $body   = is_array($note) && is_string($note['body'] ?? null) ? $note['body'] : '';
             $author = is_array($note) && is_array($note['author'] ?? null) ? ($note['author']['username'] ?? '') : '';
-            if (trim($body) === '' || str_contains($body, self::OWN_MARKER)) {
+            if (trim($body) === '' || preg_match(self::OWN_NOTE, $body) === 1) {
                 continue;
             }
             $replies[] = ['author' => is_string($author) ? $author : '', 'body' => mb_substr($body, 0, self::REPLY_CHARS)];

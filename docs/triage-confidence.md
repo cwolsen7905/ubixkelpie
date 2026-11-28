@@ -34,7 +34,8 @@ reason what is missing.
 - **Review thread:** any new note from a person makes the thread unanswered again
   (`ReplyService::isAnswered`), so the next run triages it with the reply in the thread text.
 - **Issue:** an issue whose newest triage comment is `needs_context` and that carries the label is
-  triaged again when a triage run is queued for it. The person's reply can be passed in (it is fenced
-  as data like the issue), and the newest triage comment decides from then on.
+  triaged again when a triage run is queued for it with the person's reply (fenced as data like the
+  issue), and the newest triage comment decides from then on. A run with no reply asks nothing new:
+  it keeps `needs_context` and only repairs the label. A marker with an unknown class is skipped.
   Known gaps, both outside the triage code: nothing queues that run when someone comments on an issue
   yet, and the old `kelpie::needs-context` label is not removed when the second verdict is a different class.

@@ -21,13 +21,13 @@ final readonly class TriageVerdict implements Dto
      * @param TriageClass      $class      The class the thread falls into
      * @param string           $reason     A short reason, safe to show to a human
      * @param ?Completion      $completion The model call behind it, null when none was made
-     * @param TriageConfidence $confidence How sure the model was; High for a verdict no model made (a refusal, a fixed answer)
+     * @param TriageConfidence $confidence How sure the model was; Low when omitted so policy fails closed
      */
     public function __construct(
         public TriageClass $class,
         public string $reason,
         public ?Completion $completion = null,
-        public TriageConfidence $confidence = TriageConfidence::High,
+        public TriageConfidence $confidence = TriageConfidence::Low,
     ) {
     }
 }

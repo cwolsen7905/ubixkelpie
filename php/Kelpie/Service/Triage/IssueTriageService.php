@@ -96,8 +96,8 @@ final class IssueTriageService
         }
 
         $class = $this->earlierClass($notes, $iid);
-        if ($class === IssueTriageClass::NeedsContext && in_array(IssueTriageClass::NeedsContext->label(), $issue->labels, true)) {
-            // Asked for context and labelled, so this run is the answer to that: triage again (no label means a crash before the label, repaired below)
+        if ($class === IssueTriageClass::NeedsContext && trim($reply) !== '' && in_array(IssueTriageClass::NeedsContext->label(), $issue->labels, true)) {
+            // Asked for context and labelled, and a person answered, so triage again (no label means a crash before the label, repaired below)
             $class = null;
         }
         if ($class === null) {
@@ -162,7 +162,8 @@ final class IssueTriageService
         $class = null;
         foreach ($notes as $body) {
             if (preg_match('/<!-- kelpie:triage issue=' . $iid . ' class=([a-z_]+) -->/', $body, $m) === 1) {
-                $class = IssueTriageClass::tryFrom($m[1]); // The newest comment wins: a later triage replaces an earlier one
+                // The newest known class wins: a later triage replaces an earlier one, and an unknown class is skipped so it never wipes a valid one
+                $class = IssueTriageClass::tryFrom($m[1]) ?? $class;
             }
         }
 

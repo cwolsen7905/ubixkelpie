@@ -209,6 +209,40 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
+     * A run with no reply does not ask the model again or post a second needs-context comment
+     *
+     * @return void
+     */
+    public function testAnUnansweredNeedsContextIsNotTriagedAgain(): void
+    {
+        foreach (['', "  \n"] as $reply) {
+            $gitlab = (new FakeIssueGitlab())->withLabel('kelpie::needs-context')->withNote('kelpie-bot', "Which page?\n\n<!-- kelpie:triage issue=7 class=needs_context -->");
+
+            $result = $this->service($gitlab, $this->answer('{"class": "needs_context", "reason": "Which page?"}'))->triage('org/proj', 7, $reply);
+
+            $this->assertSame(IssueTriageClass::NeedsContext, $result->class);
+            $this->assertCount(1, $gitlab->notesBy('kelpie-bot'));
+        }
+        $this->assertSame(0, $this->modelCalls());
+    }
+
+    /**
+     * A marker with an unknown class does not wipe an earlier valid one
+     *
+     * @return void
+     */
+    public function testAnUnknownMarkerKeepsTheEarlierClass(): void
+    {
+        $gitlab = (new FakeIssueGitlab())->withNote('kelpie-bot', "x\n\n<!-- kelpie:triage issue=7 class=not_a_defect -->")->withNote('kelpie-bot', "y\n\n<!-- kelpie:triage issue=7 class=no_such_class -->");
+
+        $result = $this->service($gitlab, $this->answer('{}'))->triage('org/proj', 7);
+
+        $this->assertSame(IssueTriageClass::NotADefect, $result->class);
+        $this->assertSame(0, $this->modelCalls());
+        $this->assertCount(2, $gitlab->notesBy('kelpie-bot'));
+    }
+
+    /**
      * A needs-context comment with no label yet is a crash to repair, not an answer: the label alone is added
      *
      * @return void

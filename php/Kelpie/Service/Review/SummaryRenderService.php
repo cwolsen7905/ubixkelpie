@@ -76,21 +76,49 @@ final class SummaryRenderService
     }
 
     /**
-     * A summary note: the marker with round and commit, the body, the stamp
+     * A summary note: the marker with round, commit and the commit of each round, the body, the rounds so far, the stamp
+     *
+     * The note is replaced on every push, so the time GitLab shows on it is when it was first posted, not when this
+     * body was written. The rounds line says which commit each round was, so the note cannot be read as older than it is.
      *
      * @param ReviewSettings $settings The settings
      * @param string         $body     The body
-     * @param int            $round    The round
+     * @param int            $round    The round the note records
      * @param string         $stamp    The usage stamp
+     * @param string[]       $commits  The short commit of each round up to `$round`, oldest first
      *
      * @return string
      */
-    public function note(ReviewSettings $settings, string $body, int $round, string $stamp): string
+    public function note(ReviewSettings $settings, string $body, int $round, string $stamp, array $commits = []): string
     {
-        $marker = sprintf('%s round=%d sha=%s -->', $settings->summaryMarker, $round, $settings->headSha);
+        $marker = sprintf('%s round=%d sha=%s%s -->', $settings->summaryMarker, $round, $settings->headSha, $commits === [] ? '' : ' rounds=' . implode(',', $commits));
         $label  = $settings->shadow ? "_Shadow run of the new review engine: for comparison, not a review. It opens no threads._\n\n" : '';
+        $rounds = $this->rounds($commits, $round);
 
-        return $marker . "\n" . $label . $body . "\n\n" . $stamp;
+        return $marker . "\n" . $label . $body . "\n\n" . ($rounds === '' ? '' : $rounds . "\n\n") . $stamp;
+    }
+
+    /**
+     * The rounds line: which commit each automatic round was, so an edited note says when its rounds ran
+     *
+     * @param string[] $commits The short commit of each round, oldest first; the last is round `$round`
+     * @param int      $round   The last round listed
+     *
+     * @return string Empty when there is nothing to list
+     */
+    public function rounds(array $commits, int $round): string
+    {
+        if ($commits === [] || $round < 1) {
+            return '';
+        }
+
+        $first = max($round - count($commits) + 1, 1);
+        $parts = [];
+        foreach (array_values(array_slice($commits, -$round)) as $i => $commit) {
+            $parts[] = sprintf('%d on `%s`', $first + $i, $commit);
+        }
+
+        return '_Rounds so far: ' . implode(', ', $parts) . '. This note is replaced on each push, so the time GitLab shows on it is when it was first posted._';
     }
 
     /**

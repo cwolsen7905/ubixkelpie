@@ -36,6 +36,11 @@ final class ReviewService
     private const int RAW_REPLY_LOG_BYTES = 4096;
 
     /**
+     * How many rounds' commits the summary marker keeps: past the limit only a `review:extra` MR gets here
+     */
+    private const int ROUND_HISTORY = 20;
+
+    /**
      * Constructor
      *
      * @param Logger               $logger               Logger
@@ -131,8 +136,15 @@ final class ReviewService
         }
 
         if ($this->skipPolicyService->roundsExhausted($settings, $round)) {
-            $note   = sprintf('**AI review: round limit reached.** This merge request has had %d automated review rounds. Add the `%s` label to allow more; a person should review it either way.', $settings->maxRounds, $settings->extraLabel);
-            $posted = $this->putSummary($settings, $memory, $note, $round - 1, new ReviewUsage(), false);
+            // The rounds are used up: no model call and no thread, and the note keeps the rounds that ran (this
+            // commit is not one of them), so a later push is the same hard cap.
+            $note   = sprintf(
+                '**AI review: done, round limit reached.** This merge request has had its %d automatic review rounds, so this push (`%s`) was not reviewed and opened no new threads. Threads already open stay as they are. Add the `%s` label to allow more rounds; a person should review it either way.',
+                $settings->maxRounds,
+                substr($settings->headSha, 0, 8),
+                $settings->extraLabel,
+            );
+            $posted = $this->putSummary($settings, $memory, $note, $round - 1, new ReviewUsage(), false, $memory->roundCommits);
 
             return new ReviewOutcome(0, [...$posted->lines, ...$this->reviewLabelService->mark($settings, ReviewStatus::HardCap, $this->reviewLabelService->level($memory))]);
         }
@@ -164,7 +176,7 @@ final class ReviewService
 
         $body = $result->findings === [] && $tally->stale === [] ? $this->summaryRenderService->clean($settings, $result, $diff, $round) : $this->summaryRenderService->noteWithFindings($settings, $result, $tally, $round);
         if ($this->skipPolicyService->isLastRound($settings, $round)) {
-            $body .= sprintf("\n\n**This was the last automatic review round.** A push after this is not reviewed unless the merge request has the `%s` label.", $settings->extraLabel);
+            $body .= sprintf("\n\n**This was the last automatic review round** (%d of %d, on `%s`). A push after this is not reviewed and opens no new threads unless the merge request has the `%s` label.", $round, $settings->maxRounds, substr($settings->headSha, 0, 8), $settings->extraLabel);
         }
         $posted = $this->putSummary($settings, $memory, $body, $round, $usage, true);
         array_push($lines, ...$posted->lines);
@@ -347,7 +359,7 @@ final class ReviewService
 
         $fresh = $this->findingMemoryService->read($settings, $discussions, $botId);
 
-        return $fresh->summaryNoteId === null && $memory->summaryNoteId !== null ? new ThreadMemory($fresh->open, $fresh->dismissed, $memory->summaryNoteId, $memory->summaryRound, $memory->summarySha) : $fresh;
+        return $fresh->summaryNoteId === null && $memory->summaryNoteId !== null ? new ThreadMemory($fresh->open, $fresh->dismissed, $memory->summaryNoteId, $memory->summaryRound, $memory->summarySha, $memory->roundCommits) : $fresh;
     }
 
     /**
@@ -359,12 +371,13 @@ final class ReviewService
      * @param int            $round       The round
      * @param ReviewUsage    $usage       The summed usage
      * @param bool           $modelCalled Whether a model call ran
+     * @param ?string[]      $commits     The rounds' commits to record; null when this commit is the round (it is added once)
      *
      * @return ReviewOutcome Exit 0 when it was posted or printed, 75 when GitLab refused it; the lines are what a dry run would post
      */
-    private function putSummary(ReviewSettings $settings, ThreadMemory $memory, string $body, int $round, ReviewUsage $usage, bool $modelCalled): ReviewOutcome
+    private function putSummary(ReviewSettings $settings, ThreadMemory $memory, string $body, int $round, ReviewUsage $usage, bool $modelCalled, ?array $commits = null): ReviewOutcome
     {
-        $note = $this->summaryRenderService->note($settings, $body, $round, $this->summaryRenderService->stamp($settings, $usage, $modelCalled));
+        $note = $this->summaryRenderService->note($settings, $body, $round, $this->summaryRenderService->stamp($settings, $usage, $modelCalled), $commits ?? ($round < 1 ? [] : $this->roundCommits($settings, $memory)));
 
         if ($settings->dryRun) {
             return new ReviewOutcome(0, [sprintf("\n--- would %s the summary note ---\n%s", $memory->summaryNoteId !== null ? 'replace' : 'post', $note)]);
@@ -373,6 +386,25 @@ final class ReviewService
         $ok = $memory->summaryNoteId !== null ? $this->reviewGitlab->editNote($settings, $memory->summaryNoteId, $note) : $this->reviewGitlab->postNote($settings, $note);
 
         return new ReviewOutcome($ok ? 0 : ReviewOutcome::UNREVIEWED);
+    }
+
+    /**
+     * The commit of each round with this one last: a rerun of the same commit is the same round, so it is not added twice
+     *
+     * @param ReviewSettings $settings The settings
+     * @param ThreadMemory   $memory   What the merge request holds (the rounds so far)
+     *
+     * @return string[]
+     */
+    private function roundCommits(ReviewSettings $settings, ThreadMemory $memory): array
+    {
+        $commits = array_values($memory->roundCommits);
+        $head    = substr($settings->headSha, 0, 8);
+        if ($head !== '' && ($commits === [] || $commits[count($commits) - 1] !== $head)) {
+            $commits[] = $head;
+        }
+
+        return array_slice($commits, -self::ROUND_HISTORY);
     }
 
     /**

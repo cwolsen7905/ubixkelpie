@@ -18,6 +18,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold (the behaviour of the shell review it replaces):
  * - Drafts, docs-only and empty diffs, oversize diffs and a fourth round make no model call and say so in the summary note
+ * - A round is a new head commit: on a merge request pushed four times (as on !125), rounds 1 to 3 review and the fourth
+ *   push opens no thread, and the one summary note, edited in place, names the commit of each round and says the review is done
  * - Each new finding opens one thread and the run leaves one summary note, replaced on a rerun; a new commit is a new round
  * - A finding a person dismissed, or that is already open, is not posted again, even when another job posted it while the model ran
  * - Advisory mode exits 0 on a blocker; blocking mode exits 1; a review that could not run exits 75 and says UNREVIEWED
@@ -102,7 +104,7 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $this->assertCount(3, $harness->gitlab()->threads());
         $notes = $harness->gitlab()->noteBodies();
         $this->assertCount(1, $notes);
-        $this->assertStringStartsWith('<!-- ai-review:summary round=1 sha=abcdef1234567890abcdef1234567890abcdef12 -->', $notes[0]);
+        $this->assertStringStartsWith('<!-- ai-review:summary round=1 sha=abcdef1234567890abcdef1234567890abcdef12 rounds=abcdef12 -->', $notes[0]);
         $this->assertStringContainsString('**AI review: block**, round 1 of 3 (`advisory` mode)', $notes[0]);
         $this->assertStringContainsString('New threads: 3.', $notes[0]);
         $this->assertStringContainsString('_Kelpie · agent `review-agent` · model `openrouter/anthropic/claude-haiku-5.5`', $notes[0]);
@@ -247,6 +249,57 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
 
         $this->assertStringContainsString('round=2 sha=ffff', $harness->gitlab()->noteBodies()[2]);
         $this->assertCount(3, $harness->gitlab()->threads());
+    }
+
+    /**
+     * Four pushes as on !125: three reviewed rounds, then a push that opens no thread and a note that says the review is done
+     *
+     * The summary note is posted once and edited on every later push, so GitLab shows the time of round 1 on a body
+     * written by round 3. Each body says which commit each round was, and the last round's threads are the last.
+     *
+     * @return void
+     */
+    public function testFourPushesThreeRoundsThenNoThreads(): void
+    {
+        $harness = $this->harness();
+        $commits = ['53ad148a0b828226f6521f14b69a0945520ab950', 'f785ad5d5aa61caac1b72777cda175b60f72847b', '086792ee4251ef571e42fa5a61a8b6b85b8acbfe', '5791770df5c453059887c53bf29400ea72253b01'];
+        $threads = [];
+        foreach ($commits as $sha) {
+            // Each round's findings are new ones, as the model reports on what each push changed
+            $harness->gitlab()->resolveAll();
+            $harness->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'headSha' => $sha]));
+            $threads[] = count($harness->gitlab()->threads());
+        }
+
+        $notes = $harness->gitlab()->noteBodies();
+        $this->assertCount(1, array_filter($harness->gitlab()->paths('POST'), static function (string $path): bool {
+            return str_ends_with($path, '/notes');
+        }), 'one summary note, posted once');
+        $this->assertCount(3, array_filter($harness->gitlab()->paths('PUT'), static function (string $path): bool {
+            return str_contains($path, '/notes/');
+        }), 'and edited by each later push');
+        $this->assertSame([3, 6, 9, 9], $threads, 'rounds 1 to 3 open threads, the fourth push none');
+
+        $this->assertStringContainsString('round 1 of 3', $notes[0]);
+        $this->assertStringContainsString('round 2 of 3', $notes[1]);
+        $this->assertStringNotContainsString('last automatic review round', $notes[1]);
+        $this->assertStringContainsString('round 3 of 3', $notes[2]);
+        $this->assertStringContainsString('**This was the last automatic review round** (3 of 3, on `086792ee`)', $notes[2]);
+        $this->assertStringContainsString('Rounds so far: 1 on `53ad148a`, 2 on `f785ad5d`, 3 on `086792ee`.', $notes[2]);
+        $this->assertStringContainsString('the time GitLab shows on it is when it was first posted', $notes[2]);
+
+        $this->assertStringStartsWith('<!-- ai-review:summary round=3 sha=5791770df5c453059887c53bf29400ea72253b01 rounds=53ad148a,f785ad5d,086792ee -->', $notes[3]);
+        $this->assertStringContainsString('**AI review: done, round limit reached.**', $notes[3]);
+        $this->assertStringContainsString('this push (`5791770d`) was not reviewed and opened no new threads', $notes[3]);
+        $this->assertStringContainsString('Rounds so far: 1 on `53ad148a`, 2 on `f785ad5d`, 3 on `086792ee`.', $notes[3]);
+        $this->assertSame(['kelpie-review::hard-cap', 'kelpie-findings::none'], $harness->gitlab()->mrLabels());
+
+        // A fifth push is the same hard cap: the rounds that ran are kept, the unreviewed commits are not added
+        $harness->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json'), 'headSha' => 'abababababababababababababababababababab']));
+
+        $this->assertCount(9, $harness->gitlab()->threads());
+        $this->assertStringStartsWith('<!-- ai-review:summary round=3 sha=abababababababababababababababababababab rounds=53ad148a,f785ad5d,086792ee -->', $harness->gitlab()->noteBodies()[4]);
+        $this->assertStringContainsString('this push (`abababab`) was not reviewed', $harness->gitlab()->noteBodies()[4]);
     }
 
     /**
@@ -653,7 +706,7 @@ final class ReviewServiceTest extends UbixConcreteClassOrEnumTestCase implements
         $last->gitlab()->withDiscussions([$previous(2)]);
         $last->service()->review($this->settings(['cannedFile' => $this->fixture('canned-ok.json')]));
 
-        $this->assertStringContainsString('**This was the last automatic review round.**', $last->gitlab()->noteBodies()[0]);
+        $this->assertStringContainsString('**This was the last automatic review round** (3 of 3, on `abcdef12`)', $last->gitlab()->noteBodies()[0]);
         $this->assertStringContainsString('`review:extra` label', $last->gitlab()->noteBodies()[0]);
         $this->assertSame(['kelpie-review::last-round', 'kelpie-findings::blocker'], $last->gitlab()->mrLabels());
 

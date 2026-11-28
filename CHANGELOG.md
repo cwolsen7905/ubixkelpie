@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The AI review's summary says which commit each round was, and says when the review is done.** The summary note
+  is posted once and edited on every push, so GitLab shows the time of round 1 on text written by round 3: a "round 3
+  of 3" note looked older than the threads round 3 opened, and the round limit looked ignored. The rounds were
+  counted right (one per new head commit, and the push after the last round opened no thread). The note now ends
+  with the rounds so far and the commit of each, kept in its marker; the last round names its commit and says a
+  later push opens no new threads; and past the limit the note says the review is done and which push was not
+  reviewed.
+
 - **The triage summary says what to do with a proposed change.** A proposal waits for a 👍 on its note inside the
   thread, and the only other sign on the MR was the `kelpie::proposed` label, so a proposal was easy to miss. When a run
   leaves proposed changes, the summary note now ends with a **Next:** line: how many are waiting, react 👍 on the

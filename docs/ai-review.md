@@ -129,7 +129,7 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
 | `AI_REVIEW_IMAGE` | `node:24-alpine` | container the review runs in; pin by digest for reproducibility |
 | `AI_REVIEW_OPENCODE_VERSION` | `1.19.0` | pinned `opencode-ai` npm version |
 | `AI_REVIEW_MAX_LINES` / `AI_REVIEW_MAX_BYTES` | `3000` / `153600` | above either: "too large, human review required" |
-| `AI_REVIEW_MAX_ROUNDS` | `3` | rounds per MR; one round is one pushed commit |
+| `AI_REVIEW_MAX_ROUNDS` | `3` | rounds per MR; one round is one new head commit (a rerun of the same commit is the same round; a skipped or unreviewed push still uses one) |
 | `AI_REVIEW_EXTRA_LABEL` | `review:extra` | the MR label that allows more rounds |
 
 ## What a run does
@@ -138,7 +138,9 @@ allowed to fail. It never turns a pipeline red for being unconfigured.
    `LICENSE*` or `CHANGELOG*`), and an empty diff.
 2. Builds the diff without lockfiles, `vendor/`, `node_modules/`, `dist/`, minified,
    source-map, snapshot and generated files.
-3. Over the size cap, or past the round cap without the label: posts a note and stops.
+3. Over the size cap, or past the round cap without the label: posts a note and stops. Past the round cap no
+   model runs and no thread is opened: the summary says the review is done, names the commit that was not
+   reviewed, and keeps the list of rounds that ran.
 4. Runs OpenCode (`opencode run`) in a container with the repo mounted **read-only** and
    only `read`, `grep` and `glob` allowed (no shell, edit or web). The GitLab token is not
    in OpenCode's environment. The container runs as the runner's own uid/gid on a cached
@@ -181,6 +183,11 @@ A review that finds nothing is not silent: the summary becomes a plain note (no 
 resolve) saying the review ran with no findings, the model, the full commit sha and the files
 covered. A skipped review (docs only, nothing reviewable) says so in the same note. Later
 runs replace that note.
+
+The summary note is posted once and edited in place on every later push, so the time GitLab shows on it is
+when round 1 posted it, not when its text was written. Each version ends with the rounds so far and the commit
+of each (`Rounds so far: 1 on 53ad148a, 2 on f785ad5d, 3 on 086792ee`), kept in the note's marker
+(`rounds=...`), so a "round 3 of 3" body is not read as older than the threads round 3 opened.
 
 Output schema: `{verdict, summary, findings:[{severity, confidence, file, line, title,
 why, fingerprint}]}`; see `ci/ai-review/prompt.md`.

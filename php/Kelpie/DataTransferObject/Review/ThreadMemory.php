@@ -21,6 +21,7 @@ final readonly class ThreadMemory implements Dto
      * @param ?int        $summaryNoteId The review's summary note, null when there is none yet
      * @param int         $summaryRound  The round that note records
      * @param string      $summarySha    The commit that note records
+     * @param string[]    $roundCommits  The short commit of each round that note lists, oldest first (empty for a note from before the list)
      */
     public function __construct(
         public array $open = [],
@@ -28,6 +29,7 @@ final readonly class ThreadMemory implements Dto
         public ?int $summaryNoteId = null,
         public int $summaryRound = 0,
         public string $summarySha = '',
+        public array $roundCommits = [],
     ) {
     }
 }

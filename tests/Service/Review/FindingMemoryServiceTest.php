@@ -22,6 +22,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A `Dismissed:` reply by the review's own token does not count
  * - A new finding matches a thread by id, or by file and title when the model reworded the slug
  * - The review's summary note is found by its marker, and a shadow run does not see the real one
+ * - The marker's round commits are read back, and a marker without them reads as none
  * - The model is told what is raised in words
  *
  * @coversDefaultClass \Kelpie\Service\Review\FindingMemoryService
@@ -102,6 +103,21 @@ final class FindingMemoryServiceTest extends UbixConcreteClassOrEnumTestCase imp
         $this->assertNull($shadow->summaryNoteId);
         $own = $this->service()->read(SettingsBuilder::make(['shadow' => true]), [['notes' => [['body' => "<!-- kelpie-review:shadow round=2 sha=def -->\nx", 'id' => 8]]]], 9);
         $this->assertSame([8, 2, 'def'], [$own->summaryNoteId, $own->summaryRound, $own->summarySha]);
+    }
+
+    /**
+     * The summary marker's list of round commits is read back; a marker without one (an older note, or the shell
+     * review's) reads as an empty list
+     *
+     * @return void
+     */
+    public function testSummaryRoundCommits(): void
+    {
+        $listed = $this->service()->read(SettingsBuilder::make(), [['notes' => [['body' => "<!-- ai-review:summary round=3 sha=5791770d rounds=53ad148a,f785ad5d,086792ee -->\nx", 'id' => 8]]]], 9);
+        $this->assertSame([8, 3, '5791770d', ['53ad148a', 'f785ad5d', '086792ee']], [$listed->summaryNoteId, $listed->summaryRound, $listed->summarySha, $listed->roundCommits]);
+
+        $older = $this->service()->read(SettingsBuilder::make(), [['notes' => [['body' => "<!-- ai-review:summary round=2 sha=def -->\nx", 'id' => 8]]]], 9);
+        $this->assertSame([2, 'def', []], [$older->summaryRound, $older->summarySha, $older->roundCommits]);
     }
 
     /**

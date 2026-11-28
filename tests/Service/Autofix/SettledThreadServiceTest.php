@@ -54,10 +54,12 @@ final class SettledThreadServiceTest extends UbixConcreteClassOrEnumTestCase imp
         $this->gitlab->note('t1', 'Fixed: [`abc1234def56`](https://x/-/commit/' . self::SHA . ") — typed it.\n\nResolving this thread.\n\n<!-- kelpie:reply thread=t1 class=fix -->", '-1 hour', null, 'kelpie-bot');
         $this->gitlab->note('t2', 'Rename this.', '-2 hours', null, 'bob');
         $this->gitlab->note('t2', 'I fixed in abc1234 and renamed it.', '-1 hour', null, 'agent');
+        $this->gitlab->note('t3', 'Drop the dead branch.', '-2 hours', null, 'bob');
+        $this->gitlab->note('t3', 'Fixed: [`' . self::SHA . '`](https://x/-/commit/' . self::SHA . ") — removed it.\n\nResolving this thread.\n\n<!-- kelpie:reply thread=t3 class=fix -->", '-1 hour', null, 'kelpie-bot');
 
         $lines = $this->settle();
 
-        $this->assertSame(['t1', 't2'], $this->gitlab->resolved());
+        $this->assertSame(['t1', 't2', 't3'], $this->gitlab->resolved(), 'a reply naming the full sha resolves too');
         $this->assertSame('1!3 t1  resolved: fixed_pushed', $lines[0]);
     }
 

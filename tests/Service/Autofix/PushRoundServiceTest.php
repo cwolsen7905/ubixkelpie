@@ -93,7 +93,7 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertSame($pushed, $this->jobs->commitSha());
         foreach (['d1', 'd2'] as $id) {
             $this->assertSame(ThreadOutcome::Applied, $this->row($id)->outcome);
-            $this->assertStringStartsWith('Fixed: [`' . substr($pushed, 0, 12) . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote($id));
+            $this->assertStringStartsWith('Fixed: [`' . $pushed . '`](https://gitlab.test/g/p/-/commit/' . $pushed . ')', $this->lastNote($id));
         }
         $this->assertSame(['d2'], $this->gitlab->resolved());
     }

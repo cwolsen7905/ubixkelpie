@@ -37,7 +37,7 @@ final class IssueTriageClassTest extends UbixConcreteClassOrEnumTestCase impleme
             $values[] = $class->value;
         }
 
-        $this->assertSame(['fix', 'needs_human', 'not_a_defect'], $values);
+        $this->assertSame(['fix', 'needs_human', 'not_a_defect', 'needs_context'], $values);
     }
 
     /**
@@ -53,7 +53,7 @@ final class IssueTriageClassTest extends UbixConcreteClassOrEnumTestCase impleme
             $this->assertStringStartsWith('kelpie::', $class->label());
         }
 
-        $this->assertSame(['kelpie::fixable', 'kelpie::needs-human', 'kelpie::not-a-defect'], $labels);
+        $this->assertSame(['kelpie::fixable', 'kelpie::needs-human', 'kelpie::not-a-defect', 'kelpie::needs-context'], $labels);
         $this->assertNotContains('kelpie::fix', $labels);
     }
 

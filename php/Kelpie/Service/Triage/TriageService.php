@@ -8,8 +8,10 @@ use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
 use Kelpie\Enum\TriageClass;
+use Kelpie\Enum\TriageConfidence;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
+use Kelpie\Policy\TriageConfidencePolicy;
 use Kelpie\Prompt\TriagePrompt;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Exception\DtoException;
@@ -18,7 +20,7 @@ use Ubix\Service\JsonService;
 /**
  * Classifies one review thread: prompt, model, parse, safety policy
  *
- * Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
+ * A `fix` the model is not sure enough of is `needs_human` (`TriageConfidencePolicy`). Anything the model gets wrong (no answer, not JSON, an unknown class) is `needs_human`, never a guess.
  * The model is the project's `triage_model`, else `KELPIE_TRIAGE_MODEL`, default `deepseek/deepseek-v4.1-flash`
  * (`TriageLlmService`), never from the family that wrote the review (`LlmFamilyService`) and never a tier that
  * trains on its prompts on a project not known to be public: either way the verdict is `needs_human`, not a guess.
@@ -40,13 +42,14 @@ final class TriageService
     /**
      * Constructor
      *
-     * @param Logger           $logger           Logger
-     * @param OpenRouterClient $openRouterClient The model client
-     * @param TriagePrompt     $triagePrompt     The prompt
-     * @param SafetyPolicy     $safetyPolicy     The hard limits
-     * @param JsonService      $jsonService      JSON service
-     * @param LlmFamilyService $families         Keeps the model out of the review's family
-     * @param TriageLlmService $models           Picks the model per project, keeps training tiers off private code
+     * @param Logger                  $logger           Logger
+     * @param OpenRouterClient        $openRouterClient The model client
+     * @param TriagePrompt            $triagePrompt     The prompt
+     * @param SafetyPolicy            $safetyPolicy     The hard limits
+     * @param JsonService             $jsonService      JSON service
+     * @param LlmFamilyService        $families         Keeps the model out of the review's family
+     * @param TriageLlmService        $models           Picks the model per project, keeps training tiers off private code
+     * @param ?TriageConfidencePolicy $confidencePolicy The confidence a fix needs; the default threshold when null
      */
     public function __construct(
         private readonly Logger $logger,
@@ -56,6 +59,7 @@ final class TriageService
         private readonly JsonService $jsonService,
         private readonly LlmFamilyService $families,
         private readonly TriageLlmService $models,
+        private readonly ?TriageConfidencePolicy $confidencePolicy = null,
     ) {
     }
 
@@ -107,7 +111,7 @@ final class TriageService
             return new TriageVerdict(TriageClass::NeedsHuman, 'Triage could not read the model\'s answer.');
         }
 
-        return $this->safetyPolicy->apply(new TriageVerdict($verdict->class, $verdict->reason, $completion), $proposal);
+        return $this->safetyPolicy->apply(($this->confidencePolicy ?? new TriageConfidencePolicy($this->logger))->apply(new TriageVerdict($verdict->class, $verdict->reason, $completion, $verdict->confidence)), $proposal);
     }
 
     /**
@@ -140,6 +144,6 @@ final class TriageService
             return null;
         }
 
-        return new TriageVerdict($class, mb_substr($reason !== '' ? $reason : 'No reason given.', 0, self::MAX_REASON_LENGTH));
+        return new TriageVerdict($class, mb_substr($reason !== '' ? $reason : 'No reason given.', 0, self::MAX_REASON_LENGTH), null, TriageConfidence::fromAnswer($decoded['confidence'] ?? null));
     }
 }

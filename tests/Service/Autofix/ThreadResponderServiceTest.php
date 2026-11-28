@@ -227,7 +227,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $model  = $this->createStub(HttpClient::class);
         $model->method('sendRequest')->willReturnCallback(function () use ($json, $class): Psr7Response {
             ++$this->modelCalls;
-            $content = $json->encode(['class' => $class, 'reason' => 'Because.']);
+            $content = $json->encode(['class' => $class, 'confidence' => 'high', 'reason' => 'Because.']);
 
             return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
         });

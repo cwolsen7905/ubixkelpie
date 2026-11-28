@@ -21,7 +21,7 @@ use Psr\Log\LoggerInterface as Logger;
 /**
  * Answers a triaged thread: the not-safe path (design section 5) and the resolution comment (section 4)
  *
- * `needs_human` gets a reply and the `kelpie::needs-you` label on the MR (the other outcome labels and the old `needs-human` come off; `working` stays until the run ends); `not_an_issue` gets a
+ * `needs_context` gets a short reply asking for what is missing (a reply on the thread makes it unanswered, so it is triaged again). `needs_human` gets a reply and the `kelpie::needs-you` label on the MR (the other outcome labels and the old `needs-human` come off; `working` stays until the run ends); `not_an_issue` gets a
  * reply; `already_fixed` gets a reply and the thread is resolved only when the code near the finding changed
  * since the review raised it (otherwise the thread stays open). A `fix` verdict is left silent here:
  * once the commit is pushed and the gate passed, `fixed()` replies, and resolves the thread only when
@@ -167,6 +167,7 @@ final class ReplyService
             TriageClass::NotAnIssue   => 'not an issue** — %s' . "\n\nLeaving this open for the reviewer.",
             TriageClass::AlreadyFixed => 'already fixed** — %s' . ($resolve ? "\n\nResolving this thread; reopen it if I got it wrong." : "\n\nLeaving this open: I could not see the code near it change since the review raised it."),
             TriageClass::Defer        => 'defer** — %s' . "\n\nLeaving this open for the reviewer.",
+            TriageClass::NeedsContext => 'needs more context** — %s' . "\n\nReply here with what is missing and I will look at this thread again. I did not change any code.",
             TriageClass::Fix          => null,
         };
 

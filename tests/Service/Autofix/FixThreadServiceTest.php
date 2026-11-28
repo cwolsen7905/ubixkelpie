@@ -235,7 +235,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $http       = $this->createStub(HttpClient::class);
         $http->method('sendRequest')->willReturnCallback(static function (Request $request) use ($gitlab, $json): Psr7Response {
             if (str_contains((string) $request->getUri(), 'openrouter.test')) {
-                $content = $json->encode(['class' => 'fix', 'reason' => 'A typo.']);
+                $content = $json->encode(['class' => 'fix', 'confidence' => 'high', 'reason' => 'A typo.']);
 
                 return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
             }

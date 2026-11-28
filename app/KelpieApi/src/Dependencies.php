@@ -5,6 +5,7 @@ declare(strict_types=1);
 use DI\Container;
 use DI\ContainerBuilder;
 use Kelpie\Controller\Gitlab\GitlabWebhookController;
+use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\HttpClient\ApprovalRetryHttpClient;
 use Kelpie\HttpClient\BotHttpClient;
 use Kelpie\Policy\EventFilter;
@@ -21,6 +22,7 @@ use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcom
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Security\ApiTokenMiddleware;
+use Kelpie\Service\Autofix\AutofixSettingsService;
 use Kelpie\Service\Autofix\EnqueueService;
 use Kelpie\Service\Autofix\TriageReplyService;
 use Kelpie\Service\Gitlab\IssueAwardEmojiService;
@@ -179,6 +181,9 @@ return static function (): Container {
         EnqueueService::class                 => autowire()
             ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true)),
         GitlabWebhookController::class        => autowire()->constructorParameter('secret', getenv('GITLAB_WEBHOOK_SECRET') ?: ''),
+        // GitLab's URL and the bot token for GitlabClientFactory (resolving threads on owner approval), read from the
+        // environment as in the CLI container. Without this binding the container autowires the DTO's defaults: no host, no token.
+        AutofixSettings::class                => factory([AutofixSettingsService::class, 'fromEnvironment']),
     ]);
 
     return $container->build();

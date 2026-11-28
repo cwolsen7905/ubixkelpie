@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Triage judges a finding against the code it is about.** It saw only the thread's text, so a finding that needed
+  the code was answered "needs more context", and one that later commits overtook was judged as if still true (seen
+  on ubixshepherd !470 and !466). Before triage (when fixing a thread, when answering one, and in `kelpie triage`), Kelpie reads the file at the merge request's head from GitLab (the
+  thread's position, or else the first `path:line` the finding names, as a general note does) and shows triage up to
+  40 numbered lines each side of the line, fenced as untrusted data and capped at 12000 characters, shrinking around
+  the line so it is always shown. "Needs more context" is kept for when the code shown cannot settle it. A reply
+  disputing the finding still goes to a person.
+- **A 👍 or 👎 on a proposal is acknowledged at once.** The webhook queued the job and nothing on the merge
+  request changed until the worker finished, which can take minutes with a gate run, so a person could not tell
+  whether Kelpie got the reaction. Kelpie now puts 👀 on the comment as soon as the job is queued (or one is already
+  queued on that thread), as it does on an issue it accepts; the reply with the result follows when the work is done.
+
+- **The gate pod serves many runs and resets between them, instead of exiting after one.** Kubernetes backs off the
+  restarts of a container that keeps exiting, even with exit 0, so with one replica gate runs in quick succession
+  stalled and then failed closed as "gate unavailable". `kelpie:gate-serve` now stays up: after every run it kills
+  every other process in the container (it is PID 1: `kill -9 -1` as a child process, since the image has no posix
+  extension, or `posix_kill(-1, SIGKILL)` where it has; then `/proc` is checked until nothing but the server is left),
+  empties `/work` and every other directory a run can write to (`KELPIE_GATE_CLEAN_DIRS`: the emptyDirs and the
+  runtime's `/dev/shm` and `/dev/mqueue`), and only then writes the ready file again. It will not start while
+  `/proc/self/mountinfo` shows a writable directory mount that is not wiped, or a read-write root. If a process
+  survives or a directory cannot be emptied, it exits 1 rather than take another run, and Kubernetes replaces the
+  container. `KELPIE_GATE_MAX_RUNS` (default 100) makes it exit 0 after that many runs. Off PID 1 the reset refuses
+  without killing anything. See "Between runs" in `docs/security/gate-pod.md`.
+- **The image has `make`,** so a project whose gate is `make check` can be gated (in the worker and the gate pod).
+
 - **A 👍 on a proposal pushes it in propose mode too.** Every proposal said "react 👍 to have me push it", but only a
   project in push mode could; in propose mode the 👍 got "not set to let me push" (seen on !125). A thumbs-up from the
   MR's author or a maintainer is now the go-ahead for that one proposal in propose mode as well: gated, then pushed,

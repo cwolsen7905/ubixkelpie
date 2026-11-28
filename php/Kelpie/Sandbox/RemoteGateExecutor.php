@@ -22,8 +22,8 @@ use Ubix\Service\JsonService;
  *
  * Fails closed: when the checkout cannot be packed, the pod cannot be reached or times out, or it answers with anything
  * but a 200 and a well-formed result, the run is "gate unavailable" and never a pass. The answer is only data (exit
- * codes, a flag, capped output); nothing in it is run here. While the pod cannot be reached at all (it restarts after
- * every run) the request is retried for up to `$waitSeconds`. The protocol is in docs/security/gate-pod.md.
+ * codes, a flag, capped output); nothing in it is run here. While the pod cannot be reached at all (busy, resetting or
+ * being replaced) the request is retried for up to `$waitSeconds`. The protocol is in docs/security/gate-pod.md.
  *
  * @see \Kelpie\Tests\Sandbox\RemoteGateExecutorTest PHPUnit test case
  */

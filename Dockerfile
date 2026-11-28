@@ -16,9 +16,9 @@ ENV APP_VERSION=${APP_VERSION}
 ARG CLAUDE_CODE_VERSION=2.1.327
 
 USER root
-# nodejs + npm carry the claude CLI (npm package: works on musl, unlike the native installer);
+# make runs a project gate's `make check`. nodejs + npm carry the claude CLI (npm package: works on musl, unlike the native installer);
 # `claude --version` fails the build if the binary is missing. No credentials are baked in.
-RUN apk add --no-cache git nodejs npm \
+RUN apk add --no-cache git make nodejs npm \
  && npm install -g --no-fund --no-audit @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && npm cache clean --force \
  && claude --version \

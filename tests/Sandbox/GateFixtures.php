@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Sandbox;
 
 use Kelpie\Sandbox\GateServer;
+use Kelpie\Sandbox\ProcessReaperInterface as ProcessReaper;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Sandbox\TarArchive;
+use Kelpie\Sandbox\WritableMountCheck;
 use Kelpie\Security\ActionGuard;
 use Psr\Log\NullLogger;
 use Ubix\Service\JsonService;
@@ -51,13 +53,15 @@ final class GateFixtures
     /**
      * A real gate server with the plain process runner
      *
+     * @param ?ProcessReaper $reaper Clears the container between runs; null is one that finds nothing to clear
+     *
      * @return GateServer
      */
-    public static function server(): GateServer
+    public static function server(?ProcessReaper $reaper = null): GateServer
     {
         $logger = new NullLogger();
 
-        return new GateServer($logger, new ActionGuard($logger), new ProcOpenProcessRunner($logger), new TarArchive($logger), new JsonService($logger));
+        return new GateServer($logger, new ActionGuard($logger), new ProcOpenProcessRunner($logger), new TarArchive($logger), new JsonService($logger), $reaper ?? new ScriptedReaper(), new WritableMountCheck($logger, '/nonexistent', 4242));
     }
 
     /**

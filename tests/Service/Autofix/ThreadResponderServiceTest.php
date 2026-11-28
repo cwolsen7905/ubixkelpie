@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Service\Autofix;
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\ResponseOutcome;
+use Kelpie\GitLab\FileReader;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
@@ -15,6 +16,7 @@ use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\ThreadResponderService;
 use Kelpie\Service\Autofix\TriageStatusService;
+use Kelpie\Service\Triage\CodeContextService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Tests\GitLab\FakeGitlab;
@@ -22,6 +24,7 @@ use Kelpie\Tests\Service\Triage\TriageLlms;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
 use Psr\Http\Client\ClientInterface as HttpClient;
+use Psr\Http\Message\RequestInterface as Request;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Service\JsonService;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
@@ -50,6 +53,11 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
     private int $modelCalls = 0;
 
     /**
+     * @var list<string> The bodies sent to the model
+     */
+    private array $modelBodies = [];
+
+    /**
      * Test that the class is following uBix standards
      *
      * @return void
@@ -75,6 +83,33 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $bodies = array_column($this->gitlab->notes()['d1'], 'body');
         $this->assertStringContainsString('kelpie:release', $bodies[1]);
         $this->assertStringContainsString('kelpie:reply', $bodies[2]);
+    }
+
+    /**
+     * The responder triages a thread with the code it is about, read at the head it was given
+     *
+     * @return void
+     */
+    public function testThreadsAreTriagedWithTheirCode(): void
+    {
+        $this->gitlab->note('d1', 'Should we redesign this?');
+        $files = $this->createStub(HttpClient::class);
+        $files->method('sendRequest')->willReturn(new Psr7Response(200, [], "<?php\n\n\$a = redesign();\n"));
+        $logger = $this->createStub(Logger::class);
+        $code   = new CodeContextService($logger, new FileReader($logger, $files, new Psr17Factory(), 'https://gitlab.test/api/v4'));
+
+        $this->responder('needs_human', $code)->respond('1', 3, 'abc', [$this->thread('d1')]);
+
+        $this->assertCount(1, $this->modelBodies);
+        $sent     = (new JsonService($logger))->decode($this->modelBodies[0]);
+        $messages = $sent['messages'] ?? null;
+        $this->assertIsArray($messages);
+        $last = end($messages);
+        $this->assertIsArray($last);
+        $user = $last['content'] ?? null;
+        $this->assertIsString($user);
+        $this->assertStringContainsString('<code path="src/A.php" lines="1-4" at="abc">', $user);
+        $this->assertStringContainsString('$a = redesign();', $user);
     }
 
     /**
@@ -213,11 +248,12 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
     /**
      * A responder whose model always answers with the given class
      *
-     * @param string $class The triage class the model returns
+     * @param string              $class The triage class the model returns
+     * @param ?CodeContextService $code  Reads the code a thread is about; null for none
      *
      * @return ThreadResponderService
      */
-    private function responder(string $class): ThreadResponderService
+    private function responder(string $class, ?CodeContextService $code = null): ThreadResponderService
     {
         putenv('OPENROUTER_API_KEY=test-key-not-real');
         putenv('OPENROUTER_API_URL=https://openrouter.test/api/v1');
@@ -225,9 +261,10 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
         $logger = $this->createStub(Logger::class);
         $json   = new JsonService($logger);
         $model  = $this->createStub(HttpClient::class);
-        $model->method('sendRequest')->willReturnCallback(function () use ($json, $class): Psr7Response {
+        $model->method('sendRequest')->willReturnCallback(function (Request $request) use ($json, $class): Psr7Response {
             ++$this->modelCalls;
-            $content = $json->encode(['class' => $class, 'confidence' => 'high', 'reason' => 'Because.']);
+            $this->modelBodies[] = (string) $request->getBody();
+            $content             = $json->encode(['class' => $class, 'confidence' => 'high', 'reason' => 'Because.']);
 
             return new Psr7Response(200, [], $json->encode(['choices' => [['message' => ['content' => $content]]]]));
         });
@@ -249,6 +286,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
                 TriageLlms::make($logger),
             ),
             new TriageStatusService($logger, $writer),
+            $code,
         );
     }
 }

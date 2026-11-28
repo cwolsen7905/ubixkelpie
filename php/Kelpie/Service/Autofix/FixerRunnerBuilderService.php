@@ -13,6 +13,7 @@ use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Spend\SpendCapService;
+use Kelpie\Service\Triage\CodeContextService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Service\Triage\UsageStampService;
@@ -88,6 +89,7 @@ final class FixerRunnerBuilderService
             $this->spendCaps,
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',
             $this->agentEdits(),
+            new CodeContextService($this->logger, $this->gitlab->fileReader()),
         );
     }
 

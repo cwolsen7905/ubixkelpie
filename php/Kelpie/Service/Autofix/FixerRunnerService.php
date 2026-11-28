@@ -28,6 +28,7 @@ use Kelpie\Repository\AutofixJob\AutofixJobWriterInterface as AutofixJobWriter;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Service\Spend\SpendCapService;
+use Kelpie\Service\Triage\CodeContextService;
 use Kelpie\Service\Triage\LlmFamilyService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
@@ -83,6 +84,7 @@ final class FixerRunnerService
      * @param SpendCapService     $spendCaps     The daily spend caps
      * @param string              $remoteUrl     The git URL of the project
      * @param ?AgentEditsService  $agentEdits    The fixing agent, tried when the propose model has no usable edit; null for none
+     * @param ?CodeContextService $codeContext   Reads the code a thread is about for triage; null shows triage the thread alone
      */
     public function __construct(
         private readonly Logger $logger,
@@ -103,6 +105,7 @@ final class FixerRunnerService
         private readonly SpendCapService $spendCaps,
         private readonly string $remoteUrl,
         private readonly ?AgentEditsService $agentEdits = null,
+        private readonly ?CodeContextService $codeContext = null,
     ) {
     }
 
@@ -188,7 +191,8 @@ final class FixerRunnerService
 
         try {
             $this->reviewFamily = $this->families->reviewFamily($this->propose->choice($projectPath)->openSource);
-            $verdict            = $this->triageService->triage($thread, null, $steering, $projectPath);
+            $code               = $this->codeContext?->excerpt($project, $sha, $thread);
+            $verdict            = $this->triageService->triage($thread, null, $steering, $projectPath, $code);
             $class              = $verdict->class->value;
 
             [$outcome, $result, $record] = match ($verdict->class) {

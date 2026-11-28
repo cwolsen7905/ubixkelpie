@@ -31,12 +31,13 @@ final class ProposalReactionWebhookService
     /**
      * Constructor
      *
-     * @param Logger              $logger      Logger
-     * @param ThreadActorService  $actors      Who may direct Kelpie
-     * @param ThreadOutcomeReader $outcomes    The record of what Kelpie proposed
-     * @param AutofixJobService   $jobs        The job queue
-     * @param bool                $enabled     Whether autofix may run (KELPIE_AUTOFIX_ENABLED)
-     * @param string              $botUsername The bot's username; its own reactions are ignored
+     * @param Logger                  $logger      Logger
+     * @param ThreadActorService      $actors      Who may direct Kelpie
+     * @param ThreadOutcomeReader     $outcomes    The record of what Kelpie proposed
+     * @param AutofixJobService       $jobs        The job queue
+     * @param bool                    $enabled     Whether autofix may run (KELPIE_AUTOFIX_ENABLED)
+     * @param string                  $botUsername The bot's username; its own reactions are ignored
+     * @param ?IssueAwardEmojiService $ack         Puts the 👀 on the comment reacted to once the job is queued; null for none
      */
     public function __construct(
         private readonly Logger $logger,
@@ -45,6 +46,7 @@ final class ProposalReactionWebhookService
         private readonly AutofixJobService $jobs,
         private readonly bool $enabled = false,
         private readonly string $botUsername = 'kelpie-bot',
+        private readonly ?IssueAwardEmojiService $ack = null,
     ) {
     }
 
@@ -104,6 +106,10 @@ final class ProposalReactionWebhookService
         [$outcome] = $this->jobs->pendingJob(new AutofixJob($path, $mrIid, $row->headSha, $source, $row->discussionId), new DateTimeImmutable());
 
         $this->logger->info('Proposal reaction: queued', ['discussion_id' => $row->discussionId, 'mr_iid' => $mrIid, 'outcome' => $outcome->value, 'source' => $source]);
+        if ($outcome !== EnqueueOutcome::CapExceeded) {
+            // The sign the reaction arrived, at once: the worker's reply comes when the work is done, which may be minutes
+            $this->ack?->acknowledgeNote($projectId, $mrIid, $noteId);
+        }
 
         return match ($outcome) {
             EnqueueOutcome::Enqueued    => 'queued: ' . $source . ' ' . $path . '!' . $mrIid . '#' . $row->discussionId,

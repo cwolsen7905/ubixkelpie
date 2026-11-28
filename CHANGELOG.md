@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A 👍 or 👎 on a proposal is acknowledged at once.** The webhook queued the job and nothing on the merge
+  request changed until the worker finished, which can take minutes with a gate run, so a person could not tell
+  whether Kelpie got the reaction. Kelpie now puts 👀 on the comment as soon as the job is queued (or one is already
+  queued on that thread), as it does on an issue it accepts; the reply with the result follows when the work is done.
+
 - **The fix gate can run in a pod that holds no secrets.** phpcs, phpstan, phpunit and `make check` run the
   repository's own code, including what the fixer wrote, and they ran in the worker next to its Vault login, bot token
   and model key. They now go through a gate executor: with `KELPIE_GATE_URL` set, the worker packs the checkout

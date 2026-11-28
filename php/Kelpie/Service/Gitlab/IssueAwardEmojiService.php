@@ -57,9 +57,34 @@ final class IssueAwardEmojiService
      */
     public function acknowledge(int $projectId, int $issueIid): bool
     {
-        $url = sprintf('%s/projects/%d/issues/%d/award_emoji', $this->apiUrl, $projectId, $issueIid);
+        return $this->award(sprintf('%s/projects/%d/issues/%d/award_emoji', $this->apiUrl, $projectId, $issueIid), ['issue_iid' => $issueIid, 'project_id' => $projectId]);
+    }
 
-        $awards = $this->existing($url, $projectId, $issueIid);
+    /**
+     * Put the 👀 on a merge request comment, once: the sign that Kelpie got a reaction to it and is on it
+     *
+     * @param int $projectId The project id
+     * @param int $mrIid     The merge request number
+     * @param int $noteId    The comment's id
+     *
+     * @return bool Whether an award was added; false when the bot's is there already or GitLab refused
+     */
+    public function acknowledgeNote(int $projectId, int $mrIid, int $noteId): bool
+    {
+        return $this->award(sprintf('%s/projects/%d/merge_requests/%d/notes/%d/award_emoji', $this->apiUrl, $projectId, $mrIid, $noteId), ['mr_iid' => $mrIid, 'note_id' => $noteId, 'project_id' => $projectId]);
+    }
+
+    /**
+     * Award the 👀 at an award_emoji URL unless the bot's is there already
+     *
+     * @param string               $url     The award_emoji URL of the issue or comment
+     * @param array<string, mixed> $context What it is, for the log
+     *
+     * @return bool
+     */
+    private function award(string $url, array $context): bool
+    {
+        $awards = $this->existing($url, $context);
         if ($awards === null || $this->botHasAwarded($awards)) {
             return false;
         }
@@ -67,14 +92,14 @@ final class IssueAwardEmojiService
         try {
             $response = $this->httpClient->sendRequest($this->requestFactory->createRequest('POST', $url . '?name=' . self::EMOJI));
         } catch (ClientException $e) {
-            $this->logger->error('GitLab award emoji: request failed', ['error' => $e->getMessage(), 'issue_iid' => $issueIid, 'project_id' => $projectId]);
+            $this->logger->error('GitLab award emoji: request failed', ['error' => $e->getMessage()] + $context);
 
             return false;
         }
 
         // 404 is what GitLab answers when the award exists already, which is the state we want.
         if ($response->getStatusCode() !== 201) {
-            $this->logger->warning('GitLab award emoji: unexpected HTTP status', ['issue_iid' => $issueIid, 'project_id' => $projectId, 'status' => $response->getStatusCode()]);
+            $this->logger->warning('GitLab award emoji: unexpected HTTP status', ['status' => $response->getStatusCode()] + $context);
 
             return false;
         }
@@ -85,24 +110,23 @@ final class IssueAwardEmojiService
     /**
      * The awards already on the issue
      *
-     * @param string $url       The award_emoji URL
-     * @param int    $projectId The GitLab project ID
-     * @param int    $issueIid  The issue number
+     * @param string               $url     The award_emoji URL
+     * @param array<string, mixed> $context What it is, for the log
      *
      * @return ?array<int|string, mixed> The awards; null when they could not be read
      */
-    private function existing(string $url, int $projectId, int $issueIid): ?array
+    private function existing(string $url, array $context): ?array
     {
         try {
             $response = $this->httpClient->sendRequest($this->requestFactory->createRequest('GET', $url . '?per_page=100'));
         } catch (ClientException $e) {
-            $this->logger->error('GitLab award emoji: list failed', ['error' => $e->getMessage(), 'issue_iid' => $issueIid, 'project_id' => $projectId]);
+            $this->logger->error('GitLab award emoji: list failed', ['error' => $e->getMessage()] + $context);
 
             return null;
         }
 
         if ($response->getStatusCode() !== 200) {
-            $this->logger->warning('GitLab award emoji: unexpected HTTP status', ['issue_iid' => $issueIid, 'project_id' => $projectId, 'status' => $response->getStatusCode()]);
+            $this->logger->warning('GitLab award emoji: unexpected HTTP status', ['status' => $response->getStatusCode()] + $context);
 
             return null;
         }
@@ -117,7 +141,7 @@ final class IssueAwardEmojiService
     }
 
     /**
-     * @param array<int|string, mixed> $awards The issue's awards
+     * @param array<int|string, mixed> $awards The issue's or comment's awards
      *
      * @return bool Whether one of them is the bot's eyes
      */

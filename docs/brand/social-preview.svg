@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <title>uBixKelpie: AI review, triage and fixes for GitLab.</title>
+  <rect width="1280" height="640" fill="#151b21"/>
+  <rect x="0" y="0" width="1280" height="8" fill="#0f62fe"/>
+  <g transform="translate(80 80) scale(3.75)">
+    <rect width="32" height="32" fill="#0f62fe"/>
+    <path d="M9 4l4 7H9z" fill="#ffffff"/><path d="M23 4l-4 7h4z" fill="#ffffff"/><rect x="9" y="11" width="14" height="7" fill="#ffffff"/><path d="M11 18h10l-2 6h-6z" fill="#ffffff"/><rect x="11.5" y="13" width="3" height="3" fill="#0f62fe"/><rect x="17.5" y="13" width="3" height="3" fill="#0f62fe"/><rect x="14" y="24" width="4" height="3" fill="#ffffff" opacity="0.55"/>
+  </g>
+  <g font-family="'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif" fill="#e3e8ec">
+    <text x="80" y="300" font-size="112"><tspan font-weight="300">uBix</tspan><tspan font-weight="600">Kelpie</tspan></text>
+    <text x="84" y="372" font-size="40" fill="#b3bec7">AI review, triage and fixes for GitLab.</text>
+  </g>
+  <!-- findings come in; the safe ones are fixed, the rest go to a person -->
+  <g fill="none" stroke-width="10">
+    <path d="M80 450H560C640 450 640 500 720 500" stroke="#2f7fb0"/>
+    <path d="M80 500H720" stroke="#4a6ee8"/>
+    <path d="M80 550H560C640 550 640 500 720 500" stroke="#8a4fc0"/>
+    <path d="M760 500C840 500 840 450 920 450H1120" stroke="#7fbfa4"/>
+    <path d="M760 500H1120" stroke="#7fbfa4"/>
+    <path d="M760 500C840 500 840 550 920 550H1120" stroke="#b8406f"/>
+  </g>
+  <rect x="716" y="476" width="48" height="48" fill="#e3e8ec"/>
+  <rect x="1130" y="430" width="40" height="40" fill="#42be65"/>
+  <rect x="1130" y="480" width="40" height="40" fill="#42be65"/>
+  <rect x="1130" y="530" width="40" height="40" fill="#e0a43a"/>
+</svg>

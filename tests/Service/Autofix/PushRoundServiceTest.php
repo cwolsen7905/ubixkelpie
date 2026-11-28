@@ -10,6 +10,7 @@ use Kelpie\DataTransferObject\ThreadOutcomeRecord;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\EditApplyService;
@@ -502,7 +503,7 @@ final class PushRoundServiceTest extends UbixConcreteClassOrEnumTestCase impleme
             new ReplyService($logger, $writer, 'kelpie-bot'),
             new EditApplyService($logger),
             new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
-            new IssueGateService($logger, $runner, new GateRunner($logger, $runner)),
+            new IssueGateService($logger, new GateRunner($logger, $runner, new LocalGateExecutor($logger, $runner))),
             $this->outcomes,
             $this->jobs,
             $this->remote,

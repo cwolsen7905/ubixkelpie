@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The fix gate can run in a pod that holds no secrets.** phpcs, phpstan, phpunit and `make check` run the
+  repository's own code, including what the fixer wrote, and they ran in the worker next to its Vault login, bot token
+  and model key. They now go through a gate executor: with `KELPIE_GATE_URL` set, the worker packs the checkout
+  (vendor/ included) and sends it with the steps to the new `kelpie:gate-serve`, which runs one gate run in an empty
+  directory and exits, so its pod restarts clean. The pod (`app/KelpieApi/{dev,main}-gate.yaml`: its own
+  ServiceAccount with no token, no secrets, read-only root, all capabilities dropped, a NetworkPolicy that lets in only
+  the worker and lets nothing out) is not applied by the deploy script and has to be applied by hand. It fails
+  closed: an unreachable pod, a timeout, a non-200 or a malformed answer is "gate unavailable" and nothing is pushed.
+  `composer install` stays in the worker (it needs the registry credential and runs no repository code). With
+  `KELPIE_GATE_URL` unset nothing changes yet. See `docs/security/gate-pod.md`.
+
 - **The fix gate's `composer install` no longer runs composer plugins.** A plugin is dependency code a merge request
   controls through `composer.lock`, and it ran in the worker next to Kelpie's secrets. `GateRunner` now passes
   `--no-plugins` with `--no-scripts`, and the command list refuses `composer install` without both. phpcs finds its

@@ -14,6 +14,7 @@ use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\EditApplyService;
@@ -385,7 +386,7 @@ final class PushRoundBatchServiceTest extends UbixConcreteClassOrEnumTestCase im
                 $replies,
                 new EditApplyService($logger),
                 new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
-                new IssueGateService($logger, $this->gateRunner, new GateRunner($logger, $this->gateRunner)),
+                new IssueGateService($logger, new GateRunner($logger, $this->gateRunner, new LocalGateExecutor($logger, $this->gateRunner))),
                 $this->outcomes,
                 $this->jobs,
                 $this->remote,

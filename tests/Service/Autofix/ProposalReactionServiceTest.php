@@ -10,6 +10,7 @@ use Kelpie\Enum\ProjectMode;
 use Kelpie\Enum\ThreadOutcome;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\GateRunner;
+use Kelpie\Sandbox\LocalGateExecutor;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Service\Autofix\EditApplyService;
@@ -451,7 +452,7 @@ final class ProposalReactionServiceTest extends UbixConcreteClassOrEnumTestCase 
                 $replies,
                 new EditApplyService($logger),
                 new Checkout($logger, new ProcOpenProcessRunner($logger), 'tok-not-real'),
-                new IssueGateService($logger, $gate ?? $this->gateRunner, new GateRunner($logger, $gate ?? $this->gateRunner)),
+                new IssueGateService($logger, new GateRunner($logger, $gate ?? $this->gateRunner, new LocalGateExecutor($logger, $gate ?? $this->gateRunner))),
                 $this->outcomes,
                 $this->jobs,
                 $remote ?? $this->remote,

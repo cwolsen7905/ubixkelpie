@@ -10,6 +10,7 @@ use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
+use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Service\Project\ProjectModeService;
@@ -30,7 +31,8 @@ final class ProposalReactionBuilderService
      * @param Logger              $logger        Logger
      * @param GitlabClientFactory $gitlab        Makes the bot's GitLab client
      * @param AutofixJobService   $jobs          The job queue
-     * @param ProcessRunner       $processRunner Runs git and the gate
+     * @param ProcessRunner       $processRunner Runs git and the gate's composer install
+     * @param GateExecutor        $gateExecutor  Where the gate's steps run (here, or the gate pod)
      * @param ThreadOutcomeReader $reader        The record of what Kelpie proposed
      * @param ThreadOutcomeWriter $outcomes      Where the proposal's fate is written
      * @param JsonService         $json          JSON service
@@ -42,6 +44,7 @@ final class ProposalReactionBuilderService
         private readonly GitlabClientFactory $gitlab,
         private readonly AutofixJobService $jobs,
         private readonly ProcessRunner $processRunner,
+        private readonly GateExecutor $gateExecutor,
         private readonly ThreadOutcomeReader $reader,
         private readonly ThreadOutcomeWriter $outcomes,
         private readonly JsonService $json,
@@ -106,7 +109,7 @@ final class ProposalReactionBuilderService
             $replies,
             new EditApplyService($this->logger),
             new Checkout($this->logger, $this->processRunner, $this->settings->botToken),
-            new IssueGateService($this->logger, $this->processRunner, new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth)),
+            new IssueGateService($this->logger, new GateRunner($this->logger, $this->processRunner, $this->gateExecutor, $this->settings->composerAuth)),
             $this->outcomes,
             $this->jobs->writer(),
             $this->settings->gitBaseUrl . '/' . $projectPath . '.git',

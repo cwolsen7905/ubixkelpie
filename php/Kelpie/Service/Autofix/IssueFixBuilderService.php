@@ -10,6 +10,7 @@ use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Repository\Project\ProjectReaderInterface as ProjectReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
 use Kelpie\Sandbox\Checkout;
+use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\GateRunner;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Service\Spend\SpendCapService;
@@ -29,6 +30,7 @@ final class IssueFixBuilderService
      * @param GitlabClientFactory      $gitlab        The GitLab client factory
      * @param IssueProposeEditsService $propose       Asks the propose model for edits
      * @param ProcessRunner            $processRunner The process runner
+     * @param GateExecutor             $gateExecutor  Where the gate's steps run (here, or the gate pod)
      * @param ProjectReader            $projects      The projects
      * @param SpendCapService          $spendCaps     The daily spend caps
      * @param ThreadOutcomeWriter      $outcomes      The outcome record
@@ -41,6 +43,7 @@ final class IssueFixBuilderService
         private readonly GitlabClientFactory $gitlab,
         private readonly IssueProposeEditsService $propose,
         private readonly ProcessRunner $processRunner,
+        private readonly GateExecutor $gateExecutor,
         private readonly ProjectReader $projects,
         private readonly SpendCapService $spendCaps,
         private readonly ThreadOutcomeWriter $outcomes,
@@ -63,7 +66,7 @@ final class IssueFixBuilderService
             $this->propose,
             new EditApplyService($this->logger),
             new SafetyPolicy($this->logger),
-            new IssueGateService($this->logger, $this->processRunner, new GateRunner($this->logger, $this->processRunner, $this->settings->composerAuth)),
+            new IssueGateService($this->logger, new GateRunner($this->logger, $this->processRunner, $this->gateExecutor, $this->settings->composerAuth)),
             new Checkout($this->logger, $this->processRunner, $this->settings->botToken),
             $this->spendCaps,
             $this->projects,

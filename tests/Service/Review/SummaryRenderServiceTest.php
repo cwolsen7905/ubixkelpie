@@ -23,6 +23,7 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - A line starting with `/` in model or diff text cannot be a GitLab quick action
  * - The stamp names model, effort (or "default"), tokens and cost after a model call, and says "no model call" otherwise
  * - A thread body carries the marker with the finding id and the commit, which the next run reads back
+ * - The summary marker records each round's commit and the note lists them, since the note is edited in place
  * - A clean review is a plain note naming model, commit and files; a review with findings counts them and lists what opened no thread
  *
  * @coversDefaultClass \Kelpie\Service\Review\SummaryRenderService
@@ -85,6 +86,25 @@ final class SummaryRenderServiceTest extends UbixConcreteClassOrEnumTestCase imp
 
         $this->assertStringStartsWith('<!-- ai-review:summary round=2 sha=abcdef1234567890abcdef1234567890abcdef12 -->' . "\nBODY", $note);
         $this->assertStringEndsWith("\n\nSTAMP", $note);
+    }
+
+    /**
+     * The marker records the commit of each round, and the note says which commit each round was, so a note edited in
+     * place is not read as written when it was first posted
+     *
+     * @return void
+     */
+    public function testNoteListsTheRounds(): void
+    {
+        $note = $this->render()->note(SettingsBuilder::make(), 'BODY', 3, 'STAMP', ['53ad148a', 'f785ad5d', '086792ee']);
+
+        $this->assertStringStartsWith('<!-- ai-review:summary round=3 sha=abcdef1234567890abcdef1234567890abcdef12 rounds=53ad148a,f785ad5d,086792ee -->' . "\nBODY", $note);
+        $this->assertStringContainsString("\n\n_Rounds so far: 1 on `53ad148a`, 2 on `f785ad5d`, 3 on `086792ee`. This note is replaced on each push, so the time GitLab shows on it is when it was first posted._\n\nSTAMP", $note);
+
+        // A note from before the list knows fewer commits than rounds: they are numbered back from the last
+        $this->assertStringStartsWith('_Rounds so far: 4 on `aaaa1111`, 5 on `bbbb2222`.', $this->render()->rounds(['aaaa1111', 'bbbb2222'], 5));
+        $this->assertSame('', $this->render()->rounds([], 3));
+        $this->assertSame('', $this->render()->rounds(['aaaa1111'], 0));
     }
 
     /**

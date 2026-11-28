@@ -256,6 +256,26 @@ final class FakeReviewGitlab implements HttpClient
     }
 
     /**
+     * Resolve every resolvable thread, as a person does after fixing what each said
+     *
+     * @return self
+     */
+    public function resolveAll(): self
+    {
+        foreach ($this->discussions as $d => $discussion) {
+            $notes = is_array($discussion['notes'] ?? null) ? $discussion['notes'] : [];
+            foreach ($notes as $n => $note) {
+                if (is_array($note) && ($note['resolved'] ?? null) === false) {
+                    $notes[$n] = ['resolved' => true] + $note;
+                }
+            }
+            $this->discussions[$d]['notes'] = $notes;
+        }
+
+        return $this;
+    }
+
+    /**
      * Every request: method, path and decoded body
      *
      * @return list<array{method: string, path: string, body: array<mixed>}>

@@ -45,7 +45,7 @@ final class FindingMemoryService
     {
         $open      = [];
         $dismissed = [];
-        $summary   = [null, 0, ''];
+        $summary   = [null, 0, '', []];
 
         foreach ($discussions as $discussion) {
             $notes = is_array($discussion) && is_array($discussion['notes'] ?? null) ? array_values(array_filter($discussion['notes'], 'is_array')) : [];
@@ -59,7 +59,8 @@ final class FindingMemoryService
                     $summary[0] === null && str_starts_with($body, $settings->summaryMarker) && is_int($note['id'] ?? null)
                     && preg_match('~round=(\d+) sha=([0-9a-f]+)~', $body, $m) === 1
                 ) {
-                    $summary = [$note['id'], (int) $m[1], $m[2]];
+                    $commits = preg_match('~ rounds=([0-9a-f,]+)~', $body, $r) === 1 ? array_values(array_diff(explode(',', $r[1]), [''])) : [];
+                    $summary = [$note['id'], (int) $m[1], $m[2], $commits];
                 }
             }
 
@@ -80,7 +81,7 @@ final class FindingMemoryService
             }
         }
 
-        return new ThreadMemory(array_values($open), array_values($dismissed), $summary[0], $summary[1], $summary[2]);
+        return new ThreadMemory(array_values($open), array_values($dismissed), $summary[0], $summary[1], $summary[2], $summary[3]);
     }
 
     /**

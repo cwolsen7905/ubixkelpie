@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Kelpie\Tests\Sandbox;
 
 use Closure;
+use Kelpie\DataTransferObject\ProcessResult;
 use Kelpie\Sandbox\ContainerProcessReaper;
+use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
@@ -17,8 +19,11 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * - Not PID 1, it refuses and kills nothing (kill(-1) would reach the user's other processes)
  * - As PID 1 it kills, then reads the process list: only itself and zombies left is clear
  * - A process that is still running after every attempt, or a process list it cannot read, is a refusal
+ * - Without posix_kill it runs the kill program: exactly `<kill> -9 -1`, no shell, from /, with PATH only; exit 0 or 1
+ *   (nothing left to signal) goes on to the check; one that fails otherwise, or no kill program, is a refusal
  *
- * The kill is injected and /proc is a fixture: nothing here signals a real process.
+ * The kill is injected (a closure, or a scripted runner for the kill program) and /proc is a fixture: nothing here
+ * signals a real process, and the posix path is never taken.
  *
  * @coversDefaultClass \Kelpie\Sandbox\ContainerProcessReaper
  */
@@ -45,11 +50,11 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
      */
     public function testRefusesWhenNotPidOne(): void
     {
-        $reaper = new ContainerProcessReaper($this->createStub(Logger::class), $this->proc, 4242, $this->kill());
+        $reaper = new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner(), $this->proc, 4242, $this->kill());
 
         $this->assertStringContainsString('not PID 1', $reaper->reap());
         $this->assertSame(0, $this->kills);
-        $this->assertStringContainsString('not PID 1', (new ContainerProcessReaper($this->createStub(Logger::class)))->reap());
+        $this->assertStringContainsString('not PID 1', (new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner()))->reap());
     }
 
     /**
@@ -91,9 +96,59 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
      */
     public function testUnreadableProcessList(): void
     {
-        $reaper = new ContainerProcessReaper($this->createStub(Logger::class), $this->proc . '/missing', 1, $this->kill());
+        $reaper = new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner(), $this->proc . '/missing', 1, $this->kill());
 
         $this->assertStringContainsString('cannot be read', $reaper->reap());
+    }
+
+    /**
+     * Without posix_kill the kill program runs, as exactly `<kill> -9 -1`, and a clear /proc is clear
+     *
+     * @return void
+     */
+    public function testFallsBackToTheKillProgram(): void
+    {
+        $this->process(1, 'php', 'S');
+        foreach ([0, 1] as $exit) {
+            $runner = $this->createMock(ProcessRunner::class);
+            $runner->expects($this->once())->method('run')->with([$this->killProgram(), '-9', '-1'], '/', ['PATH' => '/usr/local/bin:/usr/bin:/bin'], $this->greaterThan(0))
+                ->willReturn(new ProcessResult($exit, '', $exit === 1 ? 'kill: can\'t kill pid -1: No such process' : ''));
+
+            $reaper = new ContainerProcessReaper($this->createStub(Logger::class), $runner, $this->proc, 1, null, false, $this->killProgram());
+
+            $this->assertSame('', $reaper->reap(), 'exit ' . $exit);
+        }
+    }
+
+    /**
+     * A kill program that fails, times out or cannot start is a refusal, and the check is not reached
+     *
+     * @return void
+     */
+    public function testFailingKillProgramIsARefusal(): void
+    {
+        foreach ([new ProcessResult(2, '', 'bad'), new ProcessResult(-1, '', 'Could not start the process.'), new ProcessResult(-1, '', '', true), new ProcessResult(127, '', 'not found')] as $result) {
+            $runner = $this->createMock(ProcessRunner::class);
+            $runner->expects($this->once())->method('run')->willReturn($result);
+
+            $reaper = new ContainerProcessReaper($this->createStub(Logger::class), $runner, $this->proc . '/missing', 1, null, false, $this->killProgram());
+
+            $this->assertSame('the kill program failed (exit ' . $result->exitCode . ')', $reaper->reap());
+        }
+    }
+
+    /**
+     * Neither posix_kill nor a kill program: a refusal, and nothing is run
+     *
+     * @return void
+     */
+    public function testNoWayToKillIsARefusal(): void
+    {
+        $runner = new ScriptedProcessRunner();
+        $reaper = new ContainerProcessReaper($this->createStub(Logger::class), $runner, $this->proc, 1, null, false, $this->proc . '/no-kill-here');
+
+        $this->assertSame('neither posix_kill nor a kill program is available', $reaper->reap());
+        $this->assertSame([], $runner->calls());
     }
 
     /**
@@ -112,6 +167,7 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
     protected function tearDown(): void
     {
         GateFixtures::remove($this->proc);
+        GateFixtures::remove($this->proc . '-kill');
         parent::tearDown();
     }
 
@@ -122,7 +178,23 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
      */
     private function reaper(): ContainerProcessReaper
     {
-        return new ContainerProcessReaper($this->createStub(Logger::class), $this->proc, 1, $this->kill());
+        return new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner(), $this->proc, 1, $this->kill());
+    }
+
+    /**
+     * An executable file standing in for the kill program (the runner is scripted: it is never run)
+     *
+     * @return string
+     */
+    private function killProgram(): string
+    {
+        $path = $this->proc . '-kill';
+        if (!is_file($path)) {
+            file_put_contents($path, "#!/bin/sh\nexit 0\n");
+            chmod($path, 0755);
+        }
+
+        return $path;
     }
 
     /**

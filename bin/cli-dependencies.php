@@ -67,7 +67,8 @@ return static function (): Container {
     // The gate pod's server checks every step itself and wraps it, so it runs them with the plain runner. Between runs it
     // clears the container from PID 1 (it refuses, without killing anything, when it is not PID 1).
     $container->set(GateServer::class, autowire(GateServer::class)->constructorParameter('runner', get(ProcOpenProcessRunner::class)));
-    $container->set(ProcessReaper::class, autowire(ContainerProcessReaper::class));
+    // Its kill program (when posix is not loaded) is Kelpie's own, not a gate step, so it too runs with the plain runner.
+    $container->set(ProcessReaper::class, autowire(ContainerProcessReaper::class)->constructorParameter('runner', get(ProcOpenProcessRunner::class)));
     $container->set(
         FixerAgent::class,
         autowire(ClaudeCliFixerAgent::class)

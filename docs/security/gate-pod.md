@@ -70,7 +70,11 @@ The server serves runs one at a time and, after every run, resets the container 
    shell in front, and `command` replaces the image's entrypoint. From PID 1, `kill(-1, SIGKILL)` reaches every
    process in the container's PID namespace except PID 1 itself, so whatever a run left running (a background
    process, a daemon that detached itself, a `kubectl exec` session) is gone. `ContainerProcessReaper` sends it
-   with `posix_kill()` (posix is built into the PHP image), then reads `/proc` and repeats until nothing but the
+   with `posix_kill()` when the posix extension is loaded. The Kelpie image does not load posix (nor pcntl), so there
+   it runs the image's `kill` program as a child: argv `<kill> -9 -1`, no shell, found on PATH or in `/bin`,
+   `/usr/bin`. From a child of PID 1, kill(-1) reaches everything but PID 1 and the kill process itself. Exit 1 (kill
+   found nothing left to signal) is fine; any other failure, or no kill program at all, fails the reset. Then it
+   reads `/proc` and repeats until nothing but the
    server and zombies (dead processes waiting to be reaped, which run nothing) is listed, for up to about two
    seconds. A process the kubelet starts for the readiness probe may be killed on the way; that only fails one probe,
    at a moment the pod is not ready anyway.
@@ -83,10 +87,12 @@ developer's machine, a test) the reaper refuses without killing anything, becaus
 would reach every process of the user; the first reset then fails and the server exits 1. After
 `KELPIE_GATE_MAX_RUNS` runs (100 by default) the server exits 0 anyway and a fresh container starts: belt and braces.
 
-Why `posix_kill()` from PID 1 rather than a helper running `kill -9 -1`: it is one call in the server, it needs no
-extra program on the gate step list or in the image, and the check that follows proves the result either way. The
-image has no `pcntl`, so the server cannot reap the zombies a kill leaves; they hold a process table entry and nothing
-else, and the run limit bounds how many can pile up.
+Why both: `posix_kill()` is one call and needs no program, so it is used where it exists; the image has no posix, so
+there the kill program does the same. It is Kelpie's own call, not a gate step, so it does not go through the gate
+step list. The kill child inherits the server's listening socket (only stdin, stdout and stderr are set up for it),
+which does not matter: it is the image's own `kill`, runs no repository code, and exits at once. The `/proc` check
+afterwards proves the result whichever way it was sent. Without `pcntl` the server cannot reap the zombies a kill
+leaves; they hold a process table entry and nothing else, and the run limit bounds how many can pile up.
 
 ## The pod's controls
 

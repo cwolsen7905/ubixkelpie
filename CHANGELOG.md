@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A 👍 or 👎 on a proposal is acknowledged at once.** The webhook queued the job and nothing on the merge
+  request changed until the worker finished, which can take minutes with a gate run, so a person could not tell
+  whether Kelpie got the reaction. Kelpie now puts 👀 on the comment as soon as the job is queued (or one is already
+  queued on that thread), as it does on an issue it accepts; the reply with the result follows when the work is done.
+
 - **The gate pod serves many runs and resets between them, instead of exiting after one.** Kubernetes backs off the
   restarts of a container that keeps exiting, even with exit 0, so with one replica gate runs in quick succession
   stalled and then failed closed as "gate unavailable". `kelpie:gate-serve` now stays up: after every run it kills

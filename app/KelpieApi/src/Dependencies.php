@@ -172,9 +172,11 @@ return static function (): Container {
         // Thumbs on a proposal and "Triage:" replies (K-32): queued as jobs for `kelpie:work`, never run in the webhook.
         ThreadOutcomeReader::class            => autowire(ThreadOutcomeSqlRepository::class),
         ThreadOutcomeWriter::class            => autowire(ThreadOutcomeSqlRepository::class),
+        // The 👀 on a proposal reacted to is the sign Kelpie got it; the worker's reply follows when the work is done.
         ProposalReactionWebhookService::class => autowire()
             ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true))
-            ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot'),
+            ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot')
+            ->constructorParameter('ack', get(IssueAwardEmojiService::class)),
         TriageReplyService::class             => autowire()
             ->constructorParameter('enabled', in_array(strtolower(getenv('KELPIE_AUTOFIX_ENABLED') ?: ''), ['1', 'true', 'yes', 'on'], true))
             ->constructorParameter('botUsername', getenv('KELPIE_BOT_USERNAME') ?: 'kelpie-bot'),

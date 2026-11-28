@@ -51,6 +51,23 @@ final class IssueAwardEmojiServiceTest extends UbixConcreteClassOrEnumTestCase i
     }
 
     /**
+     * A merge request comment gets the 👀 the same way, once
+     *
+     * @return void
+     */
+    public function testAMergeRequestCommentGetsEyesOnce(): void
+    {
+        $client = StubHttpClient::awards('[]');
+        $this->assertTrue($this->service($client)->acknowledgeNote(42, 3, 105));
+        $this->assertSame(['GET /api/v4/projects/42/merge_requests/3/notes/105/award_emoji', 'POST /api/v4/projects/42/merge_requests/3/notes/105/award_emoji'], $client->requests());
+        $this->assertSame(['GET per_page=100', 'POST name=eyes'], $client->queries());
+
+        $again = StubHttpClient::awards('[{"name":"eyes","user":{"username":"kelpie-bot"}}]');
+        $this->assertFalse($this->service($again)->acknowledgeNote(42, 3, 105));
+        $this->assertCount(1, $again->requests());
+    }
+
+    /**
      * The request names the eyes emoji
      *
      * @return void

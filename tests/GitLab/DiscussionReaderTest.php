@@ -154,7 +154,7 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertSame('alice', $quoted->replies[0]['author']);
 
         $long = $this->threadOf([$this->note(1, 'reviewer', 'Use the new key.'), $this->note(2, 'alice', str_repeat('a', 2500))]);
-        $this->assertSame(['author' => 'alice', 'body' => str_repeat('a', 2000)], $long->replies[0]);
+        $this->assertSame(['author' => 'alice', 'body' => str_repeat('a', 2000) . "\n" . DiscussionReader::CUT_NOTE], $long->replies[0]);
         $this->assertSame(0, $long->earlierReplies);
     }
 

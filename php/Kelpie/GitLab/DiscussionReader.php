@@ -24,6 +24,11 @@ use Ubix\Service\JsonService;
 final class DiscussionReader
 {
     /**
+     * Ends a reply that was cut, so the model knows it did not see all of it
+     */
+    public const string CUT_NOTE = '[reply cut: the rest is not shown]';
+
+    /**
      * Discussions requested per page (the GitLab maximum)
      */
     private const int PER_PAGE = 100;
@@ -327,7 +332,10 @@ final class DiscussionReader
             if (trim($body) === '' || preg_match(self::OWN_NOTE, $body) === 1) {
                 continue;
             }
-            $replies[] = ['author' => is_string($author) ? $author : '', 'body' => mb_substr($body, 0, self::REPLY_CHARS)];
+            if (mb_strlen($body) > self::REPLY_CHARS) {
+                $body = mb_substr($body, 0, self::REPLY_CHARS) . "\n" . self::CUT_NOTE;
+            }
+            $replies[] = ['author' => is_string($author) ? $author : '', 'body' => $body];
         }
 
         return $replies;

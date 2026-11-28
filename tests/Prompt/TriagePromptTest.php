@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Prompt;
 
 use DateTimeImmutable;
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\GitLab\DiscussionReader;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
@@ -143,6 +144,7 @@ final class TriagePromptTest extends UbixConcreteClassOrEnumTestCase implements 
         $cut = new Thread('abc', 1, 'reviewer', 'Rename this.', false, 9, $now, $now, 'a.php', 3, [['author' => 'bob', 'body' => 'Please fix.']], 2);
         $this->assertStringContainsString("</review_thread>\n(2 earlier replies not shown)\n<reply author=\"bob\">", $prompt->forThread($cut));
         $this->assertStringContainsString('earlier replies are not shown', $prompt->system());
+        $this->assertStringContainsString('"' . DiscussionReader::CUT_NOTE . '"', $prompt->system());
 
         $this->assertStringNotContainsString('<reply', $prompt->forThread($this->thread('Rename this.', 'a.php', 3, 'alice')));
     }

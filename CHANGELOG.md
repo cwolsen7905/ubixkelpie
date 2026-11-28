@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A 👍 on a proposal pushes it in propose mode too.** Every proposal said "react 👍 to have me push it", but only a
+  project in push mode could; in propose mode the 👍 got "not set to let me push" (seen on !125). A thumbs-up from the
+  MR's author or a maintainer is now the go-ahead for that one proposal in propose mode as well: gated, then pushed,
+  as in push mode. Push mode still also pushes rounds without asking; a project that is off pushes nothing. See the
+  table in `docs/autofix/push-mode.md`.
+
 - **The fix gate can run in a pod that holds no secrets.** phpcs, phpstan, phpunit and `make check` run the
   repository's own code, including what the fixer wrote, and they ran in the worker next to its Vault login, bot token
   and model key. They now go through a gate executor: with `KELPIE_GATE_URL` set, the worker packs the checkout

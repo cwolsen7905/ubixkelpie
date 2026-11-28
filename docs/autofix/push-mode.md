@@ -4,6 +4,14 @@ Push mode lets Kelpie fix review threads on an MR without a person pressing a bu
 off unless the project's row says `push`; enrolling a project and switching it to push are the
 maintainer's decisions, made per project.
 
+| Mode | A proposal is pushed |
+|---|---|
+| `off` | Never |
+| `propose` | When the MR's author or a maintainer gives that proposal a 👍: one proposal, gated, then pushed |
+| `push` | By a 👍, as in propose mode, and also in an automatic round (below) without asking |
+
+Kelpie puts 👀 on a proposal as soon as a 👍 or 👎 on it is queued; the result follows as a reply.
+
 ## What starts a round
 
 1. The webhook writes a job for a thread; the worker runs it and, as in propose mode, stores a

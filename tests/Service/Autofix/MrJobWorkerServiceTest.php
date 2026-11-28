@@ -329,18 +329,19 @@ final class MrJobWorkerServiceTest extends UbixConcreteClassOrEnumTestCase imple
     }
 
     /**
-     * A thumbs-up job in a project that is only in propose mode is handled without a push: the reply says so, no retry
+     * A thumbs-up job in a project that is off is handled without a push: the reply says so, no retry (propose mode
+     * pushes on a thumbs-up: ProposalReactionServiceTest)
      *
      * @return void
      */
-    public function testAnApplyJobInProposeModeIsNotPushed(): void
+    public function testAnApplyJobInAnOffProjectIsNotPushed(): void
     {
         $this->gitlab->note('d1abc123', 'Kelpie proposes this change.', id: 105, author: 'kelpie-bot');
         $writer = $this->createMock(AutofixJobWriter::class);
         $writer->expects($this->once())->method('markDone')->with(7);
         $writer->expects($this->never())->method('markRetry');
 
-        $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'apply')), $writer, true, ProjectMode::Propose)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
+        $this->service($this->readerOf($this->job('d1abc123', 1, 3, self::HEAD, 'apply')), $writer, true, ProjectMode::Off)->step(true, ['ubixsys/ubixkelpie'], new DateTimeImmutable());
 
         $notes = $this->gitlab->notes()['d1abc123'];
         $this->assertStringContainsString('class=not-pushed', $notes[count($notes) - 1]['body']);

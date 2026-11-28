@@ -6,6 +6,7 @@ namespace Kelpie\Tests\Prompt;
 
 use Kelpie\DataTransferObject\IssueDetails;
 use Kelpie\Prompt\IssueTriagePrompt;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 use Ubix\Tests\AbstractUbixConcreteClassOrEnumTestCase as UbixConcreteClassOrEnumTestCase;
 use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrEnumTestCase;
@@ -117,7 +118,7 @@ final class IssueTriagePromptTest extends UbixConcreteClassOrEnumTestCase implem
      */
     private function prompt(): IssueTriagePrompt
     {
-        return new IssueTriagePrompt($this->createStub(Logger::class));
+        return new IssueTriagePrompt($this->createStub(Logger::class), new ContextScanner($this->createStub(Logger::class)));
     }
 
     /**

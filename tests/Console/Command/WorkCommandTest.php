@@ -9,6 +9,7 @@ use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Triage\WorkRunService;
 use Kelpie\Tests\Repository\IssueTriageJob\InMemoryIssueQueue;
 use Kelpie\Tests\Service\Autofix\IssueFixFixtures;
@@ -104,7 +105,7 @@ final class WorkCommandTest extends UbixConcreteClassOrEnumTestCase implements I
             new InMemoryIssueQueue(),
             new InMemoryIssueQueue(),
             new OpenRouterClient($logger, $http, $factory, $factory, $json),
-            new IssueTriagePrompt($logger),
+            new IssueTriagePrompt($logger, new ContextScanner($logger)),
             $json,
             $settings,
             $services->jobs(),

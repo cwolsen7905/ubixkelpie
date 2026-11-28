@@ -7,6 +7,7 @@ namespace Kelpie\Tests\Service\Review;
 use Kelpie\GitLab\Review\ReviewGitlab;
 use Kelpie\OpenRouter\Review\ReviewChatClient;
 use Kelpie\Prompt\Review\ReviewPrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Review\FindingMemoryService;
 use Kelpie\Service\Review\RepoGitService;
 use Kelpie\Service\Review\RepoToolsService;
@@ -73,7 +74,7 @@ final class ReviewHarness
             $this->reviewGitlab,
             $repoGit,
             new SkipPolicyService($logger),
-            new StandardsService($logger, $repoGit),
+            new StandardsService($logger, new ContextScanner($logger), $repoGit),
             $this->memory,
             new ReviewPrompt($logger),
             $this->modelService,

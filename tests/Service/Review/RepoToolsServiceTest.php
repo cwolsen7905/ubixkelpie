@@ -102,6 +102,47 @@ final class RepoToolsServiceTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * Credential files are never read, grepped or listed, whatever the model asks; templates and look-alikes stay
+     * readable; a path trick does not reach them
+     *
+     * @return void
+     */
+    public function testSecretFilesAreNeverSentToTheModel(): void
+    {
+        $repo = new TempRepo([
+            '.aws/config'        => 'hunter2-not-real',
+            '.env'               => 'DB_PASSWORD=hunter2-not-real',
+            '.env.example'       => 'DB_PASSWORD=change-me',
+            '.env.production'    => 'API_TOKEN=hunter2-not-real',
+            'auth.json'          => '{"token": "hunter2-not-real"}',
+            'config/server.pem'  => '-----BEGIN PRIVATE KEY----- hunter2-not-real',
+            'deploy/id_ed25519'  => 'hunter2-not-real',
+            'docs/env.md'        => 'Copy .env.example to .env.',
+            'src/KeyService.php' => '<?php // reads keys',
+        ]);
+
+        try {
+            $tools = $this->tools();
+            foreach (['.env', '.env.production', 'config/server.pem', 'deploy/id_ed25519', '.aws/config', 'auth.json', 'src/../.env', './config/server.pem', 'CONFIG/../.env'] as $path) {
+                $out = $tools->run($repo->path(), 'read', ['path' => $path]);
+                $this->assertStringNotContainsString('hunter2', $out, $path);
+            }
+            $this->assertStringNotContainsString('hunter2', $tools->run($repo->path(), 'grep', ['pattern' => 'hunter2']));
+            $this->assertStringNotContainsString('hunter2', $tools->run($repo->path(), 'grep', ['path' => '.env', 'pattern' => '.']));
+            $listed = $tools->run($repo->path(), 'glob', ['pattern' => '**']);
+            foreach (['.env.production', 'server.pem', 'id_ed25519', '.aws', 'auth.json'] as $name) {
+                $this->assertStringNotContainsString($name, $listed, $name);
+            }
+
+            $this->assertStringContainsString('change-me', $tools->run($repo->path(), 'read', ['path' => '.env.example']));
+            $this->assertStringContainsString('Copy .env.example', $tools->run($repo->path(), 'read', ['path' => 'docs/env.md']));
+            $this->assertStringContainsString('reads keys', $tools->run($repo->path(), 'read', ['path' => 'src/KeyService.php']));
+        } finally {
+            $repo->remove();
+        }
+    }
+
+    /**
      * Grep finds lines with their numbers, honours path and include, and skips vendor and binary files
      *
      * @return void

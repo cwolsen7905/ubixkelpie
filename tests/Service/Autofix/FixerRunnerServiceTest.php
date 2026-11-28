@@ -17,6 +17,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Sandbox\Checkout;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\AgentEditsService;
 use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\EditApplyService;
@@ -863,8 +864,8 @@ final class FixerRunnerServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $writer,
             new ClaimService($logger, $writer, 1800),
             new ReplyService($logger, $writer, 'kelpie-bot'),
-            new TriageService($logger, $open, new TriagePrompt($logger), new SafetyPolicy($logger), $json, $families, TriageLlms::make($logger)),
-            new ProposeEditsService($logger, $open, new ProposePrompt($logger), $families, $json, TriageLlms::make($logger)),
+            new TriageService($logger, $open, new TriagePrompt($logger, new ContextScanner($logger)), new SafetyPolicy($logger), $json, $families, TriageLlms::make($logger)),
+            new ProposeEditsService($logger, $open, new ProposePrompt($logger, new ContextScanner($logger)), $families, $json, TriageLlms::make($logger)),
             new EditApplyService($logger),
             new TriageStatusService($logger, $writer),
             new SafetyPolicy($logger),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Prompt;
 
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -24,10 +25,12 @@ final class ProposePrompt
     /**
      * Constructor
      *
-     * @param Logger $logger Logger
+     * @param Logger         $logger  Logger
+     * @param ContextScanner $scanner Scans untrusted text before it reaches a model
      */
     public function __construct(
         private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; the prompt has nothing to log)
+        private readonly ContextScanner $scanner,
     ) {
     }
 
@@ -75,7 +78,7 @@ PROMPT;
         $line        = $thread->line === null ? '' : ' near line ' . $thread->line;
         $note        = $partial ? "\nThe file is shown in part; `old` must still be text that appears in it.\n" : '';
 
-        $body = $this->defuse($thread->body, $threadFence);
+        $body = $this->defuse($this->scanner->quote($thread->body, 'thread note by ' . $thread->author), $threadFence);
         $text = $this->defuse($content, $fileFence);
         $why  = $this->defuse($reason, $threadFence);
 

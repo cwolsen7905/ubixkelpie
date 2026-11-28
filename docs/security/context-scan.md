@@ -6,7 +6,9 @@ every prompt, triage still has no tools, and the fixer still has no token. These
 ## 1. Scanning text before a model
 
 `ContextScanner::scan($text, $source, $fromKelpie)` returns the cleaned text and the kinds found.
-`ContextScanner::guide($path, $text)` returns a repo guide unchanged, or null when anything was found.
+`ContextScanner::guide($path, $text)` returns a repo guide cleaned, or null when it tries to steer the model.
+`ContextScanner::quote($text, $source)` returns forge text cleaned for a prompt, with a one-line flag in front when it
+tries to steer the model.
 
 | Kind | What it matches |
 |---|---|
@@ -21,12 +23,15 @@ Plain prose that merely tells a reader to follow a guide is not a hit: the verb 
 
 ### What a hit does
 
-- **Repo guide** (`.ai-review.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`): the guide is skipped whole and
-  the path is logged.
+- **Repo guide** (`.ai-review.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/standards/*.md`): a phrase or a
+  secret path skips the guide whole and logs the path. Stray markup alone (an HTML comment, an invisible character) is
+  defused and the guide is kept: standards files carry harmless comments, such as a spell-checker note, and dropping
+  them would silently take a project's standards out of every review.
 - **MR description, thread note, issue body, job log**: the text is kept as a quotation. Comments are defused
   (`<! -- ... -- >`), invisible and bidirectional characters are removed, and the caller fences the result as
-  data. `isSuspicious($kinds)` is true for a phrase or a secret path, so the caller can tell the model the text
-  is untrusted.
+  data. When `isSuspicious($kinds)` is true (a phrase or a secret path), `quote()` puts a line in front saying the
+  text tries to steer the model and is data. In prompts, Kelpie's own marker shapes are kept whoever wrote them:
+  they hold only `key=value` words, carry no instruction, and nothing reads them back from a prompt.
 - Every hit is logged as a warning with its source and a short excerpt, never the full text.
 - A hit never stops a run, never sets a label and never approves anything.
 
@@ -47,15 +52,18 @@ writes them.
 |---|---|
 | `read_repo` | model tools `read`, `grep`, `glob` |
 | `edit_files` | the `claude` CLI with `--allowedTools` limited to Read, Grep, Glob, Edit, Write, and no permission-skipping switch |
-| `run_gate` | `composer install` with `--no-scripts`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit` |
+| `run_gate` | `composer install` with `--no-scripts`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit`, exactly `make check` |
 | `git_read` | `git diff, show, ls-tree, cat-file, rev-parse, status, log` |
-| `git_checkout` | `git clone, fetch, checkout, add`, without options that run a program or hook (`--template`, `--config`, `-c`, `--upload-pack`, `-u`, `--receive-pack`, `--exec`, `--server-option`, `--reference`, `--separate-git-dir`, `--recurse-submodules`, and any abbreviation of them), without a `::`, `file:`, `ext:` or `fd:` transport, and with only https URLs |
+| `git_checkout` | `git clone, fetch, checkout, add`, without options that run a program or hook (`--template`, `--config`, `-c`, `--upload-pack`, `-u`, `--receive-pack`, `--exec`, `--server-option`, `--reference`, `--separate-git-dir`, `--recurse-submodules`, and any abbreviation of them), without a `::`, `file:`, `ext:` or `fd:` transport, and with only https URLs. One exception: `clone --separate-git-dir <path>` with the path inside the temp directory, which is how the checkout keeps the repository outside the work tree |
 | `git_commit` | `git commit`, not `--amend` |
 | `git_push` | `git push` with no force flag, no delete, no `+` or `:` refspec |
 | `clean_checkout` | `rm -rf -- <path under the temp directory>` |
 
-`git -c` may set only `user.name`, `user.email`, `commit.gpgsign` and `safe.directory`; any other `-c` (such as
-`core.hooksPath` or an alias) is refused. Not on the list, so refused: approve, merge, resolve a thread Kelpie
+`git -c` may set only `user.name`, `user.email`, `commit.gpgsign` and `safe.directory`, plus exactly
+`core.fsmonitor=false` and `core.hooksPath=/dev/null`, which only take a capability away; any other `-c` (such as
+`core.hooksPath=/tmp/hooks` or an alias) is refused. A project `gate_command` that is not one of the `run_gate`
+shapes is refused: the round reports the gate as failed with the reason, and nothing starts. Widening the list is a
+code change, on purpose. Not on the list, so refused: approve, merge, resolve a thread Kelpie
 did not open, delete, any other program, shell, or network use by the agent. Posting a thread note and setting a
 label are `post_thread` and `set_label` in the enum for the HTTP side; the bot's HTTP client already allows
 only those.
@@ -80,15 +88,16 @@ does once one has. This is a design limit, not something the list can fix. What 
 
 ## 3. Where it is wired
 
-Built and tested in this change: `ContextScanner`, `ActionGuard`, `GuardedProcessRunner`.
+- `ProcessRunnerInterface` is bound to `GuardedProcessRunner` around `ProcOpenProcessRunner` in the CLI container
+  (`bin/cli-dependencies.php`), so every command the worker, the sweep and the review start goes through the list.
+  `GuardedProcessRunnerTest` runs the real checkout, the PHP gate and `make check` through it, so a change that
+  would refuse Kelpie's own work fails there.
+- `quote()` runs on thread notes and steering (`TriagePrompt`, `ProposePrompt`, the fixer agent's prompt and its
+  context), and on issue titles and descriptions (`IssueTriagePrompt`, `IssueFixPromptService`).
+- `guide()` runs on every repo guide `StandardsService` reads for the review.
+- The review's file tools (`RepoToolsService`) never read, grep or list credential files (`.env` and its variants
+  but not `.env.example`-style templates, `*.pem`, `*.key`, SSH keys, `.npmrc`, `.netrc`, `auth.json`, and
+  anything under `.ssh/`, `.aws/`, `.kube/`, `.gnupg/`, `.docker/`), so their content is never sent to a model.
 
-Still to wire, in code outside this change's paths:
-
-- Call `scan()` on MR descriptions, thread notes, issue bodies and job-log tails where the prompts are built
-  (`Prompt/`, `Service/Autofix/`, `Service/Review/`), passing `$fromKelpie` from the note's author; call
-  `guide()` where `Service/Review/StandardsService` reads the repo guides.
-- Bind `ProcessRunnerInterface` to `GuardedProcessRunner` around `ProcOpenProcessRunner` in the worker and
-  sweep commands (`app/KelpieApi/src/Dependencies.php`).
-- Have `Service/Review/RepoToolsService` use `ActionGuard::permitsTool()`; it already answers an unknown tool
-  with an error text.
-- Have `Agent/ClaudeCliFixerAgent` take its tool list from the shared list.
+Not yet: job-log tails are masked for secrets (`JobLogReader`) but not scanned; the MR title in the review is not
+scanned (the diff and the title are the author's own text, and the review prompt already treats them as such).

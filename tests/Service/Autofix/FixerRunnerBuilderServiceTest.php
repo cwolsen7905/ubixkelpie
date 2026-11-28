@@ -12,6 +12,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\ProposeEditsService;
@@ -62,7 +63,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
         $factory  = new Psr17Factory();
         $settings = new AutofixSettings('https://gitlab.test/api/v4', 'tok-bot', gitBaseUrl: 'https://gitlab.test');
         $runner   = new ScriptedProcessRunner();
-        $triage   = new TriageService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new TriagePrompt($logger), new SafetyPolicy($logger), $json, new LlmFamilyService($logger), TriageLlms::make($logger));
+        $triage   = new TriageService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new TriagePrompt($logger, new ContextScanner($logger)), new SafetyPolicy($logger), $json, new LlmFamilyService($logger), TriageLlms::make($logger));
         $jobs     = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $this->createStub(SqlService::class)));
         $runners  = new FixerRunnerBuilderService(
             $logger,
@@ -70,7 +71,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
             $triage,
             $jobs,
             $runner,
-            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
+            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
             new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class)),
             new SpendCapService($logger, new InMemoryProjects(), new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class))),
             $settings,
@@ -85,7 +86,7 @@ final class FixerRunnerBuilderServiceTest extends UbixConcreteClassOrEnumTestCas
             $triage,
             $jobs,
             $runner,
-            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
+            new ProposeEditsService($logger, new OpenRouterClient($logger, $http, $factory, $factory, $json), new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger)),
             new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class)),
             new SpendCapService($logger, new InMemoryProjects(), new ThreadOutcomeSqlRepository($logger, $this->createStub(SqlService::class))),
             new AutofixSettings('https://gitlab.test/api/v4', 'tok-bot', gitBaseUrl: 'https://gitlab.test', openRouterKey: 'or-not-real', agentEnabled: true),

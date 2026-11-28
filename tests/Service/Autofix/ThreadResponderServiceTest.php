@@ -10,6 +10,7 @@ use Kelpie\Enum\ResponseOutcome;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Policy\SafetyPolicy;
 use Kelpie\Prompt\TriagePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\ClaimService;
 use Kelpie\Service\Autofix\ReplyService;
 use Kelpie\Service\Autofix\ThreadResponderService;
@@ -241,7 +242,7 @@ final class ThreadResponderServiceTest extends UbixConcreteClassOrEnumTestCase i
             new TriageService(
                 $logger,
                 new OpenRouterClient($logger, $model, new Psr17Factory(), new Psr17Factory(), $json),
-                new TriagePrompt($logger),
+                new TriagePrompt($logger, new ContextScanner($logger)),
                 new SafetyPolicy($logger),
                 $json,
                 new LlmFamilyService($logger),

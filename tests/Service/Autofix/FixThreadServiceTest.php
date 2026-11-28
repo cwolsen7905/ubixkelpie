@@ -15,6 +15,7 @@ use Kelpie\Prompt\ProposePrompt;
 use Kelpie\Prompt\TriagePrompt;
 use Kelpie\Repository\AutofixJob\AutofixJobSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Autofix\AutofixJobService;
 use Kelpie\Service\Autofix\FixerRunnerBuilderService;
 use Kelpie\Service\Autofix\FixThreadService;
@@ -247,7 +248,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $triage = new TriageService(
             $logger,
             new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json),
-            new TriagePrompt($logger),
+            new TriagePrompt($logger, new ContextScanner($logger)),
             new SafetyPolicy($logger),
             $json,
             new LlmFamilyService($logger),
@@ -287,7 +288,7 @@ final class FixThreadServiceTest extends UbixConcreteClassOrEnumTestCase impleme
         $jobs    = new AutofixJobService($logger, new AutofixJobSqlRepository($logger, $sql));
         $gitlab  = new GitlabClientFactory($logger, $http, new Psr17Factory(), new Psr17Factory(), $json, $settings);
         $open    = new OpenRouterClient($logger, $http, new Psr17Factory(), new Psr17Factory(), $json);
-        $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
+        $propose = new ProposeEditsService($logger, $open, new ProposePrompt($logger, new ContextScanner($logger)), new LlmFamilyService($logger), $json, TriageLlms::make($logger));
 
         return new FixThreadService($logger, $gitlab, $jobs, new FixerRunnerBuilderService($logger, $gitlab, $triage, $jobs, new ScriptedProcessRunner(), $propose, new ThreadOutcomeSqlRepository($logger, $sql), new SpendCapService($logger, new InMemoryProjects($modes), new ThreadOutcomeSqlRepository($logger, $sql)), $settings), $settings, InMemoryProjects::service($modes));
     }

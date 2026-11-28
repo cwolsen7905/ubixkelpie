@@ -9,6 +9,7 @@ use Kelpie\Enum\IssueTriageOutcome;
 use Kelpie\GitLab\IssueClient;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Triage\IssueTriageService;
 use Kelpie\Service\Triage\UsageStampService;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
@@ -445,7 +446,7 @@ final class IssueTriageServiceTest extends UbixConcreteClassOrEnumTestCase imple
             $logger,
             new IssueClient($logger, $gitlab, $factory, $factory, 'https://gitlab.test/api/v4', $json),
             new OpenRouterClient($logger, $model, $factory, $factory, $json),
-            new IssueTriagePrompt($logger),
+            new IssueTriagePrompt($logger, new ContextScanner($logger)),
             $json,
             new UsageStampService($logger),
             TriageLlms::make($logger, $visibility),

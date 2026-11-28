@@ -17,16 +17,17 @@ final readonly class Thread implements Dto
     /**
      * Constructor
      *
-     * @param string            $discussionId The discussion ID (a GitLab hex string)
-     * @param int               $firstNoteId  The first (original) note ID
-     * @param string            $author       Author username
-     * @param string            $body         Thread body
-     * @param bool              $resolved     Whether the thread is resolved
-     * @param int               $noteCount    Total number of notes in the thread
-     * @param DateTimeInterface $createdAt    Creation time
-     * @param DateTimeInterface $updatedAt    Update time
-     * @param ?string           $filePath     File path (diff notes only)
-     * @param ?int              $line         Line number (diff notes only)
+     * @param string                                    $discussionId The discussion ID (a GitLab hex string)
+     * @param int                                       $firstNoteId  The first (original) note ID
+     * @param string                                    $author       Author username
+     * @param string                                    $body         Thread body
+     * @param bool                                      $resolved     Whether the thread is resolved
+     * @param int                                       $noteCount    Total number of notes in the thread
+     * @param DateTimeInterface                         $createdAt    Creation time
+     * @param DateTimeInterface                         $updatedAt    Update time
+     * @param ?string                                   $filePath     File path (diff notes only)
+     * @param ?int                                      $line         Line number (diff notes only)
+     * @param list<array{author: string, body: string}> $replies      The later notes by people, oldest first (not Kelpie's own)
      */
     public function __construct(
         public string $discussionId,
@@ -39,6 +40,7 @@ final readonly class Thread implements Dto
         public DateTimeInterface $updatedAt,
         public ?string $filePath = null,
         public ?int $line = null,
+        public array $replies = [],
     ) {
     }
 }

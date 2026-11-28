@@ -39,6 +39,21 @@ final class DiscussionReader
     private const int LABEL_EVENT_PAGES = 5;
 
     /**
+     * Every note Kelpie writes carries this marker; a person's reply does not
+     */
+    private const string OWN_MARKER = '<!-- kelpie:';
+
+    /**
+     * Replies kept per thread, the newest
+     */
+    private const int MAX_REPLIES = 5;
+
+    /**
+     * Characters kept of one reply
+     */
+    private const int REPLY_CHARS = 2000;
+
+    /**
      * Constructor
      *
      * @param Logger         $logger         Logger
@@ -288,7 +303,31 @@ final class DiscussionReader
             updatedAt:    $updatedAt,
             filePath:     is_string($position['new_path'] ?? null) ? $position['new_path'] : null,
             line:         is_int($position['new_line'] ?? null) ? $position['new_line'] : null,
+            replies:      $this->replies(array_slice($humanNotes, 1)),
         );
+    }
+
+    /**
+     * The later notes people wrote, newest last: Kelpie's own (they carry its marker) are left out, and only the last
+     * few are kept, each cut to a size, so a long thread cannot crowd out the finding
+     *
+     * @param array<mixed> $notes The thread's notes after the first, system notes already dropped
+     *
+     * @return list<array{author: string, body: string}>
+     */
+    private function replies(array $notes): array
+    {
+        $replies = [];
+        foreach ($notes as $note) {
+            $body   = is_array($note) && is_string($note['body'] ?? null) ? $note['body'] : '';
+            $author = is_array($note) && is_array($note['author'] ?? null) ? ($note['author']['username'] ?? '') : '';
+            if (trim($body) === '' || str_contains($body, self::OWN_MARKER)) {
+                continue;
+            }
+            $replies[] = ['author' => is_string($author) ? $author : '', 'body' => mb_substr($body, 0, self::REPLY_CHARS)];
+        }
+
+        return array_slice($replies, -self::MAX_REPLIES);
     }
 
     /**

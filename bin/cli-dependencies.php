@@ -16,10 +16,12 @@ use Kelpie\Repository\Project\ProjectSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeReaderInterface as ThreadOutcomeReader;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeSqlRepository;
 use Kelpie\Repository\ThreadOutcome\ThreadOutcomeWriterInterface as ThreadOutcomeWriter;
+use Kelpie\Sandbox\ContainerProcessReaper;
 use Kelpie\Sandbox\GateExecutorInterface as GateExecutor;
 use Kelpie\Sandbox\GateServer;
 use Kelpie\Sandbox\GuardedProcessRunner;
 use Kelpie\Sandbox\LocalGateExecutor;
+use Kelpie\Sandbox\ProcessReaperInterface as ProcessReaper;
 use Kelpie\Sandbox\ProcessRunnerInterface as ProcessRunner;
 use Kelpie\Sandbox\ProcOpenProcessRunner;
 use Kelpie\Sandbox\RemoteGateExecutor;
@@ -62,8 +64,11 @@ return static function (): Container {
             ->constructorParameter('httpClient', autowire(CurlHttpClient::class)->constructorParameter('timeout', $gateTimeout > 0 ? $gateTimeout : 3600));
     }
     $container->set(GateExecutor::class, $gateExecutor);
-    // The gate pod's server checks every step itself and wraps it, so it runs them with the plain runner.
+    // The gate pod's server checks every step itself and wraps it, so it runs them with the plain runner. Between runs it
+    // clears the container from PID 1 (it refuses, without killing anything, when it is not PID 1).
     $container->set(GateServer::class, autowire(GateServer::class)->constructorParameter('runner', get(ProcOpenProcessRunner::class)));
+    // Its kill program (when posix is not loaded) is Kelpie's own, not a gate step, so it too runs with the plain runner.
+    $container->set(ProcessReaper::class, autowire(ContainerProcessReaper::class)->constructorParameter('runner', get(ProcOpenProcessRunner::class)));
     $container->set(
         FixerAgent::class,
         autowire(ClaudeCliFixerAgent::class)

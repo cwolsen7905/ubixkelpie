@@ -24,9 +24,12 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  *
  * What must hold:
  * - It is discovered as kelpie:gate-serve and refuses a port or body limit that is not a number
+ * - It refuses a run limit that is not a positive number
  * - End to end, as `bin/ubix kelpie:gate-serve` on a free port: it empties its work and clean directories, writes the
- *   ready file, answers requests that are not a run and keeps listening, serves one run (a step that passes and one
- *   that fails, through the real worker-side client), then removes the ready file and exits 0
+ *   ready file, answers requests that are not a run and keeps listening, and serves a run (a step that passes and one
+ *   that fails, through the real worker-side client). Not being the container's PID 1 here, its reset after the run
+ *   fails closed: it kills nothing (a process the run left is still alive), removes the ready file and exits 1.
+ *   Serving several runs, with resets that succeed, is in GateServerTest.
  *
  * @coversDefaultClass \Kelpie\Console\Command\GateServeCommand
  */
@@ -68,16 +71,17 @@ final class GateServeCommandTest extends UbixConcreteClassOrEnumTestCase impleme
         $this->assertSame(1, $tester->execute(['--port' => 'http', '--work-dir' => $this->scratch . '/work']));
         $this->assertSame(1, $tester->execute(['--port' => '70000', '--work-dir' => $this->scratch . '/work']));
         $this->assertSame(1, $tester->execute(['--port' => '0', '--max-body-bytes' => '0', '--work-dir' => $this->scratch . '/work']));
+        $this->assertSame(1, $tester->execute(['--port' => '0', '--max-runs' => '0', '--work-dir' => $this->scratch . '/work']));
         $this->assertStringContainsString('The port must be', $tester->getDisplay());
         $this->assertDirectoryDoesNotExist($this->scratch . '/work');
     }
 
     /**
-     * End to end on a free port: refusals keep it listening, one run is served, then it exits 0
+     * End to end on a free port: refusals keep it listening, a run is served, and off PID 1 the reset fails closed
      *
      * @return void
      */
-    public function testServesOneRunAndExits(): void
+    public function testServesARunAndFailsClosedOffPidOne(): void
     {
         $work  = $this->scratch . '/work';
         $clean = $this->scratch . '/tmp';
@@ -108,7 +112,8 @@ final class GateServeCommandTest extends UbixConcreteClassOrEnumTestCase impleme
             $this->assertStringStartsWith('HTTP/1.1 400 ', $this->raw($address, "POST /run HTTP/1.1\r\nContent-Length: 1\r\nX-Kelpie-Gate-Steps: {\"steps\":[[\"sh\",\"-c\",\"id\"]],\"timeout\":5}\r\n\r\nx"));
             $this->assertTrue(proc_get_status($process)['running']);
 
-            $checkout = GateFixtures::checkout(['phpcs' => 'echo style ok', 'phpunit' => 'echo "1 failure"; exit 1']);
+            $pidFile  = $this->scratch . '/left.pid';
+            $checkout = GateFixtures::checkout(['phpcs' => 'sleep 300 > /dev/null 2>&1 & echo $! > ' . $pidFile . '; echo style ok', 'phpunit' => 'echo "1 failure"; exit 1']);
             $logger   = $this->createStub(Logger::class);
             $factory  = new Psr17Factory();
             $executor = new RemoteGateExecutor($logger, new CurlHttpClient($logger, $factory, 60), $factory, $factory, new JsonService($logger), new TarArchive($logger), new ActionGuard($logger), 'http://' . $address);
@@ -120,9 +125,17 @@ final class GateServeCommandTest extends UbixConcreteClassOrEnumTestCase impleme
             $this->assertSame([0, 'style ok'], [$run->results[0]->exitCode, $run->results[0]->output]);
             $this->assertSame([1, '1 failure'], [$run->results[1]->exitCode, $run->results[1]->output]);
 
-            $this->assertSame(0, $this->waitForExit($process), (string) file_get_contents($this->scratch . '/err.txt'));
+            $this->assertSame(1, $this->waitForExit($process), (string) file_get_contents($this->scratch . '/err.txt'));
             $this->assertFileDoesNotExist($ready);
+            $this->assertStringContainsString('not PID 1', (string) file_get_contents($this->scratch . '/logs/UbixCli.log'));
+            $left = (int) trim((string) file_get_contents($pidFile));
+            $this->assertGreaterThan(1, $left);
+            $this->assertTrue(posix_kill($left, 0), 'off PID 1 the reset kills nothing');
         } finally {
+            $left = is_file($this->scratch . '/left.pid') ? (int) trim((string) file_get_contents($this->scratch . '/left.pid')) : 0;
+            if ($left > 1) {
+                posix_kill($left, 9);
+            }
             if (proc_get_status($process)['running']) {
                 proc_terminate($process, 9);
             }

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The triage summary says what to do with a proposed change.** A proposal waits for a 👍 on its note inside the
+  thread, and the only other sign on the MR was the `kelpie::proposed` label, so a proposal was easy to miss. When a run
+  leaves proposed changes, the summary note now ends with a **Next:** line: how many are waiting, react 👍 on the
+  proposal to have it pushed (the gate runs first) or 👎 to drop it, and that nothing is pushed without one.
+
 - **Triage judges a finding against the code it is about.** It saw only the thread's text, so a finding that needed
   the code was answered "needs more context", and one that later commits overtook was judged as if still true (seen
   on ubixshepherd !470 and !466). Before triage (when fixing a thread, when answering one, and in `kelpie triage`), Kelpie reads the file at the merge request's head from GitLab (the

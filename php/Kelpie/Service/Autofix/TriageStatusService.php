@@ -186,22 +186,46 @@ final class TriageStatusService
      */
     private function summary(TriageRun $run, array $results, ?TriageStatus $status): string
     {
-        $lines = [];
+        $lines   = [];
+        $waiting = 0;
         foreach ($run->threads as $thread) {
-            $where   = $thread->filePath === null ? 'thread ' . mb_substr($thread->discussionId, 0, 8) : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
-            $result  = $results[$thread->discussionId] ?? null;
-            $lines[] = sprintf('- `%s`: %s', $where, $result === null ? 'left for now' : $result->text);
+            $where    = $thread->filePath === null ? 'thread ' . mb_substr($thread->discussionId, 0, 8) : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
+            $result   = $results[$thread->discussionId] ?? null;
+            $lines[]  = sprintf('- `%s`: %s', $where, $result === null ? 'left for now' : $result->text);
+            $waiting += $result !== null && $result->awaitsReaction ? 1 : 0;
         }
 
         $count = count($run->threads);
 
         return sprintf(
-            "Kelpie triage looked at %d %s: **%s**.\n\n%s\n\n%s",
+            "Kelpie triage looked at %d %s: **%s**.\n\n%s\n\n%s%s",
             $count,
             $count === 1 ? 'thread' : 'threads',
             $status === null ? 'nothing to do' : str_replace('-', ' ', substr($status->value, strlen('kelpie::'))),
             implode("\n", $lines),
+            $this->nextStep($waiting),
             $this->marker($run->threads),
+        );
+    }
+
+    /**
+     * What the reader does next when proposed changes wait for a 👍, or nothing
+     *
+     * The proposal sits inside its thread, so without this line the only sign on the MR is the label.
+     *
+     * @param int $waiting How many threads have a proposed change waiting
+     *
+     * @return string Ends with a blank line when not empty
+     */
+    private function nextStep(int $waiting): string
+    {
+        if ($waiting === 0) {
+            return '';
+        }
+
+        return sprintf(
+            "**Next:** %s waiting for you. React 👍 on Kelpie's proposal in the thread to have it pushed (the gate runs first), or 👎 to drop it. Nothing is pushed without one.\n\n",
+            $waiting === 1 ? 'one proposed change is' : $waiting . ' proposed changes are',
         );
     }
 

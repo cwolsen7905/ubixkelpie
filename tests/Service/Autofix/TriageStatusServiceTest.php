@@ -103,6 +103,33 @@ final class TriageStatusServiceTest extends UbixConcreteClassOrEnumTestCase impl
     }
 
     /**
+     * A proposed change that waits for a 👍 is called out in the summary with what to do; other results add no such line
+     *
+     * @return void
+     */
+    public function testSummarySaysWhatToDoWithAProposedChange(): void
+    {
+        $service = $this->service();
+        $run     = $service->start('1', 3, [$this->thread('d1', 11), $this->thread('d2', 12), $this->thread('d3', 13)]);
+        $service->finish('1', 3, $run, [
+            'd1' => new ThreadResult(TriageStatus::Proposed, 'proposed a change to `src/A.php`', true),
+            'd2' => new ThreadResult(TriageStatus::Proposed, 'proposed a change to `src/B.php`', true),
+            'd3' => new ThreadResult(TriageStatus::Proposed, 'proposed leaving it: fine as is'),
+        ]);
+        $this->assertNotNull($run);
+        $body = $this->summaryNote($run->noteId)['body'];
+        $this->assertStringContainsString('**Next:** 2 proposed changes are waiting for you. React 👍', $body);
+        $this->assertStringContainsString('Nothing is pushed without one.', $body);
+        $this->assertStringEndsWith('-->', trim($body));
+
+        $fresh = $this->service();
+        $plain = $fresh->start('1', 3, [$this->thread('d4', 14)]);
+        $fresh->finish('1', 3, $plain, ['d4' => new ThreadResult(TriageStatus::Pushed, 'fixed in `abc`')]);
+        $this->assertNotNull($plain);
+        $this->assertStringNotContainsString('**Next:**', $this->summaryNote($plain->noteId)['body']);
+    }
+
+    /**
      * Needs you wins over proposed, proposed over pushed
      *
      * @return void

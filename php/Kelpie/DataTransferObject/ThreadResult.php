@@ -17,12 +17,14 @@ final readonly class ThreadResult implements Dto
     /**
      * Constructor
      *
-     * @param TriageStatus $status Pushed, Proposed or NeedsYou
-     * @param string       $text   One line on what was done
+     * @param TriageStatus $status         Pushed, Proposed or NeedsYou
+     * @param string       $text           One line on what was done
+     * @param bool         $awaitsReaction Whether a proposed change on the thread waits for a 👍 to be pushed
      */
     public function __construct(
         public TriageStatus $status,
         public string $text,
+        public bool $awaitsReaction = false,
     ) {
     }
 }

@@ -325,7 +325,7 @@ final class FixerRunnerService
 
         return [
             FixOutcome::Proposed,
-            new ThreadResult(TriageStatus::Proposed, 'proposed a change to `' . implode('`, `', $changes->paths) . '`'),
+            new ThreadResult(TriageStatus::Proposed, 'proposed a change to `' . implode('`, `', $changes->paths) . '`', true),
             $this->record($projectPath, $mrIid, $id, $sha, $verdict, ThreadOutcome::Proposed, $summary, $edits->completion, $note, $edits->editsJson, $diff),
         ];
     }

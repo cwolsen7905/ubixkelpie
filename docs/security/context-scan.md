@@ -52,7 +52,7 @@ writes them.
 |---|---|
 | `read_repo` | model tools `read`, `grep`, `glob` |
 | `edit_files` | the `claude` CLI with `--allowedTools` limited to Read, Grep, Glob, Edit, Write, and no permission-skipping switch |
-| `run_gate` | `composer install` with `--no-scripts`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit`, exactly `make check` |
+| `run_gate` | `composer install` with `--no-scripts` and `--no-plugins`, `vendor/bin/phpcs`, `vendor/bin/phpstan`, `vendor/bin/phpunit`, exactly `make check` |
 | `git_read` | `git diff, show, ls-tree, cat-file, rev-parse, status, log` |
 | `git_checkout` | `git clone, fetch, checkout, add`, without options that run a program or hook (`--template`, `--config`, `-c`, `--upload-pack`, `-u`, `--receive-pack`, `--exec`, `--server-option`, `--reference`, `--separate-git-dir`, `--recurse-submodules`, and any abbreviation of them), without a `::`, `file:`, `ext:` or `fd:` transport, and with only https URLs. One exception: `clone --separate-git-dir <path>` with the path inside the temp directory, which is how the checkout keeps the repository outside the work tree |
 | `git_commit` | `git commit`, not `--amend` |
@@ -78,7 +78,10 @@ The gate is `composer install`, phpcs, phpstan and phpunit, and the agent may ed
 composer plugin, a phpstan or phpcs extension. The list controls which programs start, not what repository code
 does once one has. This is a design limit, not something the list can fix. What reduces it:
 
-- `composer install` runs with `--no-scripts`, and the guard refuses it without. Composer plugins still run.
+- `composer install` runs with `--no-scripts` and `--no-plugins`, and the guard refuses it without either: a script
+  or a plugin is code the merge request controls (through `composer.json` and `composer.lock`), and it would run in
+  the worker. phpcs finds its standards through `installed_paths` in `phpcs.xml`, so the installer plugin is not
+  needed.
 - `GateRunner` gives the registry credential (`COMPOSER_AUTH`) to the `composer install` step only; phpcs, phpstan
   and phpunit get just `HOME` and `PATH`.
 - The fixer has no GitLab or Vault value in its environment, and the bot token reaches git only through the

@@ -26,7 +26,7 @@ final class GateRunner
      * The steps, in order
      */
     private const array STEPS = [
-        'composer install' => ['composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--prefer-dist'],
+        'composer install' => ['composer', 'install', '--no-interaction', '--no-progress', '--no-scripts', '--no-plugins', '--prefer-dist'],
         'phpcs'            => ['vendor/bin/phpcs'],
         'phpstan'          => ['vendor/bin/phpstan', 'analyse', '--no-progress', '--no-interaction'],
         'phpunit'          => ['vendor/bin/phpunit'],

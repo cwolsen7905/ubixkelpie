@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface as Logger;
  * guard was built with. Programs, git subcommands and flags that are not known are refused, so a new capability
  * has to be added here on purpose.
  *
- * `composer install` is allowed only with `--no-scripts`, and `make` only as exactly `make check` (a project's own gate). The gate still runs the repository's own code (plugins, tests,
+ * `composer install` is allowed only with `--no-scripts` and `--no-plugins`, and `make` only as exactly `make check` (a project's own gate). The gate still runs the repository's own code (plugins, tests,
  * analysers): see docs/security/context-scan.md.
  *
  * @see \Kelpie\Tests\Security\ActionGuardTest PHPUnit test case
@@ -118,7 +118,7 @@ final class ActionGuard
         return match (true) {
             basename($program) === 'git'                        => $this->classifyGit(array_slice($argv, 1)),
             in_array($program, self::GATE_PROGRAMS, true)       => UnattendedAction::RunGate,
-            $program === 'composer'                             => ($argv[1] ?? '') === 'install' && in_array('--no-scripts', $argv, true) ? UnattendedAction::RunGate : null,
+            $program === 'composer'                             => ($argv[1] ?? '') === 'install' && in_array('--no-scripts', $argv, true) && in_array('--no-plugins', $argv, true) ? UnattendedAction::RunGate : null,
             $program === 'make'                                 => $argv === ['make', 'check'] ? UnattendedAction::RunGate : null,
             basename($program) === 'claude'                     => $this->classifyAgent($argv),
             $program === 'rm'                                   => $this->classifyRemove($argv),

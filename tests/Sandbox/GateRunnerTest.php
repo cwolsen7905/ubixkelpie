@@ -98,6 +98,7 @@ final class GateRunnerTest extends UbixConcreteClassOrEnumTestCase implements IU
 
         $calls = $runner->calls();
         $this->assertContains('--no-scripts', $calls[0]['argv']);
+        $this->assertContains('--no-plugins', $calls[0]['argv']);
         $this->assertArrayHasKey('COMPOSER_AUTH', $calls[0]['env']);
         foreach (array_slice($calls, 1) as $call) {
             $this->assertArrayNotHasKey('COMPOSER_AUTH', $call['env'], $call['argv'][0]);

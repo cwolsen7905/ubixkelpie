@@ -286,6 +286,7 @@ final class DiscussionReader
         $position = is_array($first['position'] ?? null) ? $first['position'] : [];
         $last     = $humanNotes[count($humanNotes) - 1];
 
+        $replies   = $this->replies(array_slice($humanNotes, 1));
         $createdAt = $this->parseDate($first['created_at'] ?? null);
         $updatedAt = $this->parseDate($last['updated_at'] ?? null) ?? $createdAt;
         if ($createdAt === null || $updatedAt === null) {
@@ -293,23 +294,24 @@ final class DiscussionReader
         }
 
         return new Thread(
-            discussionId: $id,
-            firstNoteId:  $noteId,
-            author:       is_string($author) ? $author : '',
-            body:         is_string($first['body'] ?? null) ? $first['body'] : '',
-            resolved:     false,
-            noteCount:    count($humanNotes),
-            createdAt:    $createdAt,
-            updatedAt:    $updatedAt,
-            filePath:     is_string($position['new_path'] ?? null) ? $position['new_path'] : null,
-            line:         is_int($position['new_line'] ?? null) ? $position['new_line'] : null,
-            replies:      $this->replies(array_slice($humanNotes, 1)),
+            discussionId:   $id,
+            firstNoteId:    $noteId,
+            author:         is_string($author) ? $author : '',
+            body:           is_string($first['body'] ?? null) ? $first['body'] : '',
+            resolved:       false,
+            noteCount:      count($humanNotes),
+            createdAt:      $createdAt,
+            updatedAt:      $updatedAt,
+            filePath:       is_string($position['new_path'] ?? null) ? $position['new_path'] : null,
+            line:           is_int($position['new_line'] ?? null) ? $position['new_line'] : null,
+            replies:        array_slice($replies, -self::MAX_REPLIES),
+            earlierReplies: max(0, count($replies) - self::MAX_REPLIES),
         );
     }
 
     /**
-     * The later notes people wrote, newest last: Kelpie's own (they carry its marker) are left out, and only the last
-     * few are kept, each cut to a size, so a long thread cannot crowd out the finding
+     * The later notes people wrote, oldest first: Kelpie's own (they carry its marker) are left out, and each is cut to
+     * a size, so a long reply cannot crowd out the finding; the caller keeps the newest few
      *
      * @param array<mixed> $notes The thread's notes after the first, system notes already dropped
      *
@@ -327,7 +329,7 @@ final class DiscussionReader
             $replies[] = ['author' => is_string($author) ? $author : '', 'body' => mb_substr($body, 0, self::REPLY_CHARS)];
         }
 
-        return array_slice($replies, -self::MAX_REPLIES);
+        return $replies;
     }
 
     /**

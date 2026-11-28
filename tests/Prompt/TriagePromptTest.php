@@ -137,7 +137,12 @@ final class TriagePromptTest extends UbixConcreteClassOrEnumTestCase implements 
         $this->assertSame(2, substr_count($user, '</reply>'));
         $this->assertStringNotContainsString('<!--', $user);
         $this->assertStringContainsString('context scan flagged', $user);
-        $this->assertStringContainsString('out of date or already handled', $prompt->system());
+        $this->assertStringContainsString('out of date, already handled, or mistaken, answer "needs_human", never "fix"', $prompt->system());
+        $this->assertStringNotContainsString('earlier repl', $user);
+
+        $cut = new Thread('abc', 1, 'reviewer', 'Rename this.', false, 9, $now, $now, 'a.php', 3, [['author' => 'bob', 'body' => 'Please fix.']], 2);
+        $this->assertStringContainsString("</review_thread>\n(2 earlier replies not shown)\n<reply author=\"bob\">", $prompt->forThread($cut));
+        $this->assertStringContainsString('earlier replies are not shown', $prompt->system());
 
         $this->assertStringNotContainsString('<reply', $prompt->forThread($this->thread('Rename this.', 'a.php', 3, 'alice')));
     }

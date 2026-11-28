@@ -121,7 +121,7 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
 
     /**
      * Later notes by people become the thread's replies, oldest first: system notes and Kelpie's own are left out,
-     * only the newest five are kept, and each is cut to 2000 characters; the body stays the first note
+     * only the newest five are kept and the rest counted, and each is cut to 2000 characters; the body stays the first note
      *
      * @return void
      */
@@ -141,11 +141,13 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
 
         $this->assertSame('Use the new key.', $thread->body);
         $this->assertCount(5, $thread->replies);
+        $this->assertSame(1, $thread->earlierReplies); // Alice's, the oldest of six
         $this->assertSame(['author' => 'carol', 'body' => 'reply 0'], $thread->replies[0]);
         $this->assertSame(['author' => 'carol', 'body' => 'reply 4'], $thread->replies[4]);
 
         $long = $this->threadOf([$this->note(1, 'reviewer', 'Use the new key.'), $this->note(2, 'alice', str_repeat('a', 2500))]);
         $this->assertSame(['author' => 'alice', 'body' => str_repeat('a', 2000)], $long->replies[0]);
+        $this->assertSame(0, $long->earlierReplies);
     }
 
     /**

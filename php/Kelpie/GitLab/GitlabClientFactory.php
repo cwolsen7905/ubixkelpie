@@ -83,6 +83,16 @@ final class GitlabClientFactory
     }
 
     /**
+     * A reader of one file at a commit, with the bot token
+     *
+     * @return FileReader
+     */
+    public function fileReader(): FileReader
+    {
+        return new FileReader($this->logger, $this->client(), $this->requestFactory, $this->settings->apiUrl);
+    }
+
+    /**
      * The merge request lister
      *
      * @return MergeRequestLister

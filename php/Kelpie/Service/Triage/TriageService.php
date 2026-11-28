@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Service\Triage;
 
+use Kelpie\DataTransferObject\CodeExcerpt;
 use Kelpie\DataTransferObject\FixProposal;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\DataTransferObject\TriageVerdict;
@@ -71,10 +72,11 @@ final class TriageService
      * @param string       $steering What the author or a maintainer asked for with "Triage:", empty when nothing
      * @param ?string      $project  The GitLab project ID or path with namespace; null when not known, which keeps
      *                               a model that trains on its prompts from being called
+     * @param ?CodeExcerpt $code     The code the thread is about at the MR's head (CodeContextService), when read
      *
      * @return TriageVerdict
      */
-    public function triage(Thread $thread, ?FixProposal $proposal = null, string $steering = '', ?string $project = null): TriageVerdict
+    public function triage(Thread $thread, ?FixProposal $proposal = null, string $steering = '', ?string $project = null, ?CodeExcerpt $code = null): TriageVerdict
     {
         $choice = $this->models->choose($project, self::DEFAULT_MODEL);
         $model  = $choice->model;
@@ -90,7 +92,7 @@ final class TriageService
         }
 
         $system     = $this->triagePrompt->system();
-        $user       = $this->triagePrompt->forThread($thread, $steering);
+        $user       = $this->triagePrompt->forThread($thread, $steering, $code);
         $completion = $this->openRouterClient->chat($model, $system, $user, self::MAX_TOKENS);
 
         // The open-source model failed outright (a 404 when the account's data policy excludes its tier): ask the regular one once

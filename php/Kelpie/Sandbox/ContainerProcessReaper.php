@@ -176,10 +176,20 @@ final class ContainerProcessReaper implements ProcessReaper
                 continue;
             }
             // The state follows the command name, which is in parentheses and may itself hold ") ".
-            $stat  = is_readable($this->procDir . '/' . $entry . '/stat') ? (string) file_get_contents($this->procDir . '/' . $entry . '/stat') : '';
+            $statPath = $this->procDir . '/' . $entry . '/stat';
+            $stat     = is_readable($statPath) ? (string) file_get_contents($statPath) : '';
+            if ($stat === '') {
+                // Only a process that is really gone is skipped; one whose stat cannot be read (hidepid, a permission
+                // change) still counts, so the reset fails closed.
+                if (is_dir($this->procDir . '/' . $entry)) {
+                    $survivors[] = (int) $entry;
+                }
+
+                continue;
+            }
             $close = strrpos($stat, ')');
             $state = $close === false ? '' : substr($stat, $close + 2, 1);
-            if ($stat !== '' && $state !== 'Z' && $state !== 'X') {
+            if ($state !== 'Z' && $state !== 'X') {
                 $survivors[] = (int) $entry;
             }
         }

@@ -18,7 +18,8 @@ use Ubix\Tests\UbixConcreteClassOrEnumTestCaseInterface as IUbixConcreteClassOrE
  * What must hold:
  * - Not PID 1, it refuses and kills nothing (kill(-1) would reach the user's other processes)
  * - As PID 1 it kills, then reads the process list: only itself and zombies left is clear
- * - A process that is still running after every attempt, or a process list it cannot read, is a refusal
+ * - A process that is still running after every attempt, or a process list it cannot read, is a refusal; so is a
+ *   process whose stat cannot be read or is empty while its /proc directory is still there
  * - Without posix_kill it runs the kill program: exactly `<kill> -9 -1`, no shell, from /, with PATH only; exit 0 or 1
  *   (nothing left to signal) goes on to the check; one that fails otherwise, or no kill program, is a refusal
  *
@@ -54,7 +55,20 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
 
         $this->assertStringContainsString('not PID 1', $reaper->reap());
         $this->assertSame(0, $this->kills);
-        $this->assertStringContainsString('not PID 1', (new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner()))->reap());
+
+        // With the PID read from getmypid(), and the kill still the counting one: when the test runner is itself PID 1
+        // (phpunit run directly in a container, as in CI) it would go on to kill, so that is what is checked there.
+        // No real signal is sent either way.
+        $this->process(1, 'php', 'S');
+        $this->process((int) getmypid(), 'php', 'S');
+        $own = new ContainerProcessReaper($this->createStub(Logger::class), new ScriptedProcessRunner(), $this->proc, 0, $this->kill());
+        if (getmypid() === 1) {
+            $this->assertSame('', $own->reap());
+            $this->assertSame(1, $this->kills);
+        } else {
+            $this->assertStringContainsString('not PID 1', $own->reap());
+            $this->assertSame(0, $this->kills);
+        }
     }
 
     /**
@@ -68,7 +82,6 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
         $this->process(57, 'sleep', 'Z');
         $this->process(58, 'odd) name', 'X');
         mkdir($this->proc . '/self');
-        mkdir($this->proc . '/99');
 
         $this->assertSame('', $this->reaper()->reap());
         $this->assertSame(1, $this->kills);
@@ -87,6 +100,27 @@ final class ContainerProcessReaperTest extends UbixConcreteClassOrEnumTestCase i
 
         $this->assertSame('processes survived the reset: 57, 60', $this->reaper()->reap());
         $this->assertGreaterThan(1, $this->kills);
+    }
+
+    /**
+     * A process whose stat cannot be read or is empty, while its directory is still there, counts as a survivor
+     *
+     * @return void
+     */
+    public function testUnreadableStatIsASurvivor(): void
+    {
+        $this->process(1, 'php', 'S');
+        mkdir($this->proc . '/70');
+        mkdir($this->proc . '/71');
+        file_put_contents($this->proc . '/71/stat', '');
+        $this->process(72, 'hidden', 'S');
+        chmod($this->proc . '/72/stat', 0000);
+
+        $result = $this->reaper()->reap();
+        chmod($this->proc . '/72/stat', 0600);
+
+        // As root the unreadable one is read anyway, and its state (S) makes it a survivor all the same.
+        $this->assertSame('processes survived the reset: 70, 71, 72', $result);
     }
 
     /**

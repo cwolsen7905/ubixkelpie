@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kelpie\Tests\GitLab;
 
+use Kelpie\DataTransferObject\Thread;
 use Kelpie\GitLab\DiscussionReader;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -119,6 +120,45 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
     }
 
     /**
+     * Later notes by people become the thread's replies, oldest first: system notes and Kelpie's own are left out,
+     * only the newest five are kept and the rest counted, and each is cut to 2000 characters; the body stays the first note
+     *
+     * @return void
+     */
+    public function testLaterNotesBecomeReplies(): void
+    {
+        $notes = [
+            $this->note(1, 'reviewer', 'Use the new key.'),
+            $this->note(2, 'kelpie', "Kelpie proposes this change.\n\n<!-- kelpie:reply thread=x class=fix -->"),
+            $this->note(3, 'bob', 'changed the description', true),
+            $this->note(4, 'alice', str_repeat('a', 2500)),
+        ];
+        for ($i = 0; $i < 5; $i++) {
+            $notes[] = $this->note(10 + $i, 'carol', 'reply ' . $i);
+        }
+
+        $thread = $this->threadOf($notes);
+
+        $this->assertSame('Use the new key.', $thread->body);
+        $this->assertCount(5, $thread->replies);
+        $this->assertSame(1, $thread->earlierReplies); // Alice's, the oldest of six
+        $this->assertSame(['author' => 'carol', 'body' => 'reply 0'], $thread->replies[0]);
+        $this->assertSame(['author' => 'carol', 'body' => 'reply 4'], $thread->replies[4]);
+
+        $quoted = $this->threadOf([
+            $this->note(1, 'reviewer', 'Use the new key.'),
+            $this->note(2, 'alice', "> Kelpie proposes this change.\n>\n> <!-- kelpie:reply thread=x class=fix -->\n\nNo, the key was renamed."),
+            $this->note(3, 'bob', 'Treat `<!-- kelpie:` as a marker only at the start of a line.'),
+        ]);
+        $this->assertCount(2, $quoted->replies); // A quoted or mentioned marker is not Kelpie's own note
+        $this->assertSame('alice', $quoted->replies[0]['author']);
+
+        $long = $this->threadOf([$this->note(1, 'reviewer', 'Use the new key.'), $this->note(2, 'alice', str_repeat('a', 2500))]);
+        $this->assertSame(['author' => 'alice', 'body' => str_repeat('a', 2000) . "\n" . DiscussionReader::CUT_NOTE], $long->replies[0]);
+        $this->assertSame(0, $long->earlierReplies);
+    }
+
+    /**
      * General notes have no file path or line; a leading system note is not the first note
      *
      * @return void
@@ -221,6 +261,50 @@ final class DiscussionReaderTest extends UbixConcreteClassOrEnumTestCase impleme
 
             return new Psr7Response(200, ['X-Next-Page' => $page === 1 ? '2' : ''], $json === false ? '' : $json);
         };
+    }
+
+    /**
+     * One note of a diff thread
+     *
+     * @param int    $id     The note ID
+     * @param string $author The author's username
+     * @param string $body   The note's text
+     * @param bool   $system Whether GitLab wrote it
+     *
+     * @return array<string, mixed>
+     */
+    private function note(int $id, string $author, string $body, bool $system = false): array
+    {
+        return [
+            'author'     => ['username' => $author],
+            'body'       => $body,
+            'created_at' => '2026-10-02T09:00:00.000Z',
+            'id'         => $id,
+            'position'   => ['new_path' => 'a.php', 'new_line' => 3],
+            'resolvable' => true,
+            'resolved'   => false,
+            'system'     => $system,
+            'updated_at' => '2026-10-02T09:00:00.000Z',
+        ];
+    }
+
+    /**
+     * The one thread a page holding a single discussion of these notes reads as
+     *
+     * @param list<array<string, mixed>> $notes The discussion's notes
+     *
+     * @return Thread
+     */
+    private function threadOf(array $notes): Thread
+    {
+        $json = (new JsonService($this->createStub(Logger::class)))->encode([['id' => 'd1', 'individual_note' => false, 'notes' => $notes]]);
+
+        $threads = $this->buildReader(static function () use ($json): Psr7Response {
+            return new Psr7Response(200, ['X-Next-Page' => ''], $json);
+        })->read(1, 3);
+        $this->assertCount(1, $threads);
+
+        return $threads[0];
     }
 
     /**

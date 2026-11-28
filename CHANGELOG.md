@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Triage reads the replies in a thread, not only the finding.** A person's reply re-opens a thread for triage, but
+  the model was given only the thread's first note, so a reply saying the finding was out of date never reached it:
+  on an MR whose base moved past a rename, Kelpie twice proposed reverting to the old names after the author had
+  replied why they were wrong. The newest five replies by people now follow the finding, each fenced and passed
+  through the context scan (Kelpie's own notes are left out, each reply is cut to 2000 characters, and older ones are
+  counted as "not shown"). A reply saying the finding is out of date, handled or mistaken makes the verdict
+  `needs_human`, never `fix`: the model cannot check the claim against the code, and a reply is untrusted, so a person
+  decides rather than any commenter. A thread with replies cut off is `needs_human` too.
+
 - **The unattended command list is now enforced.** Every command Kelpie's worker, sweep and review start goes through
   `GuardedProcessRunner`: a command that is not one of the listed shapes (git read/checkout/commit/plain push, the
   PHP gate, exactly `make check`, the `claude` CLI with file tools only, clean-up under the temp directory) is not

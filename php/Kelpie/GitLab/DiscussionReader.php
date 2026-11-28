@@ -24,6 +24,11 @@ use Ubix\Service\JsonService;
 final class DiscussionReader
 {
     /**
+     * Ends a reply that was cut, so the model knows it did not see all of it
+     */
+    public const string CUT_NOTE = '[reply cut: the rest is not shown]';
+
+    /**
      * Discussions requested per page (the GitLab maximum)
      */
     private const int PER_PAGE = 100;
@@ -37,6 +42,22 @@ final class DiscussionReader
      * Pages of label events followed (the newest events come last: a longer history leaves the age unknown, and the label is kept)
      */
     private const int LABEL_EVENT_PAGES = 5;
+
+    /**
+     * Every note Kelpie writes carries its marker on a line of its own; a person quoting one has it after `> `, so their
+     * reply is kept
+     */
+    private const string OWN_NOTE = '/^<!-- kelpie:/m';
+
+    /**
+     * Replies kept per thread, the newest
+     */
+    private const int MAX_REPLIES = 5;
+
+    /**
+     * Characters kept of one reply
+     */
+    private const int REPLY_CHARS = 2000;
 
     /**
      * Constructor
@@ -271,6 +292,7 @@ final class DiscussionReader
         $position = is_array($first['position'] ?? null) ? $first['position'] : [];
         $last     = $humanNotes[count($humanNotes) - 1];
 
+        $replies   = $this->replies(array_slice($humanNotes, 1));
         $createdAt = $this->parseDate($first['created_at'] ?? null);
         $updatedAt = $this->parseDate($last['updated_at'] ?? null) ?? $createdAt;
         if ($createdAt === null || $updatedAt === null) {
@@ -278,17 +300,45 @@ final class DiscussionReader
         }
 
         return new Thread(
-            discussionId: $id,
-            firstNoteId:  $noteId,
-            author:       is_string($author) ? $author : '',
-            body:         is_string($first['body'] ?? null) ? $first['body'] : '',
-            resolved:     false,
-            noteCount:    count($humanNotes),
-            createdAt:    $createdAt,
-            updatedAt:    $updatedAt,
-            filePath:     is_string($position['new_path'] ?? null) ? $position['new_path'] : null,
-            line:         is_int($position['new_line'] ?? null) ? $position['new_line'] : null,
+            discussionId:   $id,
+            firstNoteId:    $noteId,
+            author:         is_string($author) ? $author : '',
+            body:           is_string($first['body'] ?? null) ? $first['body'] : '',
+            resolved:       false,
+            noteCount:      count($humanNotes),
+            createdAt:      $createdAt,
+            updatedAt:      $updatedAt,
+            filePath:       is_string($position['new_path'] ?? null) ? $position['new_path'] : null,
+            line:           is_int($position['new_line'] ?? null) ? $position['new_line'] : null,
+            replies:        array_slice($replies, -self::MAX_REPLIES),
+            earlierReplies: max(0, count($replies) - self::MAX_REPLIES),
         );
+    }
+
+    /**
+     * The later notes people wrote, oldest first: Kelpie's own (they carry its marker) are left out, and each is cut to
+     * a size, so a long reply cannot crowd out the finding; the caller keeps the newest few
+     *
+     * @param array<mixed> $notes The thread's notes after the first, system notes already dropped
+     *
+     * @return list<array{author: string, body: string}>
+     */
+    private function replies(array $notes): array
+    {
+        $replies = [];
+        foreach ($notes as $note) {
+            $body   = is_array($note) && is_string($note['body'] ?? null) ? $note['body'] : '';
+            $author = is_array($note) && is_array($note['author'] ?? null) ? ($note['author']['username'] ?? '') : '';
+            if (trim($body) === '' || preg_match(self::OWN_NOTE, $body) === 1) {
+                continue;
+            }
+            if (mb_strlen($body) > self::REPLY_CHARS) {
+                $body = mb_substr($body, 0, self::REPLY_CHARS) . "\n" . self::CUT_NOTE;
+            }
+            $replies[] = ['author' => is_string($author) ? $author : '', 'body' => $body];
+        }
+
+        return $replies;
     }
 
     /**

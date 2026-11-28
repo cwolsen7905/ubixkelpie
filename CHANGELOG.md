@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Triage judges a finding against the code it is about.** It saw only the thread's text, so a finding that needed
+  the code was answered "needs more context", and one that later commits overtook was judged as if still true (seen
+  on ubixshepherd !470 and !466). Before triage (when fixing a thread, when answering one, and in `kelpie triage`), Kelpie reads the file at the merge request's head from GitLab (the
+  thread's position, or else the first `path:line` the finding names, as a general note does) and shows triage up to
+  40 numbered lines each side of the line, fenced as untrusted data and capped at 12000 characters, shrinking around
+  the line so it is always shown. "Needs more context" is kept for when the code shown cannot settle it. A reply
+  disputing the finding still goes to a person.
 - **A 👍 or 👎 on a proposal is acknowledged at once.** The webhook queued the job and nothing on the merge
   request changed until the worker finished, which can take minutes with a gate run, so a person could not tell
   whether Kelpie got the reaction. Kelpie now puts 👀 on the comment as soon as the job is queued (or one is already

@@ -9,6 +9,7 @@ use Kelpie\DataTransferObject\RunResult;
 use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\Service\Project\ProjectModeService;
+use Kelpie\Service\Triage\CodeContextService;
 use Kelpie\Service\Triage\TriageService;
 use Kelpie\Service\Triage\UsageStampService;
 use Psr\Log\LoggerInterface as Logger;
@@ -81,6 +82,7 @@ final class RespondService
             new ReplyService($this->logger, $writer, $this->settings->botUsername, new UsageStampService($this->logger)),
             $this->triageService,
             new TriageStatusService($this->logger, $writer),
+            new CodeContextService($this->logger, $this->gitlab->fileReader()),
         );
 
         $lines = [];

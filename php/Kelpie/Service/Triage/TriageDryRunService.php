@@ -7,7 +7,10 @@ namespace Kelpie\Service\Triage;
 use Kelpie\DataTransferObject\AutofixSettings;
 use Kelpie\DataTransferObject\RunResult;
 use Kelpie\GitLab\DiscussionReader;
+use Kelpie\GitLab\DiscussionWriter;
+use Kelpie\GitLab\FileReader;
 use Kelpie\HttpClient\AuthenticatedHttpClient;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface as HttpClient;
 use Psr\Http\Message\RequestFactoryInterface as RequestFactory;
 use Psr\Log\LoggerInterface as Logger;
@@ -63,14 +66,12 @@ final class TriageDryRunService
             return new RunResult(false, ['GITLAB_API_URL and GITLAB_API_TOKEN must be set.'], true);
         }
 
-        $reader  = new DiscussionReader(
-            $this->logger,
-            new AuthenticatedHttpClient($this->logger, $this->httpClient, $this->settings->apiToken),
-            $this->requestFactory,
-            $this->settings->apiUrl,
-            $this->jsonService,
-        );
+        $client  = new AuthenticatedHttpClient($this->logger, $this->httpClient, $this->settings->apiToken);
+        $reader  = new DiscussionReader($this->logger, $client, $this->requestFactory, $this->settings->apiUrl, $this->jsonService);
         $threads = $reader->read((int) $project, (int) $mr);
+        // The code each thread is about, at the MR's head, as the worker shows triage; only reads (GET)
+        $sha  = (new DiscussionWriter($this->logger, $client, $this->requestFactory, new Psr17Factory(), $this->settings->apiUrl, $this->jsonService))->headSha($project, (int) $mr) ?? '';
+        $code = new CodeContextService($this->logger, new FileReader($this->logger, $client, $this->requestFactory, $this->settings->apiUrl));
 
         if ($threads === []) {
             return new RunResult(true, ['No unresolved threads.']);
@@ -78,7 +79,7 @@ final class TriageDryRunService
 
         $lines = [];
         foreach ($threads as $thread) {
-            $verdict  = $this->triageService->triage($thread, null, '', $project);
+            $verdict  = $this->triageService->triage($thread, null, '', $project, $code->excerpt($project, $sha, $thread));
             $location = $thread->filePath === null ? 'general' : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
 
             $lines[] = sprintf('%s  %s  [%s]', $thread->discussionId, $location, $verdict->class->value);

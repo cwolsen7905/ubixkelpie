@@ -7,6 +7,7 @@ namespace Kelpie\Service\Autofix;
 use Kelpie\DataTransferObject\Thread;
 use Kelpie\Enum\ResponseOutcome;
 use Kelpie\GitLab\DiscussionWriter;
+use Kelpie\Service\Triage\CodeContextService;
 use Kelpie\Service\Triage\TriageService;
 use Psr\Log\LoggerInterface as Logger;
 
@@ -30,6 +31,7 @@ final class ThreadResponderService
      * @param ReplyService        $replyService  The reply and label step
      * @param TriageService       $triageService Classifies one thread
      * @param TriageStatusService $status        The status labels and the summary note
+     * @param ?CodeContextService $codeContext   Reads the code a thread is about for triage; null shows triage the thread alone
      */
     public function __construct(
         private readonly Logger $logger,
@@ -38,6 +40,7 @@ final class ThreadResponderService
         private readonly ReplyService $replyService,
         private readonly TriageService $triageService,
         private readonly TriageStatusService $status,
+        private readonly ?CodeContextService $codeContext = null,
     ) {
     }
 
@@ -103,7 +106,7 @@ final class ThreadResponderService
                 $id = $thread->discussionId;
 
                 try {
-                    $verdict       = $this->triageService->triage($thread, null, '', $project);
+                    $verdict       = $this->triageService->triage($thread, null, '', $project, $this->codeContext?->excerpt($project, $sha, $thread));
                     $outcomes[$id] = $this->replyService->respond($project, $mrIid, $id, $verdict, $thread);
                     $results[$id]  = $this->status->resultFor($verdict, $outcomes[$id]);
                 } finally {

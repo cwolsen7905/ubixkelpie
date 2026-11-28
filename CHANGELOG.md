@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **An owner's approval resolves the open threads again.** Since it shipped, every approval by a
+  `KELPIE_APPROVAL_OWNERS` owner retried the sign-off job but answered "could not resolve open threads (cURL error
+  3: URL rejected: No host present)", so merge-when-pipeline-succeeds kept waiting on "All threads must be
+  resolved". The API container never bound `AutofixSettings`, so PHP-DI built it with its defaults: no GitLab URL,
+  no bot token. It is now read from the environment as in the CLI container, and a test builds the API container
+  and checks it.
+
 - **An open-source repo is now reviewed with a cheaper model.** With `AI_REVIEW_MODEL_PUBLIC` set, `kelpie-review`
   reads the license GitLab detected in the repo and, for an open-source one (BSD, MIT, Apache, GPL, ...), reviews
   with that model instead of `AI_REVIEW_MODEL`: `meta/muse-spark-1.3-contributor` costs $0.10/$0.20 per million

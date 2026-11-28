@@ -51,6 +51,9 @@ final class ActionGuardTest extends UbixConcreteClassOrEnumTestCase implements I
                 ['vendor/bin/phpunit'],
                 ['claude', '-p', 'x', '--allowedTools', 'Read,Grep,Glob,Edit,Write', '--max-turns', '30'],
                 ['rm', '-rf', '--', $tmp . '/kelpie-1'],
+                ['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'status'],
+                ['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'clone', '--no-tags', '--separate-git-dir', $tmp . '/k/git', '--branch', 'dev', '--', 'https://example.test/r.git', $tmp . '/k/repo'],
+                ['make', 'check'],
             ] as $argv
         ) {
             $this->assertNull($guard->refusal($argv), implode(' ', $argv));
@@ -198,5 +201,37 @@ final class ActionGuardTest extends UbixConcreteClassOrEnumTestCase implements I
         $this->assertFalse($guard->permitsTool('bash'));
         $this->assertFalse($guard->permitsTool('write'));
         $this->assertFalse((new ActionGuard($this->createStub(Logger::class), []))->permitsTool('read'));
+    }
+
+    /**
+     * The settings and options let through for Kelpie's own commands cannot be bent into what they exist to stop
+     *
+     * @return void
+     */
+    public function testOwnCommandAllowancesCannotBeBent(): void
+    {
+        $guard = new ActionGuard($this->createStub(Logger::class));
+        $tmp   = rtrim(sys_get_temp_dir(), '/');
+        foreach (
+            [
+                ['git', '-c', 'core.fsmonitor=/tmp/x.sh', 'status'],
+                ['git', '-c', 'core.fsmonitor=true', 'status'],
+                ['git', '-c', 'core.hooksPath=/tmp/hooks', 'status'],
+                ['git', '-c', 'core.hooksPath=/dev/null/../tmp', 'status'],
+                ['git', 'clone', '--separate-git-dir', '/etc/x', '--', 'https://example.test/r.git', $tmp . '/k/repo'],
+                ['git', 'clone', '--separate-git-dir', $tmp . '/../etc', '--', 'https://example.test/r.git', $tmp . '/k/repo'],
+                ['git', 'clone', '--separate-git-dir', $tmp . '/', '--', 'https://example.test/r.git', $tmp . '/k/repo'],
+                ['git', 'clone', '--separate-git-dir=/etc/x', '--', 'https://example.test/r.git', $tmp . '/k/repo'],
+                ['git', 'fetch', '--separate-git-dir', $tmp . '/k/git', 'origin'],
+                ['make'],
+                ['make', 'check', 'SHELL=/bin/sh'],
+                ['make', '-f', '/tmp/evil', 'check'],
+                ['make', 'check', 'deploy'],
+                ['make', '--eval=x:', 'check'],
+                ['/usr/bin/make', 'check'],
+            ] as $argv
+        ) {
+            $this->assertNotNull($guard->refusal($argv), implode(' ', $argv));
+        }
     }
 }

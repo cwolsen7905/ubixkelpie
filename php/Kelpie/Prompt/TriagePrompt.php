@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kelpie\Prompt;
 
 use Kelpie\DataTransferObject\Thread;
+use Kelpie\Security\ContextScanner;
 use Psr\Log\LoggerInterface as Logger;
 
 /**
@@ -22,10 +23,12 @@ final class TriagePrompt
     /**
      * Constructor
      *
-     * @param Logger $logger Logger
+     * @param Logger         $logger  Logger
+     * @param ContextScanner $scanner Scans untrusted text before it reaches a model
      */
     public function __construct(
         private readonly Logger $logger, // @phpstan-ignore property.onlyWritten (Every uBix class takes a logger first; the prompt has nothing to log)
+        private readonly ContextScanner $scanner,
     ) {
     }
 
@@ -72,7 +75,7 @@ PROMPT;
         $location = $thread->filePath === null ? 'general (not on a line of code)' : $thread->filePath . ($thread->line === null ? '' : ':' . $thread->line);
 
         // A body containing the closing tag could break out of the fence
-        $body = str_ireplace(['<' . $fence, '</' . $fence], ['&lt;' . $fence, '&lt;/' . $fence], $thread->body);
+        $body = str_ireplace(['<' . $fence, '</' . $fence], ['&lt;' . $fence, '&lt;/' . $fence], $this->scanner->quote($thread->body, 'thread note by ' . $thread->author));
 
         return <<<PROMPT
 Classify this thread.
@@ -99,7 +102,7 @@ PROMPT;
             return '';
         }
 
-        return "\n<steering>\n" . str_ireplace(['<steering', '</steering'], ['&lt;steering', '&lt;/steering'], $steering) . "\n</steering>";
+        return "\n<steering>\n" . str_ireplace(['<steering', '</steering'], ['&lt;steering', '&lt;/steering'], $this->scanner->quote($steering, 'triage steering')) . "\n</steering>";
     }
 
     /**

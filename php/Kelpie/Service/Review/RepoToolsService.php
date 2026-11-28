@@ -18,6 +18,18 @@ use Psr\Log\LoggerInterface as Logger;
 final class RepoToolsService
 {
     private const array SKIPPED_DIRS = ['.git', 'vendor', 'node_modules'];
+
+    /**
+     * Directories that hold credentials, never walked or read
+     */
+    private const array SECRET_DIRS = ['.ssh', '.aws', '.kube', '.gnupg', '.docker'];
+
+    /**
+     * File names that hold credentials, never read or listed, so their content never goes to the model
+     *
+     * An example env file (`.env.example`, `.env.dist`, ...) is a template, not a secret, and stays readable.
+     */
+    private const string SECRET_FILE = '~^(?:\.env(?:\.(?!(?:example|sample|dist|template|defaults)$)[^/]+)?|.+\.(?:pem|key|p12|pfx|jks|keystore|kdbx|ovpn)|id_(?:rsa|dsa|ecdsa|ed25519)|\.npmrc|\.netrc|\.pgpass|\.htpasswd|\.git-credentials|credentials(?:\.json)?|auth\.json|kubeconfig|vault[-_]?token)$~i';
     private const int MAX_READ_LINES = 400;
     private const int MAX_READ_BYTES = 40960;
     private const int MAX_MATCHES    = 100;
@@ -135,7 +147,7 @@ final class RepoToolsService
      * @param string $root The checkout's real path
      * @param string $path The path as the model wrote it
      *
-     * @return ?string The real path, null when it is outside the checkout, inside .git or missing
+     * @return ?string The real path, null when it is outside the checkout, inside .git, a secret file or missing
      */
     private function inside(string $root, string $path): ?string
     {
@@ -145,7 +157,21 @@ final class RepoToolsService
         }
         $relative = ltrim(substr($real, strlen($root)), '/');
 
-        return in_array('.git', explode('/', $relative), true) ? null : $real;
+        return in_array('.git', explode('/', $relative), true) || $this->isSecret($relative) ? null : $real;
+    }
+
+    /**
+     * Whether a repository path holds credentials: a secret file name, or anything under a credentials directory
+     *
+     * @param string $relative The path relative to the checkout
+     *
+     * @return bool
+     */
+    private function isSecret(string $relative): bool
+    {
+        $parts = explode('/', $relative);
+
+        return array_intersect($parts, self::SECRET_DIRS) !== [] || preg_match(self::SECRET_FILE, (string) end($parts)) === 1;
     }
 
     /**
@@ -270,6 +296,9 @@ final class RepoToolsService
         foreach ($names as $name) {
             $full = $start . '/' . $name;
             if ($name === '.' || $name === '..' || is_link($full)) {
+                continue;
+            }
+            if ($this->isSecret($name)) {
                 continue;
             }
             if (is_dir($full)) {

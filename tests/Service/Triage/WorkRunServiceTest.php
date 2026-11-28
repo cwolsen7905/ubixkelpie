@@ -10,6 +10,7 @@ use Kelpie\Enum\ProjectMode;
 use Kelpie\GitLab\GitlabClientFactory;
 use Kelpie\OpenRouter\OpenRouterClient;
 use Kelpie\Prompt\IssueTriagePrompt;
+use Kelpie\Security\ContextScanner;
 use Kelpie\Service\Triage\WorkRunService;
 use Kelpie\Tests\Console\Command\CommandServices;
 use Kelpie\Tests\GitLab\FakeIssueGitlab;
@@ -199,7 +200,7 @@ final class WorkRunServiceTest extends UbixConcreteClassOrEnumTestCase implement
             $queue,
             $queue,
             new OpenRouterClient($logger, $model, $factory, $factory, $json),
-            new IssueTriagePrompt($logger),
+            new IssueTriagePrompt($logger, new ContextScanner($logger)),
             $json,
             $settings,
             $services->jobs(),
